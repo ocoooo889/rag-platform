@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+backend/.env
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*
+
+# Nested accidental clone
+rag-platform/
+
+# IDE / OS
+.idea/
+.vscode/
+*.log
+.DS_Store
+Thumbs.db
+
+# Local data
+chroma_data/
+logs/
+uploads/
