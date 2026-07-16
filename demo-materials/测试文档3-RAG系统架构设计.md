@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 ﻿# RAG 智能检索平台 — 系统架构设计文档
+=======
+# RAG 智能检索平台 — 系统架构设计文档
+>>>>>>> feature/zhangyu-testcase
 
 > 版本：v1.0 | 更新日期：2026-07-10
 
@@ -143,4 +147,8 @@ def hybrid_score(vector_score: float, bm25_score: float, alpha: float = 0.7) -> 
 |--------|----------|
 | Embedding API 超时 | 降级为仅 BM25 全文检索 |
 | LLM API 超时 | 返回兜底文案 |
+<<<<<<< HEAD
 | Chroma 不可用 | 接口返回 5001 错误码 |
+=======
+| Chroma 不可用 | 接口返回 5001 错误码 |
+>>>>>>> feature/zhangyu-testcase
