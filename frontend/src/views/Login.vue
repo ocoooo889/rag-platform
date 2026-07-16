@@ -1,6 +1,22 @@
 <template>
   <div class="login-container">
     <div class="login-card">
+      <div class="login-tabs">
+        <div 
+          class="tab-item" 
+          :class="{ active: loginType === 'employee' }"
+          @click="switchLoginType('employee')"
+        >
+          员工登录
+        </div>
+        <div 
+          class="tab-item" 
+          :class="{ active: loginType === 'admin' }"
+          @click="switchLoginType('admin')"
+        >
+          管理员登录
+        </div>
+      </div>
       <div class="login-header">
         <div class="logo-icon"></div>
         <h1>智能RAG平台</h1>
@@ -21,16 +37,6 @@
             placeholder="请输入密码"
             prefix-icon="Lock"
           />
-        </el-form-item>
-        <el-form-item prop="role">
-          <div class="role-radio-group">
-            <span class="role-label">选择角色：</span>
-            <el-radio-group v-model="form.role">
-              <el-radio label="admin">管理员</el-radio>
-              <el-radio label="editor">编辑员</el-radio>
-              <el-radio label="user">普通用户</el-radio>
-            </el-radio-group>
-          </div>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" class="login-btn" @click="handleLogin" :loading="loading">
@@ -53,17 +59,20 @@ const router = useRouter()
 const userStore = useUserStore()
 const formRef = ref(null)
 const loading = ref(false)
+const loginType = ref('employee')
 
 const form = reactive({
   username: '',
   password: '',
-  role: '',
 })
 
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }],
-  role: [{ required: true, message: '请选择角色', trigger: 'change' }],
+}
+
+const switchLoginType = (type) => {
+  loginType.value = type
 }
 
 const handleLogin = async () => {
@@ -74,9 +83,19 @@ const handleLogin = async () => {
     const data = await loginApi(form)
     userStore.setToken(data.token)
     userStore.setUserInfo(data.user)
-    ElMessage.success('登录成功')
 
     const roleName = data.user.role_name
+
+    if (loginType.value === 'admin') {
+      if (roleName !== '管理员' && roleName !== '编辑员') {
+        ElMessage.error('当前账号无管理员权限，请使用员工登录')
+        userStore.logout()
+        return
+      }
+    }
+
+    ElMessage.success('登录成功')
+
     let redirectPath = '/dashboard'
     if (roleName === '普通用户') {
       redirectPath = '/chat'
@@ -102,14 +121,36 @@ const handleLogin = async () => {
 }
 .login-card {
   width: 420px;
-  padding: 40px;
+  padding: 0;
   background-color: #fff;
   border-radius: 12px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
 }
+.login-tabs {
+  display: flex;
+  border-bottom: 1px solid #ebeef5;
+}
+.tab-item {
+  flex: 1;
+  text-align: center;
+  padding: 15px 0;
+  font-size: 14px;
+  color: #606266;
+  cursor: pointer;
+  transition: all 0.3s;
+}
+.tab-item:hover {
+  color: #409eff;
+}
+.tab-item.active {
+  color: #409eff;
+  font-weight: 600;
+  border-bottom: 2px solid #409eff;
+}
 .login-header {
   text-align: center;
   margin-bottom: 30px;
+  padding: 30px 40px 0;
 }
 .logo-icon {
   width: 60px;
@@ -129,15 +170,7 @@ const handleLogin = async () => {
 }
 .login-form {
   width: 100%;
-}
-.role-radio-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.role-label {
-  font-size: 14px;
-  color: #606266;
+  padding: 0 40px 40px;
 }
 .login-btn {
   width: 100%;

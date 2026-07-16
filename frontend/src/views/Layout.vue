@@ -49,8 +49,8 @@
           <span>RAG管理后台</span>
         </div>
         <div class="header-right">
-          <el-button v-if="canSeeMenu('/chat')" type="text" @click="goToChat">智能对话</el-button>
-          <el-button type="text" @click="handleLogout">退出</el-button>
+          <el-button v-if="canSeeMenu('/chat')" link @click="goToChat">智能对话</el-button>
+          <el-button link @click="handleLogout">退出</el-button>
         </div>
       </el-header>
       <el-main class="main">

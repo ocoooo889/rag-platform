@@ -40,7 +40,8 @@ export const loginApi = async (data) => {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
     })
-    const user = roleMap[data.role]
+    const roleKey = data.username === 'admin' ? 'admin' : data.username === 'editor' ? 'editor' : 'user'
+    const user = roleMap[roleKey]
     if (response && user) {
       return {
         token: response.access_token,
@@ -49,10 +50,11 @@ export const loginApi = async (data) => {
     }
     throw new Error('登录失败')
   } catch (error) {
-    const user = roleMap[data.role]
+    const roleKey = data.username === 'admin' ? 'admin' : data.username === 'editor' ? 'editor' : 'user'
+    const user = roleMap[roleKey]
     if (user && data.password === `${data.username}123`) {
       return {
-        token: `mock-token-${data.role}`,
+        token: `mock-token-${roleKey}`,
         user: user,
       }
     }

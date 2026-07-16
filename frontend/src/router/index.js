@@ -32,12 +32,31 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('token')
-  if (to.path !== '/login' && !token) {
+
+  if (to.path === '/login') {
+    if (token) {
+      const userInfoStr = localStorage.getItem('userInfo')
+      const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null
+      const roleName = userInfo?.role_name
+      let redirectPath = '/dashboard'
+      if (roleName === '普通用户') {
+        redirectPath = '/chat'
+      } else if (roleName === '编辑员') {
+        redirectPath = '/knowledge-bases'
+      }
+      next(redirectPath)
+      return
+    }
+    next()
+    return
+  }
+
+  if (!token) {
     next('/login')
     return
   }
 
-  if (to.path !== '/login' && to.meta.roles) {
+  if (to.meta.roles) {
     const userInfoStr = localStorage.getItem('userInfo')
     const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null
     const userRole = userInfo?.role_name

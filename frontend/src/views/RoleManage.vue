@@ -7,7 +7,11 @@
     <el-table :data="roleList" border>
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="name" label="角色名称" />
-      <el-table-column prop="permissions" label="权限" />
+      <el-table-column prop="permissions" label="权限">
+        <template #default="scope">
+          {{ getPermissionLabel(scope.row.permissions) }}
+        </template>
+      </el-table-column>
       <el-table-column label="操作">
         <template #default="scope">
           <el-button type="text" @click="openEditDialog(scope.row)">编辑</el-button>
@@ -16,17 +20,22 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑角色' : '新增角色'" width="500px">
+    <el-dialog 
+      v-model="dialogVisible" 
+      :title="isEdit ? '编辑角色' : '新增角色'" 
+      width="500px"
+      :close-on-click-modal="false"
+    >
       <el-form :model="form" :rules="rules" ref="formRef">
         <el-form-item prop="name" label="角色名称">
           <el-input v-model="form.name" placeholder="请输入角色名称" />
         </el-form-item>
         <el-form-item prop="permissions" label="权限标识">
-          <el-input v-model="form.permissions" placeholder="如: all, edit, view" />
-          <div class="permission-hint">
-            <span>可选值：</span>
-            <el-tag v-for="p in permissionOptions" :key="p" size="small">{{ p }}</el-tag>
-          </div>
+          <el-select v-model="form.permissions" placeholder="请选择权限">
+            <el-option label="全部权限" value="all" />
+            <el-option label="编辑权限" value="edit" />
+            <el-option label="查看权限" value="view" />
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -47,7 +56,15 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const roleList = ref([])
 
-const permissionOptions = ['all', 'edit', 'view']
+const permissionMap = {
+  'all': '全部权限',
+  'edit': '编辑权限',
+  'view': '查看权限'
+}
+
+const getPermissionLabel = (value) => {
+  return permissionMap[value] || value
+}
 
 const form = reactive({
   id: null,
@@ -57,7 +74,7 @@ const form = reactive({
 
 const rules = {
   name: [{ required: true, message: '请输入角色名称', trigger: 'blur' }],
-  permissions: [{ required: true, message: '请输入权限标识', trigger: 'blur' }],
+  permissions: [{ required: true, message: '请选择权限', trigger: 'change' }],
 }
 
 const fetchRoles = async () => {
