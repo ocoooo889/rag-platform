@@ -1,1 +1,0 @@
-function e(o){const r=Number(o);return Number.isNaN(r)?"var(--score-color-low)":r>=.8?"var(--score-color-high)":r>=.5?"var(--score-color-mid)":"var(--score-color-low)"}function t(o){const r=Number(o);return Number.isNaN(r)?"0%":`${(Math.max(0,Math.min(1,r))*100).toFixed(1)}%`}export{t as f,e as g};
