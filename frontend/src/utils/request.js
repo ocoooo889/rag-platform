@@ -24,7 +24,7 @@ function getEnvTag() {
 
 /** 从本地缓存读取 JWT */
 function getToken() {
-  return localStorage.getItem('rag_token') || ''
+  return localStorage.getItem('rag_token') || localStorage.getItem('token') || ''
 }
 
 const request = axios.create({

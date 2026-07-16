@@ -9,11 +9,13 @@ import { useChatStore } from '@/stores/chat'
 
 const TOKEN_KEY = 'rag_token'
 const USER_KEY = 'rag_user'
+const LEGACY_TOKEN_KEY = 'token'
+const LEGACY_USER_KEY = 'userInfo'
 
 /** 从本地缓存恢复用户信息 */
 function readCachedUser() {
   try {
-    const raw = localStorage.getItem(USER_KEY)
+    const raw = localStorage.getItem(USER_KEY) || localStorage.getItem(LEGACY_USER_KEY)
     return raw ? JSON.parse(raw) : null
   } catch (e) {
     return null
@@ -21,7 +23,7 @@ function readCachedUser() {
 }
 
 export const useUserStore = defineStore('user', () => {
-  const token = ref(localStorage.getItem(TOKEN_KEY) || '')
+  const token = ref(localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY) || '')
   const userInfo = ref(readCachedUser())
 
   const isLoggedIn = computed(() => !!token.value)
@@ -37,15 +39,29 @@ export const useUserStore = defineStore('user', () => {
 
     if (nextToken) {
       localStorage.setItem(TOKEN_KEY, nextToken)
+      localStorage.setItem(LEGACY_TOKEN_KEY, nextToken)
     } else {
       localStorage.removeItem(TOKEN_KEY)
+      localStorage.removeItem(LEGACY_TOKEN_KEY)
     }
 
     if (nextUser) {
       localStorage.setItem(USER_KEY, JSON.stringify(nextUser))
+      localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(nextUser))
     } else {
       localStorage.removeItem(USER_KEY)
+      localStorage.removeItem(LEGACY_USER_KEY)
     }
+  }
+
+  /** 兼容旧登录页调用方式 */
+  function setToken(nextToken) {
+    setSession(nextToken, userInfo.value)
+  }
+
+  /** 兼容旧登录页调用方式 */
+  function setUserInfo(nextUser) {
+    setSession(token.value, nextUser)
   }
 
   /**
@@ -86,7 +102,8 @@ export const useUserStore = defineStore('user', () => {
   function logout() {
     clearAccountScopedState()
     setSession('', null)
-    window.location.hash = '#/login'
+    localStorage.removeItem('currentRole')
+    window.location.hash = '#/dashboard'
   }
 
   return {
@@ -94,6 +111,8 @@ export const useUserStore = defineStore('user', () => {
     userInfo,
     isLoggedIn,
     setSession,
+    setToken,
+    setUserInfo,
     login,
     logout,
     clearAccountScopedState

@@ -11,10 +11,19 @@ import {
   deleteKnowledgeBase
 } from '@/api/kb'
 
+const SELECTED_KB_KEY = 'rag_selected_kb_id'
+
+function readSelectedKb() {
+  const raw = localStorage.getItem(SELECTED_KB_KEY)
+  if (!raw) return null
+  const num = Number(raw)
+  return Number.isNaN(num) ? raw : num
+}
+
 export const useKbStore = defineStore('kb', () => {
   const list = ref([])
   const total = ref(0)
-  const selectedKbId = ref(null)
+  const selectedKbId = ref(readSelectedKb())
   const loading = ref(false)
   const page = ref(1)
   const pageSize = ref(10)
@@ -31,6 +40,15 @@ export const useKbStore = defineStore('kb', () => {
       const data = res.data || {}
       list.value = data.items || data.list || []
       total.value = data.total || list.value.length
+      // 当前选中知识库不存在时，回退到首个知识库
+      if (list.value.length === 0) {
+        setSelectedKb(null)
+      } else if (
+        selectedKbId.value == null ||
+        !list.value.some((item) => String(item.id) === String(selectedKbId.value))
+      ) {
+        setSelectedKb(list.value[0].id)
+      }
       return list.value
     } finally {
       loading.value = false
@@ -64,7 +82,7 @@ export const useKbStore = defineStore('kb', () => {
     try {
       await deleteKnowledgeBase(id)
       if (selectedKbId.value === id) {
-        selectedKbId.value = null
+        setSelectedKb(null)
       }
       await loadList()
     } finally {
@@ -74,6 +92,11 @@ export const useKbStore = defineStore('kb', () => {
 
   function setSelectedKb(id) {
     selectedKbId.value = id
+    if (id == null || id === '') {
+      localStorage.removeItem(SELECTED_KB_KEY)
+      return
+    }
+    localStorage.setItem(SELECTED_KB_KEY, String(id))
   }
 
   return {

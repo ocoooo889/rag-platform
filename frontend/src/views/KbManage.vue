@@ -18,7 +18,11 @@
           :md="8"
           :lg="6"
         >
-          <div class="kb-card" @click="selectKb(item)">
+          <div
+            class="kb-card"
+            :class="{ 'kb-card--active': String(kbStore.selectedKbId) === String(item.id) }"
+            @click="selectKb(item)"
+          >
             <div class="kb-card__title">
               <span>{{ item.name }}</span>
               <el-tag size="small" type="info">{{ item.env_label || item.env || envTag }}</el-tag>
@@ -221,6 +225,11 @@ onMounted(() => {
 
 .kb-card:hover {
   border-color: var(--color-primary);
+}
+
+.kb-card--active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary) inset;
 }
 
 .kb-card__title {

@@ -144,10 +144,15 @@ function statusClass(status) {
 async function loadKb() {
   try {
     await kbStore.loadList({ page: 1, page_size: 100 })
-    if (kbStore.selectedKbId) {
-      selectedKbId.value = kbStore.selectedKbId
-      await reloadDocs()
+    if (!kbStore.list.length) {
+      selectedKbId.value = null
+      docStore.clearList()
+      return
     }
+    // 优先使用知识库页面选中的项；若未选中则回退首个库
+    selectedKbId.value = kbStore.selectedKbId || kbStore.list[0].id
+    kbStore.setSelectedKb(selectedKbId.value)
+    await reloadDocs()
   } catch (e) {
     // 全局 axios 处理
   }
