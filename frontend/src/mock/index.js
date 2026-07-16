@@ -1,10 +1,5 @@
 /**
- * Mock 聚合入口
- * 由 vite-plugin-mock 在 vite 配置中引用（本模块不修改 vite.config）
+ * Mock 聚合说明文件
+ * vite-plugin-mock 自动加载同目录下 *.mock.js，本文件不重复注册路由
  */
-import kbMock from './kb.mock'
-import docMock from './doc.mock'
-import ragMock from './rag.mock'
-import chatMock from './chat.mock'
-
-export default [...kbMock, ...docMock, ...ragMock, ...chatMock]
+export default []
