@@ -1,59 +1,66 @@
-import { h } from 'vue'
-import { createRouter, createWebHashHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import Layout from '@/views/Layout.vue'
-
-const EmptyView = {
-  name: 'EmptyView',
-  render() {
-    return h('div')
-  }
-}
+import Login from '@/views/Login.vue'
+import Dashboard from '@/views/Dashboard.vue'
+import RoleManage from '@/views/RoleManage.vue'
+import UserManage from '@/views/UserManage.vue'
+import ModelManage from '@/views/ModelManage.vue'
 
 const routes = [
+  { path: '/login', name: 'Login', component: Login },
   {
     path: '/',
+    name: 'Layout',
     component: Layout,
     redirect: '/dashboard',
     children: [
       {
         path: 'dashboard',
         name: 'Dashboard',
-        component: EmptyView
+        component: Dashboard,
+        meta: { roles: ['管理员', '编辑员'] }
       },
       {
         path: 'roles',
         name: 'Roles',
-        component: EmptyView
+        component: RoleManage,
+        meta: { roles: ['管理员'] }
       },
       {
         path: 'users',
         name: 'Users',
-        component: EmptyView
+        component: UserManage,
+        meta: { roles: ['管理员'] }
       },
       {
         path: 'models',
         name: 'Models',
-        component: EmptyView
+        component: ModelManage,
+        meta: { roles: ['管理员'] }
       },
       {
         path: 'knowledge-bases',
         name: 'KnowledgeBases',
-        component: () => import('@/views/KbManage.vue')
+        component: () => import('@/views/KbManage.vue'),
+        meta: { roles: ['管理员', '编辑员'] }
       },
       {
         path: 'documents',
         name: 'Documents',
-        component: () => import('@/views/DocManage.vue')
+        component: () => import('@/views/DocManage.vue'),
+        meta: { roles: ['管理员', '编辑员'] }
       },
       {
         path: 'hit-test',
         name: 'HitTest',
-        component: () => import('@/views/HitTest.vue')
+        component: () => import('@/views/HitTest.vue'),
+        meta: { roles: ['管理员', '编辑员'] }
       },
       {
         path: 'chat',
         name: 'ChatDialog',
-        component: () => import('@/views/ChatDialog.vue')
+        component: () => import('@/views/ChatDialog.vue'),
+        meta: { roles: ['管理员', '编辑员', '普通用户'] }
       }
     ]
   },
@@ -62,8 +69,28 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHashHistory(),
+  history: createWebHistory(),
   routes
+})
+
+router.beforeEach((to, from, next) => {
+  const token = localStorage.getItem('token') || localStorage.getItem('rag_token')
+  if (to.path !== '/login' && !token) {
+    next('/login')
+    return
+  }
+
+  if (to.path !== '/login' && to.meta.roles) {
+    const userInfoStr = localStorage.getItem('userInfo') || localStorage.getItem('rag_user')
+    const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null
+    const userRole = userInfo?.role_name
+    if (!userRole || !to.meta.roles.includes(userRole)) {
+      next('/chat')
+      return
+    }
+  }
+
+  next()
 })
 
 export default router

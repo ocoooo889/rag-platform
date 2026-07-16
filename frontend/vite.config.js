@@ -13,7 +13,6 @@ export default defineConfig({
       mockPath: 'src/mock',
       enable: true,
       watchFiles: true,
-      // 仅加载 *.mock.js，避免 index.js 重复注册路由
       ignore: /^index\.js$/
     })
   ],
