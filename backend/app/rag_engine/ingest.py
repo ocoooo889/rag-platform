@@ -46,6 +46,9 @@ async def ingest_document(
     conn = sqlite3.connect(_db_path())
     cur = conn.cursor()
     try:
+        from app.db.schema_compat import ensure_rag_schema
+
+        ensure_rag_schema(conn)
         cur.execute(
             "UPDATE documents SET status=?, chunk_count=? WHERE id=?",
             ("processing", 0, doc_id),
