@@ -2,7 +2,7 @@
  * 全局 Axios 封装（前端 B 规范 + 兼容前端 A）
  * - 自动携带 JWT Token
  * - 自动附加 env 环境标识
- * - 统一错误码弹窗：0/400/401/403/404/500/5001/5002
+ * - 统一错误码弹窗：0/400/401/403/404/500/5001/5002 + A 扩展码
  * - 成功时返回完整业务体 { code, message, data }，由各模块自行取 data
  */
 import axios from 'axios'
@@ -15,7 +15,10 @@ const ERROR_MESSAGES = {
   404: '资源不存在',
   500: '服务异常，请稍后重试',
   5001: '向量库服务异常，请稍后重试或联系管理员',
-  5002: '大模型服务异常，请稍后重试'
+  5002: '大模型服务异常，请稍后重试',
+  4001: '您尚未被分配到任何用户组，请联系管理员',
+  4002: '文档正在处理中，请等待处理完成后再试',
+  4003: '系统品牌配置未初始化，使用默认值'
 }
 
 function getEnvTag() {
@@ -63,6 +66,15 @@ request.interceptors.response.use(
     }
     if (res.code === 0) {
       return res
+    }
+    // 前端 A 扩展业务码
+    if (res.code === 4003) {
+      ElMessage.warning(ERROR_MESSAGES[4003])
+      return res
+    }
+    if (res.code === 4001 || res.code === 4002) {
+      ElMessage.warning(res.message || res.msg || ERROR_MESSAGES[res.code])
+      return Promise.reject(res)
     }
     const msg = ERROR_MESSAGES[res.code] || res.message || res.msg || '请求失败'
     ElMessage.error(msg)

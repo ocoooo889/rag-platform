@@ -73,17 +73,45 @@ const router = createRouter({
   routes
 })
 
+function getToken() {
+  return localStorage.getItem('token') || localStorage.getItem('rag_token')
+}
+
+function getUserInfo() {
+  const raw = localStorage.getItem('userInfo') || localStorage.getItem('rag_user')
+  try {
+    return raw ? JSON.parse(raw) : null
+  } catch (e) {
+    return null
+  }
+}
+
+function redirectByRole() {
+  const roleName = getUserInfo()?.role_name
+  if (roleName === '普通用户') return '/chat'
+  if (roleName === '编辑员') return '/knowledge-bases'
+  return '/dashboard'
+}
+
 router.beforeEach((to, from, next) => {
-  const token = localStorage.getItem('token') || localStorage.getItem('rag_token')
-  if (to.path !== '/login' && !token) {
+  const token = getToken()
+
+  if (to.path === '/login') {
+    if (token) {
+      next(redirectByRole())
+      return
+    }
+    next()
+    return
+  }
+
+  if (!token) {
     next('/login')
     return
   }
 
-  if (to.path !== '/login' && to.meta.roles) {
-    const userInfoStr = localStorage.getItem('userInfo') || localStorage.getItem('rag_user')
-    const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null
-    const userRole = userInfo?.role_name
+  if (to.meta.roles) {
+    const userRole = getUserInfo()?.role_name
     if (!userRole || !to.meta.roles.includes(userRole)) {
       next('/chat')
       return

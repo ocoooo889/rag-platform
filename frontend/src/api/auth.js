@@ -38,7 +38,15 @@ function unwrap(res) {
   return res
 }
 
+function resolveRoleKey(data) {
+  if (data.role && roleMap[data.role]) return data.role
+  if (data.username === 'admin') return 'admin'
+  if (data.username === 'editor') return 'editor'
+  return 'user'
+}
+
 export const loginApi = async (data) => {
+  const roleKey = resolveRoleKey(data)
   try {
     const response = await request.post(
       '/api/auth/login',
@@ -53,7 +61,7 @@ export const loginApi = async (data) => {
       }
     )
     const payload = unwrap(response) || {}
-    const user = roleMap[data.role]
+    const user = roleMap[roleKey]
     if (payload && user) {
       return {
         token: payload.access_token || payload.token,
@@ -63,10 +71,10 @@ export const loginApi = async (data) => {
     throw new Error('登录失败')
   } catch (error) {
     // 本地演示兜底：密码规则 username123
-    const user = roleMap[data.role]
+    const user = roleMap[roleKey]
     if (user && data.password === `${data.username}123`) {
       return {
-        token: `mock-token-${data.role}`,
+        token: `mock-token-${roleKey}`,
         user
       }
     }
