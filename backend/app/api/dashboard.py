@@ -3,10 +3,8 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import KnowledgeBase, Document, User, UserGroup
 
-
+# 与 main 无二次 prefix 策略一致：prefix 写在 router 上
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
-
-router = APIRouter()
 
 
 @router.get("/stats")
@@ -16,7 +14,7 @@ async def get_dashboard_stats(db: Session = Depends(get_db)):
     doc_count = db.query(Document).count()
     user_count = db.query(User).count()
     group_count = db.query(UserGroup).count()
-    
+
     return {
         "code": 0,
         "msg": "success",
@@ -24,6 +22,6 @@ async def get_dashboard_stats(db: Session = Depends(get_db)):
             "kb_count": kb_count,
             "doc_count": doc_count,
             "user_count": user_count,
-            "group_count": group_count
-        }
+            "group_count": group_count,
+        },
     }

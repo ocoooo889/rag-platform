@@ -80,15 +80,15 @@ class KnowledgeBaseUpdate(BaseModel):
     description: Optional[str] = None
 
 class KnowledgeBaseOut(KnowledgeBaseBase):
-    id: int
+    id: str
     created_at: Optional[datetime] = None
     document_count: int = 0
     model_config = ConfigDict(from_attributes=True)
 
 # 文档相关
 class DocumentOut(BaseModel):
-    id: int
-    kb_id: int
+    id: str
+    kb_id: str
     filename: str
     file_type: str
     file_size: int
@@ -101,9 +101,9 @@ class DocumentOut(BaseModel):
 class GroupMembersAdd(BaseModel):
     user_ids: List[int]
 
-# 用户组知识库授权
+# 用户组知识库授权（知识库为字符串 ID）
 class GroupKbAccess(BaseModel):
-    kb_ids: List[int]
+    kb_ids: List[str]
 
 # 大模型配置相关
 class LLMConfigBase(BaseModel):
