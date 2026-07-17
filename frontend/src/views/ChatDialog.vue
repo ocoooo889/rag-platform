@@ -1,139 +1,168 @@
 <template>
-  <div class="chat-dialog" v-loading="bootLoading" element-loading-text="加载中...">
-    <!-- 左侧会话列表 -->
+  <div
+    class="chat-dialog"
+    :class="{ 'chat-dialog--resizing': resizing }"
+    :style="{ gridTemplateColumns: panelWidth + 'px 6px 1fr' }"
+    v-loading="bootLoading"
+    element-loading-text="加载中..."
+  >
+    <!-- 左侧会话栏 -->
     <aside class="session-panel">
-      <div class="session-panel__header">
-        <span>会话列表</span>
-        <AppButton
-          v-if="hasKb"
-          type="primary"
-          text="新建会话"
-          :loading="creating"
-          loading-mode="normal"
-          :disabled="chatStore.streaming || !chatStore.selectedKbId"
-          @click="onCreateSession"
-        />
+      <div class="session-brand">
+        <el-icon :size="20"><Service /></el-icon>
+        <span>RAG 智能助手</span>
       </div>
-      <!-- [LUO-F03] 真后端无会话 CRUD 时提示仅本地会话 + stream -->
-      <p v-if="localSessionMode" class="session-panel__hint">
-        当前为本地会话（无服务端历史），对话走实时流式回答
-      </p>
 
-      <EmptyState v-if="!chatStore.sessions.length" type="chat" />
+      <AppButton
+        class="new-session-btn"
+        type="primary"
+        text="开启新对话"
+        :loading="creating"
+        loading-mode="normal"
+        :disabled="chatStore.streaming || !chatStore.selectedKbId"
+        @click="onCreateSession"
+      />
 
-      <ul v-else class="session-list">
+      <el-input
+        v-model="sessionKeyword"
+        class="session-panel__search"
+        placeholder="搜索会话"
+        clearable
+        :prefix-icon="Search"
+      />
+
+      <ul v-if="filteredSessions.length" class="session-list">
         <li
-          v-for="item in chatStore.sessions"
+          v-for="item in filteredSessions"
           :key="item.session_id"
           class="session-item"
           :class="{ active: item.session_id === chatStore.currentSessionId }"
           @click="onSwitchSession(item.session_id)"
         >
-          <div class="session-item__title">{{ item.title || '未命名会话' }}</div>
-          <AppButton
-            type="danger"
-            text="删除"
-            link
+          <span class="session-item__title">{{ item.title || '未命名会话' }}</span>
+          <button
+            type="button"
+            class="session-item__delete"
             :disabled="chatStore.streaming"
             @click.stop="openDelete(item.session_id)"
-          />
+          >
+            ×
+          </button>
         </li>
       </ul>
-    </aside>
-
-    <!-- 右侧对话区 -->
-    <section class="chat-panel">
-      <div class="chat-panel__header">
-        <div class="kb-select">
-          <span>知识库范围</span>
-          <el-select
-            v-model="chatStore.selectedKbId"
-            placeholder="请选择知识库"
-            style="width: 240px"
-            :disabled="chatStore.streaming"
-          >
-            <el-option
-              v-for="kb in kbStore.list"
-              :key="kb.id"
-              :label="kb.name"
-              :value="kb.id"
-            />
-          </el-select>
-        </div>
-        <AppButton
-          v-if="hasKb"
-          type="primary"
-          text="新建会话"
-          :loading="creating"
-          loading-mode="normal"
-          :disabled="chatStore.streaming || !chatStore.selectedKbId"
-          @click="onCreateSession"
-        />
-      </div>
 
       <EmptyState
-        v-if="pageError"
-        type="error"
-        :tip="pageError"
-      >
+        v-else
+        class="session-empty"
+        type="chat"
+        tip="暂无会话，点击上方开启新对话"
+      />
+    </aside>
+
+    <div class="resize-handle" @mousedown="onResizeStart" />
+
+    <!-- 右侧主区域 -->
+    <section class="chat-main">
+      <EmptyState v-if="pageError" type="error" :tip="pageError">
         <AppButton type="primary" text="重新加载" @click="initPage" />
       </EmptyState>
 
       <EmptyState
         v-else-if="!hasKb"
         type="kb"
-        tip="暂无知识库，无法发起智能对话"
+        tip="暂无知识库，无法发起智能问答"
       />
 
-      <template v-else>
-        <div class="message-list" ref="messageListRef">
-          <EmptyState
-            v-if="!chatStore.messages.length && !chatStore.streaming"
-            type="chat"
-            tip="输入问题开始对话，无需先新建会话"
-          />
+      <div v-else class="chat-main__inner">
+        <div class="chat-scroll" ref="messageListRef">
+          <div class="chat-content">
+            <div
+              v-if="!hasMessages && !chatStore.streaming"
+              class="welcome-wrap"
+            >
+              <div class="welcome-logo">
+                <el-icon :size="36"><Service /></el-icon>
+              </div>
+              <h2 class="welcome-title">基于知识库开始智能问答</h2>
+              <p class="welcome-subtitle">选择知识库范围后输入问题，系统将基于文档内容回答</p>
 
-          <ChatBubble
-            v-for="(msg, index) in chatStore.messages"
-            :key="`${msg.role}-${index}`"
-            :role="msg.role"
-            :content="msg.content"
-            :error="msg.error || ''"
-            :sources="msg.sources || []"
-            :streaming="isStreamingMessage(index)"
-          />
-        </div>
+              <div class="suggest-row">
+                <AppButton
+                  v-for="item in suggestions"
+                  :key="item"
+                  type="default"
+                  class="suggest-chip"
+                  :text="item"
+                  @click="useSuggestion(item)"
+                />
+              </div>
+            </div>
 
-        <div class="composer">
-          <el-input
-            v-model="question"
-            type="textarea"
-            :rows="3"
-            maxlength="1000"
-            show-word-limit
-            placeholder="请输入问题，Enter 发送，Shift+Enter 换行"
-            :disabled="chatStore.streaming || !chatStore.selectedKbId"
-            @keydown.enter.exact.prevent="onSend"
-          />
-          <div class="composer__actions">
-            <AppButton
-              v-if="chatStore.streaming"
-              type="danger"
-              text="停止生成"
-              @click="onStopStream"
-            />
-            <AppButton
-              type="primary"
-              text="发送"
-              :loading="chatStore.streaming"
-              loading-mode="sse"
-              :disabled="!canSend"
-              :title="sendDisabledTip"
-              @click="onSend"
-            />
+            <div v-if="hasMessages || chatStore.streaming" class="message-thread">
+              <ChatBubble
+                v-for="(msg, index) in chatStore.messages"
+                :key="`${msg.role}-${index}`"
+                :role="msg.role"
+                :content="msg.content"
+                :error="msg.error || ''"
+                :sources="msg.sources || []"
+                :streaming="isStreamingMessage(index)"
+              />
+            </div>
           </div>
         </div>
-      </template>
+
+        <footer class="composer-dock">
+          <div class="composer-box">
+            <el-input
+              v-model="question"
+              type="textarea"
+              :autosize="{ minRows: 2, maxRows: 8 }"
+              class="composer-input"
+              maxlength="1000"
+              placeholder="给 RAG 智能助手发送消息"
+              :disabled="chatStore.streaming || !chatStore.selectedKbId"
+              @keydown.enter.exact.prevent="onSend"
+            />
+            <div class="composer-toolbar">
+              <div class="composer-toolbar__left">
+                <el-select
+                  v-model="chatStore.selectedKbId"
+                  class="kb-chip-select"
+                  placeholder="选择知识库"
+                  :disabled="chatStore.streaming || !hasKb"
+                >
+                  <el-option
+                    v-for="kb in kbStore.list"
+                    :key="kb.id"
+                    :label="kb.name"
+                    :value="kb.id"
+                  />
+                </el-select>
+                <AppButton
+                  v-if="chatStore.streaming"
+                  type="danger"
+                  link
+                  text="停止生成"
+                  @click="onStopStream"
+                />
+              </div>
+              <AppButton
+                class="send-btn"
+                type="primary"
+                circle
+                :loading="chatStore.streaming"
+                loading-mode="sse"
+                :disabled="!canSend"
+                :title="sendDisabledTip"
+                @click="onSend"
+              >
+                <el-icon v-if="!chatStore.streaming"><Top /></el-icon>
+              </AppButton>
+            </div>
+          </div>
+        </footer>
+      </div>
     </section>
 
     <ConfirmDialog
@@ -149,10 +178,9 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Search, Service, Top } from '@element-plus/icons-vue'
 import { useKbStore } from '@/stores/kb'
 import { useChatStore } from '@/stores/chat'
-import { MOCK_OPEN } from '@/mock/flag'
-import { isChatSessionApiEnabled } from '@/api/chat'
 import AppButton from '@/components/AppButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ChatBubble from '@/components/ChatBubble.vue'
@@ -162,7 +190,33 @@ const kbStore = useKbStore()
 const chatStore = useChatStore()
 
 const question = ref('')
+const sessionKeyword = ref('')
 const creating = ref(false)
+
+const panelWidth = ref(260)
+const resizing = ref(false)
+
+function onResizeStart(e) {
+  e.preventDefault()
+  resizing.value = true
+  const startX = e.clientX
+  const startW = panelWidth.value
+
+  function onMove(ev) {
+    const delta = ev.clientX - startX
+    panelWidth.value = Math.max(200, Math.min(420, startW + delta))
+  }
+
+  function onUp() {
+    resizing.value = false
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
 const deleting = ref(false)
 const deleteVisible = ref(false)
 const deletingId = ref(null)
@@ -171,10 +225,23 @@ const bootLoading = ref(false)
 const pageError = ref('')
 
 const hasKb = computed(() => kbStore.list.length > 0)
-/** [LUO-F03] 关 Mock 且未开会话 API → 本地会话降级 */
-const localSessionMode = computed(() => !MOCK_OPEN() && !isChatSessionApiEnabled())
+const hasMessages = computed(() => chatStore.messages.length > 0)
 
-/** 输入无内容或加载中 → 发送按钮置灰 */
+const filteredSessions = computed(() => {
+  const kw = sessionKeyword.value.trim().toLowerCase()
+  if (!kw) return chatStore.sessions
+  return chatStore.sessions.filter((s) =>
+    String(s.title || '').toLowerCase().includes(kw)
+  )
+})
+
+const suggestions = [
+  '如何查看文档状态？',
+  '如何测试回答来源？',
+  '如何切换知识库？',
+  '如何管理分片规则？'
+]
+
 const canSend = computed(
   () =>
     hasKb.value &&
@@ -312,6 +379,11 @@ async function onSend() {
   }
 }
 
+function useSuggestion(text) {
+  question.value = text
+  onSend()
+}
+
 onMounted(() => {
   initPage()
 })
@@ -327,115 +399,320 @@ defineExpose({
 
 <style scoped>
 .chat-dialog {
-  display: flex;
+  display: grid;
+  grid-template-columns: 260px 6px 1fr;
   height: calc(100vh - 120px);
-  min-height: 520px;
+  min-height: 560px;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
-  background: var(--bg-color-page);
+  background: #fff;
 }
 
+/* ---- 左侧会话栏 ---- */
 .session-panel {
-  width: 260px;
-  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  background: var(--bg-color-card);
+  background: #f7f8fa;
+  padding: 16px 12px;
+  gap: 12px;
+  min-height: 0;
 }
 
-.session-panel__hint {
-  margin: 0 12px 8px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--el-text-color-secondary, #909399);
-}
-
-.session-panel__header {
+.session-brand {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 12px;
-  border-bottom: 1px solid var(--border-color);
-  color: var(--text-color-primary);
+  gap: 8px;
+  padding: 0 4px;
+  font-size: 15px;
   font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+.new-session-btn {
+  width: 100%;
+  height: 40px;
+}
+
+.session-panel__search :deep(.el-input__wrapper) {
+  border-radius: 20px;
+  background: #fff;
 }
 
 .session-list {
   list-style: none;
   margin: 0;
-  padding: 8px;
-  overflow: auto;
+  padding: 0;
   flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .session-item {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px;
-  margin-bottom: 6px;
-  border-radius: 6px;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 10px;
   cursor: pointer;
-  color: var(--text-color-regular);
-  transition: background 0.15s ease;
+  transition: background 0.15s;
 }
 
-.session-item:hover,
+.session-item:hover {
+  background: #eceef2;
+}
+
 .session-item.active {
-  background: var(--bg-color-hover);
-  color: var(--color-primary);
+  background: #e8f0fe;
 }
 
 .session-item__title {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-color-regular);
 }
 
-.chat-panel {
+.session-item__delete {
+  border: none;
+  background: transparent;
+  color: #909399;
+  cursor: pointer;
+  font-size: 16px;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.session-item:hover .session-item__delete {
+  opacity: 1;
+}
+
+.session-empty {
   flex: 1;
+  padding: 20px 0;
+}
+
+.resize-handle {
+  cursor: col-resize;
+  background: var(--border-color);
+  width: 6px;
+  transition: background 0.15s;
+}
+
+.resize-handle:hover,
+.chat-dialog--resizing .resize-handle {
+  background: var(--color-primary);
+}
+
+.chat-dialog--resizing {
+  user-select: none;
+}
+
+/* ---- 右侧主区域 ---- */
+.chat-main {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: var(--bg-color-card);
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
 }
 
-.chat-panel__header {
+.chat-main__inner {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
+  flex-direction: column;
 }
 
-.kb-select {
+.chat-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.chat-content {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 24px 24px 16px;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.welcome-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 0 60px;
+}
+
+.welcome-logo {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
+  color: #fff;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  margin-bottom: 20px;
+  box-shadow: 0 8px 24px rgba(64, 158, 255, 0.25);
+}
+
+.welcome-title {
+  margin: 0 0 8px;
+  font-size: 22px;
+  font-weight: 600;
   color: var(--text-color-primary);
 }
 
-.message-list {
-  flex: 1;
-  overflow: auto;
-  padding: 16px;
-  scroll-behavior: smooth;
+.welcome-subtitle {
+  margin: 0 0 28px;
+  font-size: 14px;
+  color: var(--text-color-secondary);
 }
 
-.composer {
+.suggest-row {
   display: flex;
-  gap: 12px;
-  align-items: flex-end;
-  padding: 12px 16px 16px;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-color-card);
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  max-width: 640px;
 }
 
-.composer__actions {
+.suggest-chip {
+  border: 1px solid var(--border-color);
+  background: #fff;
+  color: var(--text-color-regular);
+}
+
+.suggest-chip:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: #f0f7ff;
+}
+
+/* ---- 消息流 ---- */
+.message-thread {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding-bottom: 16px;
+}
+
+/* ---- 底部输入区 ---- */
+.composer-dock {
+  flex-shrink: 0;
+  padding: 0 24px 24px;
+  display: flex;
+  justify-content: center;
+}
+
+.composer-box {
+  width: 100%;
+  max-width: 800px;
+  background: #f4f5f7;
+  border: 1px solid #e8eaed;
+  border-radius: 24px;
+  padding: 14px 16px 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.composer-box:focus-within {
+  border-color: #c6daf5;
+  box-shadow: 0 4px 20px rgba(64, 158, 255, 0.1);
+}
+
+.composer-input :deep(.el-textarea__inner) {
+  box-shadow: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  resize: none;
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 48px;
+}
+
+.composer-input :deep(.el-textarea__inner::-webkit-resizer) {
+  display: none;
+}
+
+.composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  gap: 12px;
+}
+
+.composer-toolbar__left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.kb-chip-select {
+  width: 180px;
+}
+
+.kb-chip-select :deep(.el-select__wrapper) {
+  border-radius: 18px;
+  background: #fff;
+  min-height: 32px;
+  font-size: 13px;
+}
+
+.send-btn {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1200px) {
+  .suggest-row {
+    flex-direction: column;
+    align-items: center;
+  }
+}
+
+@media (max-width: 1024px) {
+  .chat-dialog {
+    grid-template-columns: 1fr !important;
+    height: auto;
+  }
+
+  .resize-handle {
+    display: none;
+  }
+
+  .session-panel {
+    border-bottom: 1px solid var(--border-color);
+    max-height: 260px;
+  }
+
+  .composer-dock {
+    padding: 0 16px 16px;
+  }
+
+  .chat-content {
+    padding: 16px 16px 8px;
+  }
+
+  .kb-chip-select {
+    width: 140px;
+  }
 }
 </style>

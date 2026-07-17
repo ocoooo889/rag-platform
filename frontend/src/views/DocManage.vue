@@ -89,7 +89,7 @@
                 <div class="col-name">
                   <el-icon
                     class="status-icon"
-                    :class="statusIconClass(row.status)"
+                    :class="[statusIconClass(row.status), { 'is-loading': !isCompleted(row.status) && !isFailed(row.status) }]"
                     :size="16"
                   >
                     <CircleCheck v-if="isCompleted(row.status)" />
@@ -558,6 +558,16 @@ onMounted(() => {
 
 .status-icon--proc {
   color: var(--color-primary);
+  animation: doc-status-spin 1s linear infinite;
+}
+
+@keyframes doc-status-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .ghost-btn {
