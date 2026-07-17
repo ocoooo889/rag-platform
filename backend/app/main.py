@@ -54,6 +54,17 @@ Instrumentator().instrument(app).expose(app)
 
 app.include_router(rag.router, prefix="/api/rag")
 app.include_router(chat.router, prefix="/api/chat")
+
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(roles.router)
+app.include_router(kb.router)
+app.include_router(docs.router)
+app.include_router(models.router)
+app.include_router(user_groups.router)
+app.include_router(branding.router)
+app.include_router(dashboard.router)
+
 app.include_router(auth.router, prefix="/api/auth")
 app.include_router(users.router, prefix="/api/users")
 app.include_router(roles.router, prefix="/api/roles")
