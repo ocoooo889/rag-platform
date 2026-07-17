@@ -2,16 +2,37 @@
 
 from __future__ import annotations
 
+import logging
+
 from rank_bm25 import BM25Okapi
 
 from app import config
 from app.rag_engine.embedder import query_similar
 from app.utils.llm_client import EmbeddingServiceError
 
+logger = logging.getLogger(__name__)
+
+# jieba 可选：未安装时回退按字切分，保证检索仍可用
+_jieba = None
+try:
+    import jieba  # type: ignore
+
+    _jieba = jieba
+except Exception as e:  # noqa: BLE001 — 缺依赖时降级即可
+    logger.warning("jieba 未可用，BM25 回退按字切分: %s", e)
+
 
 def _tokenize(text: str) -> list[str]:
-    return [c for c in text if not c.isspace()]
-
+    """中文优先 jieba 分词；失败或空结果时回退按字切分"""
+    raw = text or ""
+    if _jieba is not None:
+        try:
+            tokens = [t.strip() for t in _jieba.lcut(raw) if t and not t.isspace()]
+            if tokens:
+                return tokens
+        except Exception as e:  # noqa: BLE001
+            logger.warning("jieba 分词失败，回退按字: %s", e)
+    return [c for c in raw if not c.isspace()]
 
 def _bm25_search(
     query: str,

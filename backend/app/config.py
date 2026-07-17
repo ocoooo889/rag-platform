@@ -50,6 +50,14 @@ BM25_WEIGHT = 0.3   # 全文权重 0.3（= 1 - HYBRID_ALPHA）
 DEFAULT_TOP_N = 3
 MAX_TOP_N = 10
 
+# 多轮对话：检索前是否做 Query Rewrite（失败自动回退原句）
+ENABLE_QUERY_REWRITE = os.getenv("ENABLE_QUERY_REWRITE", "true").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+
 # ============================================================
 # 环境隔离 · 个人标识
 # ============================================================
