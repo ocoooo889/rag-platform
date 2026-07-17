@@ -8,11 +8,7 @@
           <span class="logo-subtitle">RAG管理后台</span>
         </div>
       </div>
-      <el-menu
-        :default-active="activeMenu"
-        class="menu"
-        router
-      >
+      <el-menu :default-active="activeMenu" class="menu" router>
         <el-menu-item v-if="canSeeMenu('/dashboard')" index="/dashboard">
           <el-icon><HomeFilled /></el-icon>
           <span>系统概览</span>
@@ -33,6 +29,10 @@
           <el-icon><Folder /></el-icon>
           <span>知识库管理</span>
         </el-menu-item>
+        <el-menu-item v-if="canSeeMenu('/documents')" index="/documents">
+          <el-icon><Document /></el-icon>
+          <span>文档管理</span>
+        </el-menu-item>
         <el-menu-item v-if="canSeeMenu('/hit-test')" index="/hit-test">
           <el-icon><Search /></el-icon>
           <span>命中率测试</span>
@@ -49,8 +49,8 @@
           <span>RAG管理后台</span>
         </div>
         <div class="header-right">
-          <el-button v-if="canSeeMenu('/chat')" link @click="goToChat">智能对话</el-button>
-          <el-button link @click="handleLogout">退出</el-button>
+          <el-button v-if="canSeeMenu('/chat')" type="primary" link @click="goToChat">智能对话</el-button>
+          <el-button type="primary" link @click="handleLogout">退出</el-button>
         </div>
       </el-header>
       <el-main class="main">
@@ -64,7 +64,16 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { HomeFilled, UserFilled, User, Monitor, Folder, Search, ChatDotRound } from '@element-plus/icons-vue'
+import {
+  HomeFilled,
+  UserFilled,
+  User,
+  Monitor,
+  Folder,
+  Document,
+  Search,
+  ChatDotRound
+} from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -77,8 +86,9 @@ const menuRoles = {
   '/users': ['管理员'],
   '/models': ['管理员'],
   '/knowledge-bases': ['管理员', '编辑员'],
+  '/documents': ['管理员', '编辑员'],
   '/hit-test': ['管理员', '编辑员'],
-  '/chat': ['管理员', '编辑员', '普通用户'],
+  '/chat': ['管理员', '编辑员', '普通用户']
 }
 
 const canSeeMenu = (path) => {
@@ -95,7 +105,6 @@ const goToChat = () => {
 
 const handleLogout = () => {
   userStore.logout()
-  router.push('/login')
 }
 </script>
 
@@ -135,6 +144,19 @@ const handleLogout = () => {
 }
 .menu {
   border-right: none;
+  background: transparent;
+}
+:deep(.el-menu) {
+  background: transparent;
+  border-right: none;
+}
+:deep(.el-menu-item) {
+  color: #bfcbd9;
+}
+:deep(.el-menu-item:hover),
+:deep(.el-menu-item.is-active) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 .header {
   display: flex;

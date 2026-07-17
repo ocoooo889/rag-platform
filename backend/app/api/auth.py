@@ -16,6 +16,7 @@ from app.utils.auth import (
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
+
 from pydantic import BaseModel
 
 class LoginRequest(BaseModel):
@@ -27,11 +28,22 @@ def login_json(req: LoginRequest, db: Session = Depends(get_db)):
     """用户登录接口，支持 JSON 格式，验证用户名密码并生成 JWT"""
     user = db.query(User).filter(User.username == req.username).first()
     if not user or not verify_password(req.password, user.hashed_password):
+
+@router.post("/login", response_model=ResponseModel)
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    """用户登录接口，验证用户名密码并生成 JWT 访问令牌"""
+    user = db.query(User).filter(User.username == form_data.username).first()
+    if not user or not verify_password(form_data.password, user.hashed_password):
+
         return ResponseModel(code=401, msg="用户名或密码错误")
     
     if user.status != "启用":
         return ResponseModel(code=403, msg="用户已被停用")
     
+
+
+    # 签发 JWT
+
     access_token = create_access_token(
         data={"sub": user.username, "role_id": user.role_id}
     )
@@ -49,4 +61,6 @@ def login_form(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = D
         data={"sub": user.username, "role_id": user.role_id}
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+
 

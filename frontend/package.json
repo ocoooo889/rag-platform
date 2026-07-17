@@ -1,7 +1,7 @@
 {
   "name": "rag-platform-frontend",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -9,16 +9,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "vue": "^3.4.21",
-    "element-plus": "^2.7.3",
-    "pinia": "^2.1.7",
-    "axios": "^1.7.2",
-    "vue-router": "^4.3.2",
-    "@element-plus/icons-vue": "^2.3.1"
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.7.9",
+    "element-plus": "^2.8.3",
+    "pinia": "^2.2.4",
+    "vue": "^3.5.13",
+    "vue-router": "^4.4.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^5.0.4",
+    "@vitejs/plugin-vue": "^5.2.1",
     "sass": "^1.77.2",
-    "vite": "^5.2.8"
+    "vite": "^5.4.10",
+    "vite-plugin-mock": "^3.0.2"
   }
 }
