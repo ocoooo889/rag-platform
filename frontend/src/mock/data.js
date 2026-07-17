@@ -65,6 +65,7 @@ export const mockKbList = [
     name: '公司制度知识库',
     description: '存放公司内部制度文档',
     doc_count: 4,
+    document_count: 4,
     chunk_count: 60,
     created_at: '2026-07-15T09:00:00'
   },
@@ -73,12 +74,13 @@ export const mockKbList = [
     name: '产品手册知识库',
     description: '产品说明与 FAQ',
     doc_count: 1,
+    document_count: 1,
     chunk_count: 12,
     created_at: '2026-07-15T10:00:00'
   }
 ]
 
-/** 可变文档列表 — 严格契约字段（filename / uploaded_at / status） */
+/** 可变文档列表 — 契约字段 filename / created_at（兼 uploaded_at） */
 export const mockDocList = [
   {
     id: 'doc001',
@@ -88,7 +90,8 @@ export const mockDocList = [
     file_size: 15230,
     chunk_count: 30,
     status: DOC_STATUS.COMPLETED,
-    uploaded_at: '2026-07-15T09:05:00'
+    uploaded_at: '2026-07-15T09:05:00',
+    created_at: '2026-07-15T09:05:00'
   },
   {
     id: 'doc002',
@@ -98,7 +101,8 @@ export const mockDocList = [
     file_size: 8200,
     chunk_count: 18,
     status: DOC_STATUS.COMPLETED,
-    uploaded_at: '2026-07-15T09:20:00'
+    uploaded_at: '2026-07-15T09:20:00',
+    created_at: '2026-07-15T09:20:00'
   },
   {
     id: 'doc003',
@@ -108,7 +112,8 @@ export const mockDocList = [
     file_size: 4100,
     chunk_count: 0,
     status: DOC_STATUS.PROCESSING,
-    uploaded_at: '2026-07-16T08:00:00'
+    uploaded_at: '2026-07-16T08:00:00',
+    created_at: '2026-07-16T08:00:00'
   },
   {
     id: 'doc005',
@@ -118,7 +123,8 @@ export const mockDocList = [
     file_size: 2100,
     chunk_count: 0,
     status: DOC_STATUS.FAILED,
-    uploaded_at: '2026-07-16T09:00:00'
+    uploaded_at: '2026-07-16T09:00:00',
+    created_at: '2026-07-16T09:00:00'
   },
   {
     id: 'doc004',
@@ -128,7 +134,8 @@ export const mockDocList = [
     file_size: 5600,
     chunk_count: 12,
     status: DOC_STATUS.COMPLETED,
-    uploaded_at: '2026-07-15T11:00:00'
+    uploaded_at: '2026-07-15T11:00:00',
+    created_at: '2026-07-15T11:00:00'
   }
 ]
 
@@ -192,8 +199,8 @@ export const MOCK_MODELS = [
 export const MOCK_DASHBOARD_STATS = {
   kb_count: 2,
   doc_count: 5,
-  chunk_count: 60,
-  call_count: null
+  user_count: 3,
+  group_count: 2
 }
 
 /** SSE 模拟分段答案 + done.references */

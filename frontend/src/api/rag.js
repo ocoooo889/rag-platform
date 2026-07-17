@@ -1,6 +1,7 @@
 /**
  * 命中率测试检索接口
- * POST /api/rag/test_retrieve — 契约字段 1:1；真实请求逻辑完整保留
+ * POST /api/rag/test_retrieve — body: kb_id, doc_id, search_type, query, top_n
+ * Response data: { search_type, total_hits, hits: [{chunk_id, content, score, source_doc, doc_id}] }
  */
 import request from '@/utils/request'
 import { isMockOpen, mockResolve, mockReject } from '@/mock/flag'
@@ -29,7 +30,6 @@ export async function testRetrieve(data) {
       return mockReject(400, 'search_type 必须是 vector / keyword / hybrid')
     }
 
-    // 异常场景：超时 / 404 / 5001 / 空命中
     const scenario = matchMockScenario(body.query)
     if (scenario && scenario !== 'empty_hits' && scenario !== 'llm_error') {
       return mockScenarioReject(scenario)
@@ -41,7 +41,6 @@ export async function testRetrieve(data) {
     }
 
     const status = normalizeDocStatus(doc.status)
-    // 文档未就绪（含 failed 解析失败）→ 4002
     if (status !== DOC_STATUS.COMPLETED) {
       const tip =
         status === DOC_STATUS.FAILED
@@ -52,7 +51,6 @@ export async function testRetrieve(data) {
 
     const topN = Math.min(Math.max(Number(body.top_n) || 3, 1), 10)
 
-    // 无命中：成功体但 hits 为空（对齐契约）
     if (scenario === 'empty_hits') {
       return mockResolve({
         search_type: searchType,
@@ -79,6 +77,5 @@ export async function testRetrieve(data) {
     })
   }
 
-  // —— 真实后端请求（保留，勿删）——
   return request.post('/api/rag/test_retrieve', body)
 }

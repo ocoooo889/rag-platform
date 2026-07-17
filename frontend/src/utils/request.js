@@ -3,9 +3,11 @@
  * - baseURL 统一读取 VITE_API_BASE_URL（.env.development / .env.production）
  * - 自动携带 JWT Token、env 环境标识
  * - 统一错误码提示：0/400/401/403/404/500/5001/5002 + 扩展码 4001–4003
+ * - silent 可抑制弹窗；成功返回完整业务体 { code, message|msg, data }
  */
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { isMockOpen } from '@/mock/flag'
 
 const ERROR_MESSAGES = {
   400: '请求参数错误',
@@ -32,12 +34,29 @@ function normalizeBaseUrl(url = '') {
  */
 export const API_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL || '')
 
+/** 兼容旧命名：是否走 Mock 双分支 */
+export const MOCK_OPEN = () => isMockOpen()
+
 function getEnvTag() {
-  return localStorage.getItem('rag_env') || import.meta.env.VITE_APP_ENV || 'dev'
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('rag_env') || import.meta.env.VITE_APP_ENV || 'dev'
+    }
+  } catch (e) {
+    // SSR / Node 冒烟环境无 localStorage
+  }
+  return import.meta.env.VITE_APP_ENV || 'dev'
 }
 
 function getToken() {
-  return localStorage.getItem('rag_token') || localStorage.getItem('token') || ''
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('rag_token') || localStorage.getItem('token') || ''
+    }
+  } catch (e) {
+    // ignore
+  }
+  return ''
 }
 
 const request = axios.create({
@@ -56,7 +75,7 @@ request.interceptors.request.use(
       config.params = { ...(config.params || {}), env }
     } else if (config.data instanceof FormData) {
       config.params = { ...(config.params || {}), env }
-    } else if (config.data && typeof config.data === 'object') {
+    } else if (config.data && typeof config.data === 'object' && !(config.data instanceof URLSearchParams)) {
       config.data = { ...config.data, env }
     } else {
       config.params = { ...(config.params || {}), env }
@@ -117,4 +136,4 @@ request.interceptors.response.use(
 )
 
 export default request
-export { getEnvTag, getToken, ERROR_MESSAGES }
+export { getEnvTag, getToken, ERROR_MESSAGES, isMockOpen }

@@ -38,9 +38,9 @@ export const useDocStore = defineStore('doc', () => {
         page_size: pageSize.value,
         ...extra
       })
-      const data = res.data || {}
-      list.value = data.items || data.list || []
-      total.value = data.total || list.value.length
+      const raw = res.data
+      list.value = Array.isArray(raw) ? raw : raw?.items || raw?.list || []
+      total.value = Array.isArray(raw) ? raw.length : raw?.total || list.value.length
       return list.value
     } finally {
       loading.value = false

@@ -21,19 +21,19 @@
       </el-col>
       <el-col :span="6">
         <el-card class="stat-card">
-          <div class="stat-icon chunk-icon"></div>
+          <div class="stat-icon user-icon"></div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats.chunk_count }}</div>
-            <div class="stat-label">分片数量</div>
+            <div class="stat-value">{{ stats.user_count }}</div>
+            <div class="stat-label">用户数量</div>
           </div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card class="stat-card">
-          <div class="stat-icon call-icon"></div>
+          <div class="stat-icon group-icon"></div>
           <div class="stat-info">
-            <div class="stat-value">{{ stats.call_count }}</div>
-            <div class="stat-label">调用次数</div>
+            <div class="stat-value">{{ stats.group_count }}</div>
+            <div class="stat-label">用户组数量</div>
           </div>
         </el-card>
       </el-col>
@@ -48,14 +48,19 @@ import { getStatsApi } from '@/api/dashboard'
 const stats = ref({
   kb_count: 0,
   doc_count: 0,
-  chunk_count: 0,
-  call_count: '--',
+  user_count: 0,
+  group_count: 0
 })
 
 onMounted(async () => {
   try {
     const data = await getStatsApi()
-    stats.value = data
+    stats.value = {
+      kb_count: data.kb_count ?? 0,
+      doc_count: data.doc_count ?? 0,
+      user_count: data.user_count ?? 0,
+      group_count: data.group_count ?? 0
+    }
   } catch (error) {
     console.error(error)
   }
@@ -83,10 +88,10 @@ onMounted(async () => {
 .doc-icon {
   background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
 }
-.chunk-icon {
+.user-icon {
   background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
 }
-.call-icon {
+.group-icon {
   background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
 }
 .stat-info {

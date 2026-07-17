@@ -1,5 +1,7 @@
 /**
  * 知识库 CRUD — Mock / Real 双分支
+ * Real: GET/POST /api/knowledge-bases, PUT/DELETE /api/knowledge-bases/{id}
+ * Response data 可能是数组，也可能是 { items, total }
  */
 import request from '@/utils/request'
 import { isMockOpen, mockResolve, mockReject } from '@/mock/flag'
@@ -37,6 +39,7 @@ export async function createKnowledgeBase(data) {
       name: data.name,
       description: data.description || '',
       doc_count: 0,
+      document_count: 0,
       chunk_count: 0,
       created_at: new Date().toISOString()
     })

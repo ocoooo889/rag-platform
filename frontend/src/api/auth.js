@@ -1,5 +1,7 @@
 /**
- * 登录 — Mock / Real 双分支（契约：token + user）
+ * 登录 — Mock / Real 双分支
+ * Real: OAuth2PasswordRequestForm（application/x-www-form-urlencoded）
+ * Response data: { access_token, token_type }；可能不含 user
  */
 import request from '@/utils/request'
 import { isMockOpen, mockResolve, mockReject } from '@/mock/flag'
@@ -34,15 +36,27 @@ export async function loginApi(data) {
     return unwrap(res)
   }
 
-  const response = await request.post('/api/auth/login', {
-    username: data.username,
-    password: data.password
-  })
+  const response = await request.post(
+    '/api/auth/login',
+    new URLSearchParams({
+      username: data.username,
+      password: data.password
+    }),
+    {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    }
+  )
   const payload = unwrap(response) || {}
   const token = payload.token || payload.access_token || ''
-  const user = payload.user || null
-  if (!token || !user) {
+  if (!token) {
     throw new Error(payload.message || payload.msg || '登录失败')
   }
+  const user =
+    payload.user || {
+      username: data.username,
+      role_name: '管理员'
+    }
   return { token, user }
 }

@@ -1,6 +1,10 @@
 /**
  * 文档接口 — Mock / Real 双分支
- * Mock 仅返回契约字段：id/kb_id/filename/file_type/file_size/chunk_count/status/uploaded_at
+ * Real paths:
+ *   GET  /api/knowledge-bases/{kb_id}/documents
+ *   POST /api/knowledge-bases/{kb_id}/documents/upload
+ *   DELETE /api/documents/{doc_id}
+ * Fields: id, kb_id, filename, file_type, file_size, status, chunk_count, created_at
  */
 import request from '@/utils/request'
 import { isMockOpen, mockResolve, mockReject } from '@/mock/flag'
@@ -19,38 +23,39 @@ function paginate(list, page = 1, pageSize = 10) {
   }
 }
 
+function mapDocRow(d) {
+  return {
+    id: d.id,
+    kb_id: d.kb_id,
+    filename: d.filename,
+    file_type: d.file_type,
+    file_size: d.file_size,
+    chunk_count: d.chunk_count,
+    status: d.status,
+    uploaded_at: d.uploaded_at || d.created_at,
+    created_at: d.created_at || d.uploaded_at
+  }
+}
+
 /** 按知识库拉取文档列表 */
 export async function fetchDocuments(params = {}) {
   if (isMockOpen()) {
     const kbId = params.kb_id
-    let list = mockDocList.map((d) => ({
-      id: d.id,
-      kb_id: d.kb_id,
-      filename: d.filename,
-      file_type: d.file_type,
-      file_size: d.file_size,
-      chunk_count: d.chunk_count,
-      status: d.status,
-      uploaded_at: d.uploaded_at
-    }))
+    let list = mockDocList.map(mapDocRow)
     if (kbId) list = list.filter((d) => String(d.kb_id) === String(kbId))
-    // 模拟知识库不存在
     if (kbId && !mockKbList.some((k) => String(k.id) === String(kbId))) {
       return mockReject(404, '知识库不存在')
     }
     return mockResolve(paginate(list, params.page, params.page_size))
   }
-  // —— 真实后端请求（保留）——
-  if (params.kb_id) {
-    try {
-      return await request.get(`/api/knowledge-bases/${params.kb_id}/documents`, {
-        params: { page: params.page, page_size: params.page_size }
-      })
-    } catch (e) {
-      return request.get('/api/documents', { params })
-    }
+
+  const kbId = params.kb_id
+  if (!kbId) {
+    return Promise.reject({ code: 400, message: '缺少 kb_id' })
   }
-  return request.get('/api/documents', { params })
+  return request.get(`/api/knowledge-bases/${kbId}/documents`, {
+    params: { page: params.page, page_size: params.page_size }
+  })
 }
 
 /**
@@ -73,6 +78,7 @@ export async function uploadDocument(formData, onUploadProgress) {
       onUploadProgress({ loaded: 100, total: 100 })
     }
     const id = nextMockId('doc')
+    const now = new Date().toISOString()
     const row = {
       id,
       kb_id: String(kbId),
@@ -81,41 +87,44 @@ export async function uploadDocument(formData, onUploadProgress) {
       file_size: file.size || 1024,
       chunk_count: 0,
       status: DOC_STATUS.PENDING,
-      uploaded_at: new Date().toISOString()
+      uploaded_at: now,
+      created_at: now
     }
     mockDocList.unshift(row)
     const kb = mockKbList.find((k) => String(k.id) === String(kbId))
-    if (kb) kb.doc_count = (kb.doc_count || 0) + 1
+    if (kb) {
+      kb.doc_count = (kb.doc_count || 0) + 1
+      kb.document_count = (kb.document_count || 0) + 1
+    }
     return mockResolve({
       doc_id: id,
       filename: name,
       status: DOC_STATUS.PENDING
     })
   }
-  // —— 真实后端请求（保留）——
-  return request.post('/api/documents/upload', formData, {
+
+  const kbId = formData.get('kb_id')
+  if (!kbId) {
+    return Promise.reject({ code: 400, message: '缺少 kb_id' })
+  }
+  return request.post(`/api/knowledge-bases/${kbId}/documents/upload`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
     onUploadProgress
   })
 }
 
 /** 删除单条文档 */
-export async function deleteDocument(id, kbId) {
+export async function deleteDocument(id) {
   if (isMockOpen()) {
     const idx = mockDocList.findIndex((d) => String(d.id) === String(id))
     if (idx === -1) return mockReject(404, '文档不存在')
     const [removed] = mockDocList.splice(idx, 1)
     const kb = mockKbList.find((k) => String(k.id) === String(removed.kb_id))
-    if (kb && kb.doc_count > 0) kb.doc_count -= 1
-    return mockResolve(null)
-  }
-  // —— 真实后端请求（保留）；优先契约路径 ——
-  if (kbId) {
-    try {
-      return await request.delete(`/api/knowledge-bases/${kbId}/documents/${id}`)
-    } catch (e) {
-      return request.delete(`/api/documents/${id}`)
+    if (kb) {
+      if (kb.doc_count > 0) kb.doc_count -= 1
+      if (kb.document_count > 0) kb.document_count -= 1
     }
+    return mockResolve(null)
   }
   return request.delete(`/api/documents/${id}`)
 }
