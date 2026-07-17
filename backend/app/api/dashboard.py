@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.db.models import KnowledgeBase, Document, User, UserGroup
 
-router = APIRouter()
+router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 @router.get("/stats")
 async def get_dashboard_stats(db: Session = Depends(get_db)):

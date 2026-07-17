@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 
 # 角色相关
@@ -67,6 +67,7 @@ class LLMConfigBase(BaseModel):
     api_base_url: str
     dimension: Optional[int] = None
     is_active: bool = True
+    model_config = ConfigDict(protected_namespaces=())
 
 class LLMConfigCreate(LLMConfigBase):
     pass
@@ -77,3 +78,4 @@ class LLMConfigUpdate(BaseModel):
     api_base_url: Optional[str] = None
     dimension: Optional[int] = None
     is_active: Optional[bool] = None
+    model_config = ConfigDict(protected_namespaces=())
