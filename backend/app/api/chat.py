@@ -8,12 +8,16 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+
 from app.db.database import get_db
 from app.utils.auth import get_current_user
 from app.utils.permission import require_kb_access
 from app.db.models import User
 
+
 from app import config
+from app.db.database import get_db
+from app.db.models import User
 from app.db.sqlite_helper import (
     count_docs_by_kb,
     kb_exists,
@@ -23,9 +27,11 @@ from app.db.sqlite_helper import (
 )
 from app.rag_engine.rag_pipeline import RAGPipeline
 from app.schema.rag import ChatRequest
+from app.utils.auth import get_current_user
 from app.utils.ids import new_id
 from app.utils.langfuse_tracer import new_request_id
 from app.utils.llm_client import LLMServiceError
+from app.utils.permission import require_kb_access
 from app.utils.response import fail, ok
 
 router = APIRouter(tags=["智能对话"])
@@ -84,8 +90,16 @@ def _prepare_chunk_rows(kb_id: str):
 
 
 @router.post("/send")
+
 async def chat_send(req: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     await require_kb_access(req.kb_id, user, db)
+
+async def chat_send(
+    req: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+
     if not (req.kb_id or "").strip():
         return fail(400, "缺少必填参数: kb_id")
     if not (req.query or "").strip():
@@ -94,6 +108,9 @@ async def chat_send(req: ChatRequest, db: Session = Depends(get_db), user: User 
     search_type = _validate_search_type(req.search_type)
     if search_type is None:
         return fail(400, "search_type 必须是 vector / keyword / hybrid")
+
+    # V2 第七章：先鉴权再对话
+    await require_kb_access(req.kb_id, current_user, db)
 
     if not kb_exists(req.kb_id):
         return fail(404, "知识库不存在")
@@ -143,8 +160,16 @@ async def chat_send(req: ChatRequest, db: Session = Depends(get_db), user: User 
 
 
 @router.post("/stream")
+
 async def chat_stream(req: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     await require_kb_access(req.kb_id, user, db)
+
+async def chat_stream(
+    req: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+
     if not (req.kb_id or "").strip():
         return fail(400, "缺少必填参数: kb_id")
     if not (req.query or "").strip():
@@ -153,6 +178,9 @@ async def chat_stream(req: ChatRequest, db: Session = Depends(get_db), user: Use
     search_type = _validate_search_type(req.search_type)
     if search_type is None:
         return fail(400, "search_type 必须是 vector / keyword / hybrid")
+
+    # V2 第七章：先鉴权再对话
+    await require_kb_access(req.kb_id, current_user, db)
 
     if not kb_exists(req.kb_id):
         return fail(404, "知识库不存在")
