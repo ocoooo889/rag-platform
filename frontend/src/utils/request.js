@@ -1,12 +1,12 @@
 /**
- * 全局 Axios 封装（前端 B 规范 + 兼容前端 A）
- * - 自动携带 JWT Token
- * - 自动附加 env 环境标识
- * - 统一错误码弹窗：0/400/401/403/404/500/5001/5002 + A 扩展码
- * - 成功时返回完整业务体 { code, message, data }，由各模块自行取 data
+ * 全局 Axios 封装（全项目共用）
+ * - baseURL：VITE_API_BASE_URL（开发建议留空，走 Vite /api 代理）
+ * - 预留 Mock 判断：MOCK_OPEN / isMockOpen（业务双分支在 api/* 内，不在拦截器里假造数据）
+ * - 自动携带 JWT、env；统一错误码提示
  */
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { MOCK_OPEN, isMockOpen } from '@/mock/flag'
 
 const ERROR_MESSAGES = {
   400: '请求参数错误',
@@ -21,16 +21,45 @@ const ERROR_MESSAGES = {
   4003: '系统品牌配置未初始化，使用默认值'
 }
 
+/** 去掉末尾斜杠，避免与 /api/... 拼接出现双斜杠 */
+function normalizeBaseUrl(url = '') {
+  return String(url || '').trim().replace(/\/$/, '')
+}
+
+/**
+ * 全局 API 基础地址
+ * - 空字符串：相对路径 /api/* → Vite proxy（VITE_API_PROXY，默认 8001）
+ * - 绝对地址：直连后端（需 CORS）
+ */
+export const API_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL || '')
+
+/** 预留：业务层 if (MOCK_OPEN()) 双分支判断 */
+export { MOCK_OPEN, isMockOpen }
+
 function getEnvTag() {
-  return localStorage.getItem('rag_env') || import.meta.env.VITE_APP_ENV || 'dev'
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('rag_env') || import.meta.env.VITE_APP_ENV || 'dev'
+    }
+  } catch (e) {
+    // Node 冒烟环境无 localStorage
+  }
+  return import.meta.env.VITE_APP_ENV || 'dev'
 }
 
 function getToken() {
-  return localStorage.getItem('rag_token') || localStorage.getItem('token') || ''
+  try {
+    if (typeof localStorage !== 'undefined') {
+      return localStorage.getItem('rag_token') || localStorage.getItem('token') || ''
+    }
+  } catch (e) {
+    // ignore
+  }
+  return ''
 }
 
 const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '',
+  baseURL: API_BASE_URL,
   timeout: 60000
 })
 
@@ -45,7 +74,7 @@ request.interceptors.request.use(
       config.params = { ...(config.params || {}), env }
     } else if (config.data instanceof FormData) {
       config.params = { ...(config.params || {}), env }
-    } else if (config.data && typeof config.data === 'object') {
+    } else if (config.data && typeof config.data === 'object' && !(config.data instanceof URLSearchParams)) {
       config.data = { ...config.data, env }
     } else {
       config.params = { ...(config.params || {}), env }
@@ -60,6 +89,7 @@ request.interceptors.response.use(
     if (response.config.responseType === 'blob') {
       return response.data
     }
+    const silent = response.config.silent === true
     const res = response.data
     if (!res || typeof res.code === 'undefined') {
       return res
@@ -67,17 +97,18 @@ request.interceptors.response.use(
     if (res.code === 0) {
       return res
     }
-    // 前端 A 扩展业务码
     if (res.code === 4003) {
-      ElMessage.warning(ERROR_MESSAGES[4003])
+      if (!silent) ElMessage.warning(ERROR_MESSAGES[4003])
       return res
     }
     if (res.code === 4001 || res.code === 4002) {
-      ElMessage.warning(res.message || res.msg || ERROR_MESSAGES[res.code])
+      if (!silent) {
+        ElMessage.warning(res.message || res.msg || ERROR_MESSAGES[res.code])
+      }
       return Promise.reject(res)
     }
     const msg = ERROR_MESSAGES[res.code] || res.message || res.msg || '请求失败'
-    ElMessage.error(msg)
+    if (!silent) ElMessage.error(msg)
     if (res.code === 401) {
       window.location.href = '/login'
     }
@@ -87,6 +118,7 @@ request.interceptors.response.use(
     if (axios.isCancel?.(error) || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError') {
       return Promise.reject(error)
     }
+    const silent = error?.config?.silent === true
     const code = error?.response?.data?.code
     const msg =
       ERROR_MESSAGES[code] ||
@@ -94,7 +126,7 @@ request.interceptors.response.use(
       error?.response?.data?.msg ||
       error.message ||
       '网络异常，请稍后重试'
-    ElMessage.error(msg)
+    if (!silent) ElMessage.error(msg)
     if (code === 401 || error?.response?.status === 401) {
       window.location.href = '/login'
     }

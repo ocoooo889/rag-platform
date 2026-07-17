@@ -29,7 +29,8 @@
             </div>
             <p class="kb-card__desc">{{ item.description || '暂无描述' }}</p>
             <div class="kb-card__meta">
-              <span>文档总数：{{ item.doc_count ?? 0 }}</span>
+              <!-- 后端字段 document_count；doc_count 为兼容别名 -->
+              <span>文档总数：{{ item.document_count ?? item.doc_count ?? 0 }}</span>
               <span>分片总数：{{ item.chunk_count ?? 0 }}</span>
             </div>
             <div class="kb-card__actions" @click.stop>

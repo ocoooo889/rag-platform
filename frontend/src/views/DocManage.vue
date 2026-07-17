@@ -43,7 +43,11 @@
       <EmptyState v-if="!docStore.list.length && !docStore.loading && selectedKbId" type="doc" />
 
       <AppTable v-else-if="selectedKbId" :data="docStore.list" :loading="docStore.loading">
-        <el-table-column prop="file_name" label="文件名" min-width="160" />
+        <el-table-column label="文件名" min-width="160">
+          <template #default="{ row }">
+            {{ row.filename || row.file_name || row.id }}
+          </template>
+        </el-table-column>
         <el-table-column prop="file_type" label="文件类型" width="100" />
         <el-table-column label="文件大小" width="120">
           <template #default="{ row }">
@@ -53,7 +57,7 @@
         <el-table-column prop="chunk_count" label="分片数量" width="100" />
         <el-table-column label="上传时间" width="180">
           <template #default="{ row }">
-            {{ formatDate(row.created_at, 'datetime') }}
+            {{ formatDate(row.uploaded_at || row.created_at, 'datetime') }}
           </template>
         </el-table-column>
         <el-table-column label="状态" width="110">
@@ -101,6 +105,7 @@ import { useKbStore } from '@/stores/kb'
 import { useDocStore } from '@/stores/doc'
 import { formatFileSize, formatDate } from '@/utils/format'
 import { getEnvTag } from '@/utils/request'
+import { getDocStatusLabel, getDocStatusClassSuffix } from '@/utils/docStatus'
 import AppButton from '@/components/AppButton.vue'
 import AppTable from '@/components/AppTable.vue'
 import AppPagination from '@/components/AppPagination.vue'
@@ -125,20 +130,13 @@ const envLabel = computed(() => {
   return first?.env_label || (hasKb.value ? envTag : '')
 })
 
-const STATUS_MAP = {
-  pending: '待处理',
-  processing: '处理中',
-  completed: '已完成',
-  failed: '失败'
-}
-
 function statusLabel(status) {
-  return STATUS_MAP[status] || status
+  return getDocStatusLabel(status)
 }
 
 /** 状态色使用全局 CSS 变量 class，禁止硬编码色值 */
 function statusClass(status) {
-  return `doc-status doc-status--${status || 'pending'}`
+  return `doc-status doc-status--${getDocStatusClassSuffix(status)}`
 }
 
 async function loadKb() {

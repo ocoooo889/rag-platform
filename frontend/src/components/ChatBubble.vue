@@ -1,13 +1,32 @@
 <template>
-  <!-- 聊天气泡：区分用户 / AI，AI 可折叠溯源面板 -->
+  <!--
+    聊天气泡（可复用）
+    - 用户：纯文本
+    - AI：内嵌 StreamText（流式光标 / 加载 / 报错）+ 可选溯源
+    页面只需传 props，不必再抄 ai-row / 溯源 DOM
+  -->
   <div class="chat-bubble" :class="role">
     <div class="chat-bubble__role">{{ role === 'user' ? '我' : 'AI' }}</div>
     <div class="chat-bubble__body">
-      <div class="chat-bubble__content">{{ content }}</div>
-      <div v-if="role === 'assistant' && sources.length" class="source-panel">
+      <div v-if="role === 'user'" class="chat-bubble__content">{{ content }}</div>
+      <div v-else class="chat-bubble__content chat-bubble__content--assistant">
+        <StreamText
+          ref="streamRef"
+          :content="content"
+          :loading="streaming"
+          :error="error"
+          :loading-tip="loadingTip"
+          variant="assistant"
+        />
+      </div>
+      <div v-if="role === 'assistant' && showSources" class="source-panel">
         <el-collapse>
           <el-collapse-item title="查看溯源" name="sources">
-            <div v-for="(item, index) in sources" :key="item.chunk_id || index" class="source-item">
+            <div
+              v-for="(item, index) in sources"
+              :key="item.chunk_id || index"
+              class="source-item"
+            >
               <div class="source-item__head">
                 <span>{{ item.source_doc || '未知文档' }}</span>
                 <span :style="{ color: getScoreColor(item.score) }">
@@ -24,12 +43,34 @@
 </template>
 
 <script setup>
+import { computed, ref } from 'vue'
 import { getScoreColor, formatScorePercent } from '@/utils/score'
+import StreamText from '@/components/StreamText.vue'
 
-defineProps({
+const props = defineProps({
   role: { type: String, default: 'assistant' },
   content: { type: String, default: '' },
-  sources: { type: Array, default: () => [] }
+  /** 后端/本地业务错误文案（非 HTTP 层） */
+  error: { type: String, default: '' },
+  sources: { type: Array, default: () => [] },
+  /** 是否处于 SSE 追加中（页面/store 的 streaming 标记） */
+  streaming: { type: Boolean, default: false },
+  loadingTip: { type: String, default: 'AI 思考中...' }
+})
+
+const streamRef = ref(null)
+
+const showSources = computed(
+  () => !props.streaming && Array.isArray(props.sources) && props.sources.length > 0
+)
+
+/** 透传流式命令式 API，供少数非受控场景复用 */
+defineExpose({
+  append: (chunk) => streamRef.value?.append?.(chunk),
+  clear: () => streamRef.value?.clear?.(),
+  setText: (text) => streamRef.value?.setText?.(text),
+  setError: (msg) => streamRef.value?.setError?.(msg),
+  getText: () => streamRef.value?.getText?.() || ''
 })
 </script>
 
@@ -75,8 +116,9 @@ defineProps({
   color: var(--text-color-primary);
 }
 
-.chat-bubble.assistant .chat-bubble__content {
+.chat-bubble__content--assistant {
   background: var(--bg-color-ai-bubble);
+  padding: 10px 12px;
 }
 
 .source-panel {

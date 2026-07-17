@@ -10,6 +10,7 @@ import EmptyState from './EmptyState.vue'
 import RetrieveResultCard from './RetrieveResultCard.vue'
 import ChatBubble from './ChatBubble.vue'
 import FileUploader from './FileUploader.vue'
+import StreamText from './StreamText.vue'
 
 export {
   AppButton,
@@ -19,7 +20,8 @@ export {
   EmptyState,
   RetrieveResultCard,
   ChatBubble,
-  FileUploader
+  FileUploader,
+  StreamText
 }
 
 export default {
@@ -30,5 +32,6 @@ export default {
   EmptyState,
   RetrieveResultCard,
   ChatBubble,
-  FileUploader
+  FileUploader,
+  StreamText
 }
