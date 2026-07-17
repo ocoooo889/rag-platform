@@ -13,10 +13,6 @@ from app.schema.rag import HitTestRequest
 from app.utils.auth import get_current_user
 from app.utils.permission import require_kb_access
 from app.utils.response import fail, ok
-from app.db.database import get_db
-from app.utils.auth import get_current_user
-from app.utils.permission import require_kb_access
-from app.db.models import User
 
 router = APIRouter(tags=["命中率测试"])
 
@@ -29,16 +25,11 @@ _STATUS_TEXT = {
 
 
 @router.post("/test_retrieve")
-
-async def test_retrieve(req: HitTestRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    await require_kb_access(req.kb_id, user, db)
-
 async def test_retrieve(
     req: HitTestRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-
     if not (req.kb_id or "").strip():
         return fail(400, "缺少必填参数: kb_id")
     if not (req.doc_id or "").strip():

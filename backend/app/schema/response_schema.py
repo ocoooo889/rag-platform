@@ -1,8 +1,4 @@
-
 from pydantic import BaseModel, ConfigDict
-
-from pydantic import BaseModel
-
 from typing import Optional, List, Any
 from datetime import datetime
 
@@ -16,36 +12,18 @@ class ResponseModel(BaseModel):
 
 class RoleOut(RoleBase):
     id: int
-
     model_config = ConfigDict(from_attributes=True)
-
-    class Config:
-        from_attributes = True
-        orm_mode = True
-
 
 class UserGroupOut(UserGroupBase):
     id: int
     created_at: Optional[datetime] = None
-
     model_config = ConfigDict(from_attributes=True)
-
-    class Config:
-        from_attributes = True
-        orm_mode = True
-
 
 class UserOut(UserBase):
     id: int
     created_at: Optional[datetime] = None
     groups: List[UserGroupOut] = [] # V2 新增：所属用户组
-
     model_config = ConfigDict(from_attributes=True)
-
-    class Config:
-        from_attributes = True
-        orm_mode = True
-
 
 # Token 认证相关
 class Token(BaseModel):
@@ -56,13 +34,7 @@ class KnowledgeBaseOut(KnowledgeBaseBase):
     id: str
     created_at: Optional[datetime] = None
     document_count: int = 0
-
     model_config = ConfigDict(from_attributes=True)
-
-    class Config:
-        from_attributes = True
-        orm_mode = True
-
 
 # 文档相关
 class DocumentOut(BaseModel):
@@ -74,12 +46,7 @@ class DocumentOut(BaseModel):
     status: str
     chunk_count: int
     created_at: Optional[datetime] = None
-
     model_config = ConfigDict(from_attributes=True)
-
-    class Config:
-        from_attributes = True
-        orm_mode = True
 
 # 系统品牌白标配置
 class BrandingConfigOut(BaseModel):
