@@ -7,12 +7,20 @@ from pathlib import Path
 
 from app import config
 
+_schema_checked = False
+
 
 def get_conn() -> sqlite3.Connection:
+    global _schema_checked
     root = Path(__file__).resolve().parents[3]
     db_path = root / config.LOCAL_DB_NAME
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
+    if not _schema_checked:
+        from app.db.schema_compat import ensure_rag_schema
+
+        ensure_rag_schema(conn)
+        _schema_checked = True
     return conn
 
 

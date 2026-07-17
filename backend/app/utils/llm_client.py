@@ -28,6 +28,14 @@ class EmbeddingServiceError(Exception):
     """Embedding 不可用，上层应降级为全文检索"""
 
 
+class LLMServiceError(Exception):
+    """大模型不可用；上层应返回 5002，勿用字符串前缀猜测"""
+
+    def __init__(self, message: str = "大模型服务暂时不可用，请稍后重试"):
+        self.message = message
+        super().__init__(message)
+
+
 def _is_dashscope() -> bool:
     return "dashscope" in (config.OPENAI_BASE_URL or "").lower()
 
@@ -125,10 +133,11 @@ async def chat_completion(
     context: str = "",
     trace_id: str | None = None,
 ) -> str:
-    """非流式对话；失败返回兜底文案"""
+    """非流式对话；失败抛 LLMServiceError（由接口层转 5002）"""
     if not config.OPENAI_API_KEY or config.OPENAI_API_KEY.startswith("sk-xxxx"):
-        return "大模型服务暂时不可用，请稍后重试"
+        raise LLMServiceError("大模型服务暂时不可用，请稍后重试")
 
+    last_err: Exception | None = None
     for attempt in range(config.LLM_MAX_RETRIES + 1):
         try:
             resp = await asyncio.wait_for(
@@ -159,17 +168,17 @@ async def chat_completion(
                 )
             return content
         except Exception as e:
+            last_err = e
             logger.warning("LLM 第 %s 次失败: %s", attempt + 1, e)
             if attempt < config.LLM_MAX_RETRIES:
                 await asyncio.sleep(1)
-    return "大模型服务暂时不可用，请稍后重试"
+    raise LLMServiceError("大模型服务暂时不可用，请稍后重试") from last_err
 
 
 async def chat_completion_stream(messages: list[dict]):
-    """流式对话，逐块 yield 文本"""
+    """流式对话，逐块 yield 文本；启动失败抛 LLMServiceError"""
     if not config.OPENAI_API_KEY or config.OPENAI_API_KEY.startswith("sk-xxxx"):
-        yield "大模型服务暂时不可用，请稍后重试"
-        return
+        raise LLMServiceError("大模型服务暂时不可用，请稍后重试")
 
     try:
         stream = await asyncio.wait_for(
@@ -185,6 +194,8 @@ async def chat_completion_stream(messages: list[dict]):
             delta = chunk.choices[0].delta if chunk.choices else None
             if delta and delta.content:
                 yield delta.content
+    except LLMServiceError:
+        raise
     except Exception as e:
         logger.error("LLM 流式失败: %s", e)
-        yield "大模型服务暂时不可用，请稍后重试"
+        raise LLMServiceError("大模型服务暂时不可用，请稍后重试") from e

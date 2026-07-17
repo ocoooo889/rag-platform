@@ -20,9 +20,12 @@ from app.rag_engine.rag_pipeline import RAGPipeline
 from app.schema.rag import ChatRequest
 from app.utils.ids import new_id
 from app.utils.langfuse_tracer import new_request_id
+from app.utils.llm_client import LLMServiceError
 from app.utils.response import fail, ok
 
 router = APIRouter(tags=["智能对话"])
+
+_VALID_SEARCH_TYPES = frozenset({"vector", "keyword", "hybrid"})
 
 
 def _now() -> str:
@@ -56,6 +59,14 @@ def _check_kb_docs_ready(kb_id: str):
     return None
 
 
+def _validate_search_type(search_type: str | None) -> str | None:
+    """校验 search_type；非法返回错误响应，合法返回规范化值"""
+    st = (search_type or "hybrid").strip().lower() or "hybrid"
+    if st not in _VALID_SEARCH_TYPES:
+        return None
+    return st
+
+
 def _prepare_chunk_rows(kb_id: str):
     rows = load_chunks_by_kb(kb_id)
     if not rows:
@@ -73,6 +84,11 @@ async def chat_send(req: ChatRequest):
         return fail(400, "缺少必填参数: kb_id")
     if not (req.query or "").strip():
         return fail(400, "缺少必填参数: query")
+
+    search_type = _validate_search_type(req.search_type)
+    if search_type is None:
+        return fail(400, "search_type 必须是 vector / keyword / hybrid")
+
     if not kb_exists(req.kb_id):
         return fail(404, "知识库不存在")
 
@@ -84,33 +100,36 @@ async def chat_send(req: ChatRequest):
     texts, ids, source_docs, doc_ids = _prepare_chunk_rows(req.kb_id)
     history = _history_text(req.session_id)
     request_id = new_request_id()
+    query = req.query.strip()
 
-    answer, refs = await RAGPipeline.query(
-        kb_id=req.kb_id,
-        query=req.query.strip(),
-        search_type=req.search_type or "hybrid",
-        texts=texts,
-        ids=ids,
-        top_n=req.top_n,
-        source_docs=source_docs,
-        doc_ids=doc_ids,
-        chat_history=history,
-        session_id=session_id,
-        stream=False,
-        request_id=request_id,
-    )
+    try:
+        answer, refs = await RAGPipeline.query(
+            kb_id=req.kb_id,
+            query=query,
+            search_type=search_type,
+            texts=texts,
+            ids=ids,
+            top_n=req.top_n,
+            source_docs=source_docs,
+            doc_ids=doc_ids,
+            chat_history=history,
+            session_id=session_id,
+            stream=False,
+            request_id=request_id,
+        )
+    except LLMServiceError as e:
+        return fail(5002, e.message)
 
-    if isinstance(answer, str) and answer.startswith("大模型服务暂时不可用"):
-        return fail(5002, answer)
-
-    save_conversation(new_id("msg"), session_id, req.kb_id, "user", req.query, None, _now())
+    save_conversation(new_id("msg"), session_id, req.kb_id, "user", query, None, _now())
     save_conversation(
         new_id("msg"), session_id, req.kb_id, "assistant", answer,
         json.dumps(refs, ensure_ascii=False), _now(),
     )
 
+    # V2 契约：响应回显 query（CHAT-22 / BUG-04）
     return ok({
         "session_id": session_id,
+        "query": query,
         "answer": answer,
         "references": refs,
         "request_id": request_id,
@@ -123,6 +142,11 @@ async def chat_stream(req: ChatRequest):
         return fail(400, "缺少必填参数: kb_id")
     if not (req.query or "").strip():
         return fail(400, "缺少必填参数: query")
+
+    search_type = _validate_search_type(req.search_type)
+    if search_type is None:
+        return fail(400, "search_type 必须是 vector / keyword / hybrid")
+
     if not kb_exists(req.kb_id):
         return fail(404, "知识库不存在")
 
@@ -134,31 +158,41 @@ async def chat_stream(req: ChatRequest):
     texts, ids, source_docs, doc_ids = _prepare_chunk_rows(req.kb_id)
     history = _history_text(req.session_id)
     request_id = new_request_id()
+    query = req.query.strip()
 
-    token_iter, refs = await RAGPipeline.query(
-        kb_id=req.kb_id,
-        query=req.query.strip(),
-        search_type=req.search_type or "hybrid",
-        texts=texts,
-        ids=ids,
-        top_n=req.top_n,
-        source_docs=source_docs,
-        doc_ids=doc_ids,
-        chat_history=history,
-        session_id=session_id,
-        stream=True,
-        request_id=request_id,
-    )
+    try:
+        token_iter, refs = await RAGPipeline.query(
+            kb_id=req.kb_id,
+            query=query,
+            search_type=search_type,
+            texts=texts,
+            ids=ids,
+            top_n=req.top_n,
+            source_docs=source_docs,
+            doc_ids=doc_ids,
+            chat_history=history,
+            session_id=session_id,
+            stream=True,
+            request_id=request_id,
+        )
+    except LLMServiceError as e:
+        return fail(5002, e.message)
 
-    save_conversation(new_id("msg"), session_id, req.kb_id, "user", req.query, None, _now())
+    save_conversation(new_id("msg"), session_id, req.kb_id, "user", query, None, _now())
 
     async def event_gen():
-        yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'request_id': request_id}, ensure_ascii=False)}\n\n"
+        yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'request_id': request_id, 'query': query}, ensure_ascii=False)}\n\n"
         full = ""
-        async for token in token_iter:
-            full += token
-            payload = {"type": "chunk", "content": token}
-            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        try:
+            async for token in token_iter:
+                full += token
+                payload = {"type": "chunk", "content": token}
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+        except LLMServiceError as e:
+            # 流已开始时用 chunk 推送错误文案，仍结束 done
+            err = e.message
+            full = err
+            yield f"data: {json.dumps({'type': 'chunk', 'content': err}, ensure_ascii=False)}\n\n"
 
         save_conversation(
             new_id("msg"), session_id, req.kb_id, "assistant", full,
@@ -167,6 +201,7 @@ async def chat_stream(req: ChatRequest):
         done = {
             "type": "done",
             "content": "",
+            "query": query,
             "references": [
                 {
                     "chunk_id": r.get("chunk_id"),
