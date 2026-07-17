@@ -47,8 +47,18 @@ LLM_MAX_RETRIES = 1
 # ============================================================
 HYBRID_ALPHA = 0.7  # 向量权重 0.7
 BM25_WEIGHT = 0.3   # 全文权重 0.3（= 1 - HYBRID_ALPHA）
+# hybrid 融合候选倍数：向量与 BM25 各取 top_n * 该值，再并集融合（默认 5）
+HYBRID_CANDIDATE_MUL = int(os.getenv("HYBRID_CANDIDATE_MUL", "5"))
 DEFAULT_TOP_N = 3
 MAX_TOP_N = 10
+
+# 多轮对话：检索前是否做 Query Rewrite（失败自动回退原句）
+ENABLE_QUERY_REWRITE = os.getenv("ENABLE_QUERY_REWRITE", "true").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
 
 # ============================================================
 # 环境隔离 · 个人标识
