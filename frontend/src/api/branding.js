@@ -10,31 +10,66 @@ const mockBranding = {
 }
 
 function unwrap(res) {
-  if (res && typeof res === 'object' && 'data' in res && ('code' in res || 'message' in res || 'msg' in res)) {
-    return res.data
+  if (res && typeof res === 'object') {
+    if ('code' in res && 'data' in res) {
+      return res.data
+    }
+    if (res.data !== undefined && typeof res.data === 'object') {
+      if ('code' in res.data && 'data' in res.data) {
+        return res.data.data
+      }
+      return res.data
+    }
   }
   return res
 }
 
 export const getBrandingApi = async () => {
   try {
-    return unwrap(await request.get('/api/system/branding')) || mockBranding
-  } catch {
+    const res = await request.get('/api/system/branding', { cache: 'no-cache' })
+    const data = unwrap(res)
+    console.log('getBrandingApi - raw response:', res)
+    console.log('getBrandingApi - unwrapped data:', data)
+    if (!data || typeof data !== 'object' || !data.brand_name) {
+      console.warn('getBrandingApi - invalid data, using mock:', data)
+      return mockBranding
+    }
+    return data
+  } catch (error) {
+    console.error('getBrandingApi error:', error)
     return mockBranding
   }
 }
 
 export const updateBrandingApi = async (data) => {
   try {
-    const formData = new FormData()
-    for (const key in data) {
-      if (data[key] !== null && data[key] !== undefined) {
-        formData.append(key, data[key])
+    let formData = data
+    if (!(data instanceof FormData)) {
+      formData = new FormData()
+      for (const key in data) {
+        if (data[key] !== null && data[key] !== undefined) {
+          formData.append(key, data[key])
+        }
       }
     }
-    return unwrap(await request.put('/api/system/branding', formData))
-  } catch {
-    Object.assign(mockBranding, data)
-    return mockBranding
+    const res = await request.put('/api/system/branding', formData)
+    const result = unwrap(res)
+    console.log('updateBrandingApi - raw response:', res)
+    console.log('updateBrandingApi - unwrapped result:', result)
+    return result
+  } catch (error) {
+    console.error('updateBrandingApi error:', error)
+    if (data instanceof FormData) {
+      const plainData = {}
+      data.forEach((value, key) => {
+        if (!(value instanceof File)) {
+          plainData[key] = value
+        }
+      })
+      Object.assign(mockBranding, plainData)
+    } else {
+      Object.assign(mockBranding, data)
+    }
+    throw error
   }
 }
