@@ -4,11 +4,11 @@ __pycache__/
 *$py.class
 *.so
 .Python
+*.egg-info/
 venv/
 .venv/
 env/
 ENV/
-*.egg-info/
 dist/
 build/
 
@@ -27,11 +27,17 @@ chroma_data/
 backend/chroma_data/
 uploads/
 backend/uploads/
+logs/
 
 # 前端
 frontend/node_modules/
 frontend/dist/
 frontend/.vite/
+frontend/.env
+frontend/.env.*
+
+# 误克隆的嵌套目录
+rag-platform/
 
 # 日志与系统文件
 *.log

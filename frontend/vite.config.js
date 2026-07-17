@@ -1,21 +1,33 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import { fileURLToPath, URL } from 'node:url'
+import { viteMockServe } from 'vite-plugin-mock'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    viteMockServe({
+      mockPath: 'src/mock',
+      enable: true,
+      watchFiles: true,
+      ignore: /^index\.js$/
+    })
+  ],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
+      '@': path.resolve(__dirname, 'src')
+    }
   },
   server: {
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5001',
-        changeOrigin: true,
-      },
-    },
-  },
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true
+      }
+    }
+  }
 })
