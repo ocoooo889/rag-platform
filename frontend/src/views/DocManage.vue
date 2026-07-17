@@ -1,93 +1,200 @@
 <template>
   <div class="doc-manage" v-loading="docStore.loading" element-loading-text="加载中...">
-    <div class="page-header">
-      <h2>文档管理</h2>
-      <!-- 无知识库时隐藏上传入口 -->
-      <el-tag v-if="envLabel" type="info" size="small">{{ envLabel }}</el-tag>
-    </div>
+    <EmptyState v-if="!hasKb" type="kb" tip="暂无知识库，请先在知识库管理中新建" />
 
-    <!-- 顶部知识库级联筛选：切换后自动隔离无关文档 -->
-    <div class="filter-bar">
-      <el-select
-        v-model="selectedKbId"
-        placeholder="请选择知识库"
-        clearable
-        style="width: 280px"
-        @change="onKbChange"
-      >
-        <el-option
-          v-for="kb in kbStore.list"
-          :key="kb.id"
-          :label="kb.name"
-          :value="kb.id"
+    <template v-else>
+      <!-- 顶栏：标题 + 上传 -->
+      <div class="doc-top">
+        <h2 class="doc-top__title">上传文档</h2>
+        <div class="doc-top__actions">
+          <el-button text :icon="Refresh" :disabled="!selectedKbId" @click="reloadDocs">
+            同步状态
+          </el-button>
+          <el-button
+            type="primary"
+            class="doc-top__upload-btn"
+            :disabled="!selectedKbId"
+            @click="openUploadDialog"
+          >
+            上传文档
+          </el-button>
+        </div>
+      </div>
+
+      <!-- 筛选：知识库 + 搜索 -->
+      <div class="doc-filters">
+        <el-select
+          v-model="selectedKbId"
+          class="doc-filters__kb"
+          placeholder="请选择知识库"
+          clearable
+          @change="onKbChange"
+        >
+          <el-option
+            v-for="kb in kbStore.list"
+            :key="kb.id"
+            :label="kb.name"
+            :value="kb.id"
+          />
+        </el-select>
+        <el-input
+          v-model="searchKeyword"
+          class="doc-filters__search"
+          placeholder="搜索文档名称"
+          clearable
+          :prefix-icon="Search"
         />
-      </el-select>
-    </div>
+      </div>
 
-    <!-- 无知识库：隐藏上传区 -->
-    <div v-if="hasKb" class="upload-area">
+      <p v-if="!selectedKbId" class="hint">请先选择知识库后再管理文档</p>
+
+      <template v-else>
+        <!-- 统计卡片 -->
+        <div class="stat-row">
+          <div class="stat-card">
+            <div class="stat-card__num">{{ stats.total }}</div>
+            <div class="stat-card__label">全部</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__num stat-card__num--ok">{{ stats.ready }}</div>
+            <div class="stat-card__label">已就绪</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__num stat-card__num--proc">{{ stats.vectorizing }}</div>
+            <div class="stat-card__label">向量化中</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card__num stat-card__num--fail">{{ stats.failed }}</div>
+            <div class="stat-card__label">解析失败</div>
+          </div>
+        </div>
+
+        <!-- 文档列表卡片 -->
+        <section class="list-card">
+          <EmptyState
+            v-if="!filteredList.length && !docStore.loading"
+            type="doc"
+            tip="暂无文档，请点击右上角上传"
+          />
+
+          <template v-else>
+            <div class="list-head">
+              <span class="col-name">文档名称</span>
+              <span class="col-time">上传时间</span>
+              <span class="col-action">操作</span>
+            </div>
+
+            <ul class="list-body">
+              <li v-for="row in filteredList" :key="row.id" class="list-row">
+                <div class="col-name">
+                  <el-icon
+                    class="status-icon"
+                    :class="statusIconClass(row.status)"
+                    :size="16"
+                  >
+                    <CircleCheck v-if="isCompleted(row.status)" />
+                    <WarningFilled v-else-if="isFailed(row.status)" />
+                    <Loading v-else />
+                  </el-icon>
+                  <span class="file-name" :title="row.filename || row.file_name">
+                    {{ row.filename || row.file_name || row.id }}
+                  </span>
+                </div>
+                <div class="col-time">
+                  {{ formatDate(row.uploaded_at || row.created_at, 'datetime') }}
+                </div>
+                <div class="col-action">
+                  <el-button
+                    class="ghost-btn"
+                    size="small"
+                    @click="openPreview(row)"
+                  >
+                    查看
+                  </el-button>
+                  <el-button
+                    v-if="isFailed(row.status)"
+                    class="ghost-btn ghost-btn--danger"
+                    size="small"
+                    disabled
+                  >
+                    解析失败
+                  </el-button>
+                  <el-button
+                    class="ghost-btn ghost-btn--danger"
+                    size="small"
+                    @click="openDelete(row)"
+                  >
+                    删除
+                  </el-button>
+                </div>
+              </li>
+            </ul>
+
+            <AppPagination
+              v-if="docStore.total > 0"
+              class="list-pagination"
+              :total="docStore.total"
+              v-model:page="docStore.page"
+              v-model:page-size="docStore.pageSize"
+              @change="reloadDocs"
+            />
+          </template>
+        </section>
+      </template>
+    </template>
+
+    <!-- 上传弹窗（无命中测试） -->
+    <el-dialog
+      v-model="uploadVisible"
+      title="上传文档"
+      width="520px"
+      destroy-on-close
+      :close-on-click-modal="!uploading"
+      class="upload-dialog"
+      @closed="onUploadDialogClosed"
+    >
       <FileUploader
+        v-if="uploadVisible"
         :kb-id="selectedKbId"
         :disabled="!selectedKbId"
         v-model:uploading="uploading"
         v-model:progress="uploadProgress"
         @success="onUploadSuccess"
         @fail="onUploadFail"
+        @cancel="uploadVisible = false"
       />
-      <p v-if="!selectedKbId" class="hint">请先选择知识库后再上传文档</p>
-    </div>
+    </el-dialog>
 
-    <EmptyState v-if="!hasKb" type="kb" tip="暂无知识库，请先在知识库管理中新建" />
-
-    <template v-else>
-      <EmptyState v-if="!docStore.list.length && !docStore.loading && selectedKbId" type="doc" />
-
-      <AppTable v-else-if="selectedKbId" :data="docStore.list" :loading="docStore.loading">
-        <el-table-column label="文件名" min-width="160">
-          <template #default="{ row }">
-            {{ row.filename || row.file_name || row.id }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="file_type" label="文件类型" width="100" />
-        <el-table-column label="文件大小" width="120">
-          <template #default="{ row }">
-            {{ formatFileSize(row.file_size) }}
-          </template>
-        </el-table-column>
-        <el-table-column prop="chunk_count" label="分片数量" width="100" />
-        <el-table-column label="上传时间" width="180">
-          <template #default="{ row }">
-            {{ formatDate(row.uploaded_at || row.created_at, 'datetime') }}
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="110">
-          <template #default="{ row }">
-            <el-tag :class="statusClass(row.status)" size="small">
-              {{ statusLabel(row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="环境" width="140">
-          <template #default="{ row }">
-            <el-tag type="info" size="small">{{ row.env_label || row.env || envTag }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
-          <template #default="{ row }">
-            <!-- 仅单条删除，无批量操作 / 导出按钮 -->
-            <AppButton type="danger" text="删除" link @click="openDelete(row)" />
-          </template>
-        </el-table-column>
-      </AppTable>
-
-      <AppPagination
-        v-if="selectedKbId"
-        :total="docStore.total"
-        v-model:page="docStore.page"
-        v-model:page-size="docStore.pageSize"
-        @change="reloadDocs"
-      />
-    </template>
+    <!-- 查看详情弹窗（仅元数据，无命中测试） -->
+    <el-dialog
+      v-model="previewVisible"
+      title="文档详情"
+      width="420px"
+      destroy-on-close
+    >
+      <dl v-if="previewDoc" class="preview-meta">
+        <div class="preview-meta__row">
+          <dt>文件名</dt>
+          <dd>{{ previewDoc.filename || previewDoc.file_name || previewDoc.id }}</dd>
+        </div>
+        <div class="preview-meta__row">
+          <dt>文件大小</dt>
+          <dd>{{ formatFileSize(previewDoc.file_size) }}</dd>
+        </div>
+        <div class="preview-meta__row">
+          <dt>分片数量</dt>
+          <dd>{{ previewDoc.chunk_count ?? 0 }}</dd>
+        </div>
+        <div class="preview-meta__row">
+          <dt>文档状态</dt>
+          <dd>{{ displayStatusLabel(previewDoc.status) }}</dd>
+        </div>
+        <div class="preview-meta__row">
+          <dt>上传时间</dt>
+          <dd>{{ formatDate(previewDoc.uploaded_at || previewDoc.created_at, 'datetime') }}</dd>
+        </div>
+      </dl>
+    </el-dialog>
 
     <ConfirmDialog
       v-model="deleteVisible"
@@ -101,13 +208,17 @@
 
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import {
+  CircleCheck,
+  Loading,
+  Refresh,
+  Search,
+  WarningFilled
+} from '@element-plus/icons-vue'
 import { useKbStore } from '@/stores/kb'
 import { useDocStore } from '@/stores/doc'
 import { formatFileSize, formatDate } from '@/utils/format'
-import { getEnvTag } from '@/utils/request'
-import { getDocStatusLabel, getDocStatusClassSuffix } from '@/utils/docStatus'
-import AppButton from '@/components/AppButton.vue'
-import AppTable from '@/components/AppTable.vue'
+import { normalizeDocStatus, DOC_STATUS } from '@/utils/docStatus'
 import AppPagination from '@/components/AppPagination.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -115,28 +226,87 @@ import FileUploader from '@/components/FileUploader.vue'
 
 const kbStore = useKbStore()
 const docStore = useDocStore()
-const envTag = getEnvTag()
 
 const selectedKbId = ref(null)
+const searchKeyword = ref('')
 const uploading = ref(false)
 const uploadProgress = ref(0)
+const uploadVisible = ref(false)
+const previewVisible = ref(false)
+const previewDoc = ref(null)
 const deleteVisible = ref(false)
 const deleting = ref(false)
 const deletingId = ref(null)
 
 const hasKb = computed(() => kbStore.list.length > 0)
-const envLabel = computed(() => {
-  const first = docStore.list[0]
-  return first?.env_label || (hasKb.value ? envTag : '')
+
+const filteredList = computed(() => {
+  const kw = searchKeyword.value.trim().toLowerCase()
+  let rows = docStore.list || []
+  if (kw) {
+    rows = rows.filter((row) =>
+      String(row.filename || row.file_name || '').toLowerCase().includes(kw)
+    )
+  }
+  return rows
 })
 
-function statusLabel(status) {
-  return getDocStatusLabel(status)
+const stats = computed(() => {
+  const rows = docStore.list || []
+  let ready = 0
+  let vectorizing = 0
+  let failed = 0
+  for (const row of rows) {
+    const s = normalizeDocStatus(row.status)
+    if (s === DOC_STATUS.COMPLETED) ready += 1
+    else if (s === DOC_STATUS.FAILED) failed += 1
+    else vectorizing += 1
+  }
+  return {
+    total: docStore.total || rows.length,
+    ready,
+    vectorizing,
+    failed
+  }
+})
+
+function isCompleted(status) {
+  return normalizeDocStatus(status) === DOC_STATUS.COMPLETED
 }
 
-/** 状态色使用全局 CSS 变量 class，禁止硬编码色值 */
-function statusClass(status) {
-  return `doc-status doc-status--${getDocStatusClassSuffix(status)}`
+function isFailed(status) {
+  return normalizeDocStatus(status) === DOC_STATUS.FAILED
+}
+
+function displayStatusLabel(status) {
+  const s = normalizeDocStatus(status)
+  const map = {
+    [DOC_STATUS.COMPLETED]: '已就绪',
+    [DOC_STATUS.PROCESSING]: '向量化中',
+    [DOC_STATUS.PENDING]: '等待中',
+    [DOC_STATUS.FAILED]: '解析失败'
+  }
+  return map[s] || '等待中'
+}
+
+function statusIconClass(status) {
+  if (isCompleted(status)) return 'status-icon--ok'
+  if (isFailed(status)) return 'status-icon--fail'
+  return 'status-icon--proc'
+}
+
+function openUploadDialog() {
+  if (!selectedKbId.value) return
+  uploadVisible.value = true
+}
+
+function onUploadDialogClosed() {
+  uploadProgress.value = 0
+}
+
+function openPreview(row) {
+  previewDoc.value = row
+  previewVisible.value = true
 }
 
 async function loadKb() {
@@ -147,7 +317,6 @@ async function loadKb() {
       docStore.clearList()
       return
     }
-    // 优先使用知识库页面选中的项；若未选中则回退首个库
     selectedKbId.value = kbStore.selectedKbId || kbStore.list[0].id
     kbStore.setSelectedKb(selectedKbId.value)
     await reloadDocs()
@@ -171,13 +340,14 @@ async function reloadDocs() {
 async function onKbChange(kbId) {
   kbStore.setSelectedKb(kbId || null)
   docStore.page = 1
+  searchKeyword.value = ''
   await reloadDocs()
 }
 
 async function onUploadSuccess() {
-  // 上传完成自动刷新列表同步最新状态
   await reloadDocs()
   uploadProgress.value = 0
+  uploadVisible.value = false
 }
 
 function onUploadFail() {
@@ -195,6 +365,7 @@ async function confirmDelete() {
   try {
     await docStore.remove(deletingId.value)
     deleteVisible.value = false
+    await reloadDocs()
   } catch (e) {
     // 全局 axios 处理
   } finally {
@@ -209,57 +380,245 @@ onMounted(() => {
 
 <style scoped>
 .doc-manage {
-  padding: 16px;
+  min-height: 100%;
+  padding: 8px 4px 24px;
+  background: var(--bg-color-page);
 }
 
-.page-header {
+.doc-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
-.page-header h2 {
+.doc-top__title {
   margin: 0;
+  font-size: 20px;
+  font-weight: 600;
   color: var(--text-color-primary);
 }
 
-.filter-bar {
-  margin-bottom: 16px;
+.doc-top__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.upload-area {
-  margin-bottom: 20px;
+.doc-top__upload-btn {
+  border-radius: 20px;
+  padding: 10px 22px;
+}
+
+.doc-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.doc-filters__kb {
+  width: 240px;
+}
+
+.doc-filters__search {
+  width: 280px;
+  max-width: 100%;
+}
+
+.doc-filters__search :deep(.el-input__wrapper) {
+  border-radius: 18px;
 }
 
 .hint {
-  margin-top: 8px;
-  font-size: 12px;
+  margin: 0;
+  font-size: 13px;
   color: var(--text-color-secondary);
 }
 
-/* 文档状态标签：颜色全部走全局 CSS 变量 */
-.doc-status {
-  border: none;
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
-.doc-status--pending {
-  color: var(--status-pending-text);
-  background: var(--status-pending-bg);
+.stat-card {
+  background: var(--bg-color-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-.doc-status--processing {
-  color: var(--status-processing-text);
-  background: var(--status-processing-bg);
+.stat-card__num {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-color-primary);
+  line-height: 1.2;
 }
 
-.doc-status--completed {
+.stat-card__num--ok {
   color: var(--status-completed-text);
-  background: var(--status-completed-bg);
 }
 
-.doc-status--failed {
+.stat-card__num--proc {
+  color: var(--color-primary);
+}
+
+.stat-card__num--fail {
   color: var(--status-failed-text);
-  background: var(--status-failed-bg);
+}
+
+.stat-card__label {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-color-secondary);
+}
+
+.list-card {
+  background: var(--bg-color-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  padding: 8px 0 12px;
+  overflow: hidden;
+}
+
+.list-head,
+.list-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) minmax(200px, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 12px 20px;
+}
+
+.list-head {
+  font-size: 13px;
+  color: var(--text-color-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.list-body {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.list-row {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.list-row:last-child {
+  border-bottom: none;
+}
+
+.list-row:hover {
+  background: var(--bg-color-page);
+}
+
+.col-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--text-color-primary);
+}
+
+.col-time {
+  font-size: 13px;
+  color: var(--text-color-regular);
+}
+
+.col-action {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.status-icon--ok {
+  color: var(--status-completed-text);
+}
+
+.status-icon--fail {
+  color: var(--status-failed-text);
+}
+
+.status-icon--proc {
+  color: var(--color-primary);
+}
+
+.ghost-btn {
+  border-radius: 16px;
+  border: 1px solid var(--color-primary);
+  color: var(--color-primary);
+  background: #fff;
+}
+
+.ghost-btn--danger {
+  border-color: var(--status-failed-text);
+  color: var(--status-failed-text);
+}
+
+.list-pagination {
+  padding: 8px 16px 0;
+}
+
+.preview-meta {
+  margin: 0;
+}
+
+.preview-meta__row {
+  display: flex;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.preview-meta__row:last-child {
+  border-bottom: none;
+}
+
+.preview-meta__row dt {
+  width: 72px;
+  margin: 0;
+  flex-shrink: 0;
+  color: var(--text-color-secondary);
+  font-size: 13px;
+}
+
+.preview-meta__row dd {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-color-primary);
+  word-break: break-all;
+}
+
+@media (max-width: 900px) {
+  .stat-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .list-head,
+  .list-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .col-action {
+    justify-content: flex-start;
+  }
 }
 </style>
