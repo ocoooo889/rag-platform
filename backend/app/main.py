@@ -1,17 +1,11 @@
 """
 FastAPI 入口（3号先注册 rag/chat；4号后续挂 CRUD 路由）
 启动：在 backend 目录执行
-  uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
-
-端口约定：
-  - FastAPI API：8001（与 frontend Vite 代理一致）
-  - Chroma 向量库：8000（勿与 API 混用）
+  uvicorn app.main:app --reload --port 8001
 """
 
 import time
 import uuid
-import sys
-import subprocess
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -58,7 +52,8 @@ Instrumentator().instrument(app).expose(app)
 
 app.include_router(rag.router, prefix="/api/rag")
 app.include_router(chat.router, prefix="/api/chat")
-# 以下路由模块自身已带完整 /api/... 前缀，勿再套一层
+
+# B 路由自带 /api 前缀，此处不再二次挂 prefix（避免双路径）
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(roles.router)
@@ -67,18 +62,20 @@ app.include_router(docs.router)
 app.include_router(models.router)
 app.include_router(user_groups.router)
 app.include_router(branding.router)
-app.include_router(dashboard.router, prefix="/api/dashboard")
+app.include_router(dashboard.router)
 
 
 @app.on_event("startup")
 async def startup():
     Path(config.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
-    # 初始化数据库种子
-    script_path = Path(__file__).resolve().parents[2] / "scripts" / "init_db.py"
-    if script_path.exists():
-        subprocess.run([sys.executable, str(script_path)], check=True)
-    else:
-        logger.warning(f"init_db.py not found at {script_path}")
+    # 与 ORM 对齐的建表 + 种子（替代旧版不一致的纯 SQL init_db）
+    try:
+        from app.db.seed import init_schema_and_seed
+
+        init_schema_and_seed()
+    except Exception as e:
+        logger.error(f"数据库初始化失败: {e}")
+        raise
 
 
 @app.get("/health")

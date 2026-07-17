@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List, Any
 from datetime import datetime
 
@@ -21,9 +21,7 @@ class RoleUpdate(RoleBase):
 
 class RoleOut(RoleBase):
     id: int
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 用户组相关
 class UserGroupBase(BaseModel):
@@ -40,9 +38,7 @@ class UserGroupUpdate(BaseModel):
 class UserGroupOut(UserGroupBase):
     id: int
     created_at: Optional[datetime] = None
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 用户相关
 class UserBase(BaseModel):
@@ -64,9 +60,7 @@ class UserOut(UserBase):
     id: int
     created_at: Optional[datetime] = None
     groups: List[UserGroupOut] = [] # V2 新增：所属用户组
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 # Token 认证相关
 class Token(BaseModel):
@@ -86,34 +80,30 @@ class KnowledgeBaseUpdate(BaseModel):
     description: Optional[str] = None
 
 class KnowledgeBaseOut(KnowledgeBaseBase):
-    id: int
+    id: str
     created_at: Optional[datetime] = None
     document_count: int = 0
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 文档相关
 class DocumentOut(BaseModel):
-    id: int
-    kb_id: int
+    id: str
+    kb_id: str
     filename: str
     file_type: str
     file_size: int
     status: str
     chunk_count: int
     created_at: Optional[datetime] = None
-    class Config:
-        from_attributes = True
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 # 用户组成员管理
 class GroupMembersAdd(BaseModel):
     user_ids: List[int]
 
-# 用户组知识库授权
+# 用户组知识库授权（知识库为字符串 ID）
 class GroupKbAccess(BaseModel):
-    kb_ids: List[int]
+    kb_ids: List[str]
 
 # 大模型配置相关
 class LLMConfigBase(BaseModel):
@@ -122,6 +112,7 @@ class LLMConfigBase(BaseModel):
     api_base_url: str
     dimension: Optional[int] = None
     is_active: bool = True
+    model_config = ConfigDict(protected_namespaces=())
 
 class LLMConfigCreate(LLMConfigBase):
     pass
@@ -132,6 +123,7 @@ class LLMConfigUpdate(BaseModel):
     api_base_url: Optional[str] = None
     dimension: Optional[int] = None
     is_active: Optional[bool] = None
+    model_config = ConfigDict(protected_namespaces=())
 
 # 系统品牌白标配置
 class BrandingConfigOut(BaseModel):

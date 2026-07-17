@@ -80,14 +80,30 @@ class Document(Base):
     chunks = relationship("Chunk", back_populates="document", cascade="all, delete-orphan")
 
 class Chunk(Base):
+    """分片元数据（与契约 / ingest 字段对齐）"""
     __tablename__ = "chunks"
     id = Column(String(50), primary_key=True, index=True)
     doc_id = Column(String(50), ForeignKey("documents.id", ondelete="CASCADE"))
-    kb_id = Column(String(50), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=True)
-    content = Column(Text)
-    chroma_id = Column(String, index=True)
-    
+    kb_id = Column(String(50), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False)
+    chunk_index = Column(Integer, nullable=False, default=0)
+    content = Column(Text, nullable=False)
+    chroma_id = Column(String, nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
     document = relationship("Document", back_populates="chunks")
+
+
+class Conversation(Base):
+    """对话历史（3号 chat 写入）"""
+    __tablename__ = "conversations"
+    id = Column(String(50), primary_key=True, index=True)
+    session_id = Column(String(100), nullable=False, index=True)
+    kb_id = Column(String(50), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=True)
+    role = Column(String(20), nullable=False)
+    content = Column(Text, nullable=False)
+    references_json = Column("references", Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class LLMConfig(Base):
     __tablename__ = "model_configs"
