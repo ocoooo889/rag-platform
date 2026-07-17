@@ -3,6 +3,16 @@
 </template>
 
 <script setup>
+import { onMounted } from 'vue'
+import { useBrandingStore } from '@/stores/branding'
+
+onMounted(async () => {
+  try {
+    await useBrandingStore().fetchBranding()
+  } catch (error) {
+    console.error('Failed to initialize branding:', error)
+  }
+})
 </script>
 
 <style>
