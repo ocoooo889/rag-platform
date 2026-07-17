@@ -24,6 +24,83 @@ _STATUS_TEXT = {
 }
 
 
+def _resolve_doc_ids(req: HitTestRequest) -> list[str]:
+    """合并 doc_id / doc_ids，去重且保序"""
+    ids: list[str] = []
+    seen: set[str] = set()
+
+    def _add(raw: str | None) -> None:
+        did = (raw or "").strip()
+        if not did or did in seen:
+            return
+        seen.add(did)
+        ids.append(did)
+
+    if req.doc_ids:
+        for item in req.doc_ids:
+            _add(item if isinstance(item, str) else str(item))
+    _add(req.doc_id)
+    return ids
+
+
+async def _retrieve_one_doc(
+    *,
+    kb_id: str,
+    doc_id: str,
+    query: str,
+    search_type: str,
+    top_n: int,
+):
+    """
+    单文档检索（保留原有准入与返回逻辑）。
+    成功返回 (None, hits)；业务失败返回 (fail_response, None)。
+    """
+    doc = get_document(doc_id)
+    if not doc or doc["kb_id"] != kb_id:
+        return fail(404, "文档不存在或不属于该知识库"), None
+
+    # V2：非 completed 不可检索 → 4002
+    if doc["status"] != "completed":
+        status_text = _STATUS_TEXT.get(doc["status"], "未就绪")
+        return (
+            fail(
+                4002,
+                f"文档「{doc['filename']}」{status_text}，请等待处理完成后再试",
+                data={"doc_id": doc_id, "status": doc["status"]},
+            ),
+            None,
+        )
+
+    rows = load_chunks_by_doc(doc_id)
+    if not rows:
+        return None, []
+
+    texts = [r["content"] for r in rows]
+    ids = [r["chroma_id"] or r["id"] for r in rows]
+    source_docs = [doc["filename"]] * len(rows)
+    doc_ids = [doc_id] * len(rows)
+
+    try:
+        hits = await RAGPipeline.retrieve_only(
+            query=query,
+            texts=texts,
+            ids=ids,
+            search_type=search_type,
+            top_n=top_n,
+            kb_id=kb_id,
+            doc_id=doc_id,
+            source_docs=source_docs,
+            doc_ids=doc_ids,
+        )
+    except Exception as e:
+        return fail(5001, f"向量库服务异常: {e}"), None
+
+    for h in hits:
+        h.setdefault("source_doc", doc["filename"])
+        h.setdefault("doc_id", doc_id)
+    return None, hits
+
+
 @router.post("/test_retrieve")
 async def test_retrieve(
     req: HitTestRequest,
@@ -32,10 +109,12 @@ async def test_retrieve(
 ):
     if not (req.kb_id or "").strip():
         return fail(400, "缺少必填参数: kb_id")
-    if not (req.doc_id or "").strip():
-        return fail(400, "缺少必填参数: doc_id")
     if not (req.query or "").strip():
         return fail(400, "缺少必填参数: query")
+
+    target_ids = _resolve_doc_ids(req)
+    if not target_ids:
+        return fail(400, "缺少必填参数: doc_id 或 doc_ids")
 
     search_type = (req.search_type or "").strip().lower()
     if search_type not in {"vector", "keyword", "hybrid"}:
@@ -47,51 +126,42 @@ async def test_retrieve(
     if not kb_exists(req.kb_id):
         return fail(404, "知识库不存在")
 
-    doc = get_document(req.doc_id)
-    if not doc or doc["kb_id"] != req.kb_id:
-        return fail(404, "文档不存在或不属于该知识库")
+    query = req.query.strip()
+    top_n = req.top_n
 
-    # V2：非 completed 不可检索 → 4002
-    if doc["status"] != "completed":
-        status_text = _STATUS_TEXT.get(doc["status"], "未就绪")
-        return fail(
-            4002,
-            f"文档「{doc['filename']}」{status_text}，请等待处理完成后再试",
-            data={"doc_id": req.doc_id, "status": doc["status"]},
+    # 单文档：行为与原先完全一致（含 404 / 4002 直接返回）
+    if len(target_ids) == 1:
+        err, hits = await _retrieve_one_doc(
+            kb_id=req.kb_id,
+            doc_id=target_ids[0],
+            query=query,
+            search_type=search_type,
+            top_n=top_n,
         )
-
-    rows = load_chunks_by_doc(req.doc_id)
-    if not rows:
+        if err is not None:
+            return err
         return ok({
             "search_type": search_type,
-            "total_hits": 0,
-            "hits": [],
+            "total_hits": len(hits),
+            "hits": hits,
         })
 
-    texts = [r["content"] for r in rows]
-    ids = [r["chroma_id"] or r["id"] for r in rows]
-    source_docs = [doc["filename"]] * len(rows)
-    doc_ids = [req.doc_id] * len(rows)
-
-    try:
-        hits = await RAGPipeline.retrieve_only(
-            query=req.query.strip(),
-            texts=texts,
-            ids=ids,
-            search_type=search_type,
-            top_n=req.top_n,
+    # 多文档：逐篇检索后按 score 合并，截断 top_n；遇 404/4002/5001 立即返回
+    merged: list[dict] = []
+    for doc_id in target_ids:
+        err, hits = await _retrieve_one_doc(
             kb_id=req.kb_id,
-            doc_id=req.doc_id,
-            source_docs=source_docs,
-            doc_ids=doc_ids,
+            doc_id=doc_id,
+            query=query,
+            search_type=search_type,
+            top_n=top_n,
         )
-    except Exception as e:
-        return fail(5001, f"向量库服务异常: {e}")
+        if err is not None:
+            return err
+        merged.extend(hits or [])
 
-    for h in hits:
-        h.setdefault("source_doc", doc["filename"])
-        h.setdefault("doc_id", req.doc_id)
-
+    merged.sort(key=lambda h: float(h.get("score") or 0), reverse=True)
+    hits = merged[:top_n]
     return ok({
         "search_type": search_type,
         "total_hits": len(hits),

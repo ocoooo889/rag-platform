@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,11 @@ from app.db.database import get_db
 from app.db.models import User
 from app.db.sqlite_helper import (
     count_docs_by_kb,
+    delete_chat_session,
+    get_session_kb_id,
     kb_exists,
+    list_chat_messages,
+    list_chat_sessions,
     load_chat_history,
     load_chunks_by_kb,
     save_conversation,
@@ -200,36 +204,147 @@ async def chat_stream(
     save_conversation(new_id("msg"), session_id, req.kb_id, "user", query, None, _now())
 
     async def event_gen():
-        yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'request_id': request_id, 'query': query}, ensure_ascii=False)}\n\n"
+        """SSE：客户端中途断开时仍尽量落库已生成内容（BUG-09）"""
         full = ""
         try:
-            async for token in token_iter:
-                full += token
-                payload = {"type": "chunk", "content": token}
-                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-        except LLMServiceError as e:
-            # 流已开始时用 chunk 推送错误文案，仍结束 done
-            err = e.message
-            full = err
-            yield f"data: {json.dumps({'type': 'chunk', 'content': err}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'request_id': request_id, 'query': query}, ensure_ascii=False)}\n\n"
+            try:
+                async for token in token_iter:
+                    full += token
+                    payload = {"type": "chunk", "content": token}
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            except LLMServiceError as e:
+                # 流已开始时用 chunk 推送错误文案，仍结束 done
+                err = e.message
+                full = err
+                yield f"data: {json.dumps({'type': 'chunk', 'content': err}, ensure_ascii=False)}\n\n"
 
-        save_conversation(
-            new_id("msg"), session_id, req.kb_id, "assistant", full,
-            json.dumps(refs, ensure_ascii=False), _now(),
-        )
-        done = {
-            "type": "done",
-            "content": "",
-            "query": query,
-            "references": [
-                {
-                    "chunk_id": r.get("chunk_id"),
-                    "content": r.get("content"),
-                    "score": r.get("score"),
-                }
-                for r in refs
-            ],
-        }
-        yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+            done = {
+                "type": "done",
+                "content": "",
+                "query": query,
+                "references": [
+                    {
+                        "chunk_id": r.get("chunk_id"),
+                        "content": r.get("content"),
+                        "score": r.get("score"),
+                    }
+                    for r in refs
+                ],
+            }
+            yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+        finally:
+            # 正常结束或客户端断连，都保存当前已生成内容
+            save_conversation(
+                new_id("msg"),
+                session_id,
+                req.kb_id,
+                "assistant",
+                full,
+                json.dumps(refs, ensure_ascii=False),
+                _now(),
+            )
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
+
+
+def _parse_references(raw) -> list | None:
+    """解析 messages.references JSON；无值或非法时返回 None（不出现在 user 消息）"""
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, list):
+        return raw
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, list) else None
+    except (TypeError, json.JSONDecodeError):
+        return None
+
+
+@router.get("/sessions")
+async def chat_sessions(
+    kb_id: str = Query(..., description="知识库 ID"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """GET /api/chat/sessions — 按知识库分页列出会话"""
+    kb_id = (kb_id or "").strip()
+    if not kb_id:
+        return fail(400, "缺少必填参数: kb_id")
+
+    await require_kb_access(kb_id, current_user, db)
+
+    if not kb_exists(kb_id):
+        return fail(404, "知识库不存在")
+
+    items, total = list_chat_sessions(kb_id, page=page, page_size=page_size)
+    return ok({
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    })
+
+
+@router.get("/sessions/{session_id}/messages")
+async def chat_session_messages(
+    session_id: str,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """GET /api/chat/sessions/{session_id}/messages — 会话消息历史"""
+    session_id = (session_id or "").strip()
+    if not session_id:
+        return fail(400, "缺少必填参数: session_id")
+
+    kb_id = get_session_kb_id(session_id)
+    if not kb_id:
+        return fail(404, "会话不存在")
+
+    await require_kb_access(kb_id, current_user, db)
+
+    rows, total = list_chat_messages(session_id, page=page, page_size=page_size)
+    items = []
+    for r in rows:
+        item = {
+            "id": r["id"],
+            "role": r["role"],
+            "content": r["content"],
+            "created_at": r["created_at"],
+        }
+        refs = _parse_references(r["references"] if "references" in r.keys() else None)
+        if refs is not None and r["role"] == "assistant":
+            item["references"] = refs
+        items.append(item)
+
+    return ok({
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    })
+
+
+@router.delete("/sessions/{session_id}")
+async def chat_session_delete(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """DELETE /api/chat/sessions/{session_id} — 删除会话（级联删除消息）"""
+    session_id = (session_id or "").strip()
+    if not session_id:
+        return fail(400, "缺少必填参数: session_id")
+
+    kb_id = get_session_kb_id(session_id)
+    if not kb_id:
+        return fail(404, "会话不存在")
+
+    await require_kb_access(kb_id, current_user, db)
+
+    delete_chat_session(session_id)
+    return ok(None)
