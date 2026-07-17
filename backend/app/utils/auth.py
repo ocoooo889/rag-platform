@@ -11,7 +11,7 @@ from app.db.database import get_db
 from app.db.models import User
 
 # JWT 配置项，从环境变量读取，带兜底值
-SECRET_KEY = os.getenv("SECRET_KEY", "your_secret_key_here")
+SECRET_KEY = os.getenv("JWT_SECRET", "rag-platform-secret-key-change-in-production")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
