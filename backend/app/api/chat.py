@@ -204,37 +204,46 @@ async def chat_stream(
     save_conversation(new_id("msg"), session_id, req.kb_id, "user", query, None, _now())
 
     async def event_gen():
-        yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'request_id': request_id, 'query': query}, ensure_ascii=False)}\n\n"
+        """SSE：客户端中途断开时仍尽量落库已生成内容（BUG-09）"""
         full = ""
         try:
-            async for token in token_iter:
-                full += token
-                payload = {"type": "chunk", "content": token}
-                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-        except LLMServiceError as e:
-            # 流已开始时用 chunk 推送错误文案，仍结束 done
-            err = e.message
-            full = err
-            yield f"data: {json.dumps({'type': 'chunk', 'content': err}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'request_id': request_id, 'query': query}, ensure_ascii=False)}\n\n"
+            try:
+                async for token in token_iter:
+                    full += token
+                    payload = {"type": "chunk", "content": token}
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            except LLMServiceError as e:
+                # 流已开始时用 chunk 推送错误文案，仍结束 done
+                err = e.message
+                full = err
+                yield f"data: {json.dumps({'type': 'chunk', 'content': err}, ensure_ascii=False)}\n\n"
 
-        save_conversation(
-            new_id("msg"), session_id, req.kb_id, "assistant", full,
-            json.dumps(refs, ensure_ascii=False), _now(),
-        )
-        done = {
-            "type": "done",
-            "content": "",
-            "query": query,
-            "references": [
-                {
-                    "chunk_id": r.get("chunk_id"),
-                    "content": r.get("content"),
-                    "score": r.get("score"),
-                }
-                for r in refs
-            ],
-        }
-        yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+            done = {
+                "type": "done",
+                "content": "",
+                "query": query,
+                "references": [
+                    {
+                        "chunk_id": r.get("chunk_id"),
+                        "content": r.get("content"),
+                        "score": r.get("score"),
+                    }
+                    for r in refs
+                ],
+            }
+            yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+        finally:
+            # 正常结束或客户端断连，都保存当前已生成内容
+            save_conversation(
+                new_id("msg"),
+                session_id,
+                req.kb_id,
+                "assistant",
+                full,
+                json.dumps(refs, ensure_ascii=False),
+                _now(),
+            )
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
 
