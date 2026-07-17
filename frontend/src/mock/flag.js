@@ -1,9 +1,12 @@
 /**
- * Mock 开关：VITE_MOCK_OPEN=true 时走模拟数据
- * 与业务 status 字段无关，仅控制请求分支
+ * Mock 开关（测试报告 LUO-D02）
+ * 主开关：VITE_USE_MOCK=true 才开启；兼容历史变量 VITE_MOCK_OPEN
+ * 默认关闭，避免误以为已联调真实后端
  */
 export function isMockOpen() {
-  return String(import.meta.env.VITE_MOCK_OPEN || '').toLowerCase() === 'true'
+  const useMock = String(import.meta.env.VITE_USE_MOCK || '').toLowerCase() === 'true'
+  const legacy = String(import.meta.env.VITE_MOCK_OPEN || '').toLowerCase() === 'true'
+  return useMock || legacy
 }
 
 /** 统一成功体，对齐契约 { code, msg, data } */

@@ -16,8 +16,8 @@ function assert(cond, msg) {
 }
 
 async function main() {
-  console.log('[smoke] VITE_MOCK_OPEN =>', isMockOpen())
-  assert(isMockOpen() === true, '请确保 .env.development 中 VITE_MOCK_OPEN=true')
+  console.log('[smoke] VITE_USE_MOCK/isMockOpen =>', isMockOpen())
+  assert(isMockOpen() === true, '请确保 .env.development 中 VITE_USE_MOCK=true')
 
   // 1) 登录
   const login = await loginApi({ username: 'admin', password: 'admin123' })

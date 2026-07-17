@@ -93,6 +93,39 @@ npm run dev
 
 默认管理员账号：`admin` / `admin123`
 
+## 前端联调环境变量（feature/luoyue-knowledge-base）
+
+> 对应测试报告验收项：`VITE_USE_MOCK` / `VITE_API_PROXY`（LUO-D01 / LUO-D02）
+
+| 变量 | 含义 | 示例 |
+|------|------|------|
+| `VITE_USE_MOCK` | `true` 走应用层 Mock；`false` 走真实后端 | `true` / `false` |
+| `VITE_API_PROXY` | Vite 开发代理目标（**默认 8001，勿用 8000 Chroma**） | `http://127.0.0.1:8001` |
+| `VITE_API_BASE_URL` | Axios `baseURL`；直连后端时填写 | `http://127.0.0.1:8001` |
+| `VITE_DEV_PORT` | 开发端口，默认 5173；并行可用 5174 | `5173` |
+
+```bash
+cd frontend
+
+# Mock 模式（本地无后端也可演示）
+# .env.development 中 VITE_USE_MOCK=true
+npm run dev
+
+# 真实后端联调（代理 → 8001）
+# VITE_USE_MOCK=false
+# VITE_API_PROXY=http://127.0.0.1:8001
+npm run dev
+
+# 多前端并行（端口 5174 + 后端可改 8012）
+# VITE_API_PROXY=http://127.0.0.1:8012
+npm run dev -- --port 5174
+
+# Mock 冒烟
+npm run smoke:mock
+```
+
+兼容旧变量名：`VITE_MOCK_OPEN`（等同 `VITE_USE_MOCK`）、`VITE_API_PROXY_TARGET`（等同 `VITE_API_PROXY`）。
+
 ## 项目结构
 
 ```

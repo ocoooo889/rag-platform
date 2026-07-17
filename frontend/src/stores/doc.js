@@ -39,6 +39,7 @@ export const useDocStore = defineStore('doc', () => {
         ...extra
       })
       const raw = res.data
+      // [LUO-A02] 兼容 Mock items / yulin list / 直接数组
       list.value = Array.isArray(raw) ? raw : raw?.items || raw?.list || []
       total.value = Array.isArray(raw) ? raw.length : raw?.total || list.value.length
       return list.value

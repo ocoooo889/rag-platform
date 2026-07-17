@@ -1,6 +1,6 @@
 /**
  * 命中率测试 Pinia Store
- * UI 状态：loading / empty / error + 三模式 Tab
+ * [LUO-A01/R3] 多选文档时循环调用单 doc_id 接口，合并 data.hits
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
@@ -10,11 +10,10 @@ export const useHitTestStore = defineStore('hitTest', () => {
   const kbId = ref(null)
   const docIds = ref([])
   const query = ref('')
-  /** 检索模式（UI Tab）；请求时映射为契约字段 search_type */
+  /** UI Tab 模式，请求字段为 search_type（非 mode） */
   const searchType = ref('hybrid')
   const topN = ref(3)
   const results = ref([])
-  /** 页面请求态（非后端业务字段） */
   const loading = ref(false)
   const hasSearched = ref(false)
   const errorMsg = ref('')
@@ -54,6 +53,7 @@ export const useHitTestStore = defineStore('hitTest', () => {
         return results.value
       }
 
+      // [LUO-A01] 后端仅支持单个 doc_id：前端循环调用后按 score 合并
       const settled = await Promise.allSettled(
         ids.map((docId) =>
           testRetrieve({
@@ -71,6 +71,7 @@ export const useHitTestStore = defineStore('hitTest', () => {
       for (const item of settled) {
         if (item.status === 'fulfilled') {
           const data = item.value?.data || {}
+          // 契约主字段 hits；items 仅作历史兼容兜底
           merged = merged.concat(data.hits || data.items || [])
         } else if (!firstError) {
           firstError = item.reason
@@ -104,7 +105,7 @@ export const useHitTestStore = defineStore('hitTest', () => {
     docIds,
     query,
     searchType,
-    /** 同 searchType，兼容页面旧绑定名 mode */
+    /** @deprecated 使用 searchType；保留别名避免页面破坏 */
     mode: searchType,
     topN,
     results,

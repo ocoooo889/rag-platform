@@ -1,5 +1,5 @@
 /**
- * Mock 异常场景触发器（仅 VITE_MOCK_OPEN=true）
+ * Mock 异常场景触发器（仅 VITE_USE_MOCK=true）
  * 通过 query / 专用文档状态触发，字段与契约异常码一致
  *
  * | 触发词（写入测试问题） | 效果 |
