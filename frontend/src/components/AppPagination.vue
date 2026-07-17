@@ -1,6 +1,6 @@
 <template>
-  <!-- 全局分页器：复用 Element Plus，统一事件对外抛出 -->
-  <div class="app-pagination" v-if="total > 0">
+  <!-- 全局分页器：复用 Element Plus；showEmpty 时 total=0 也显示（文档管理空列表） -->
+  <div class="app-pagination" v-if="total > 0 || showEmpty">
     <el-pagination
       background
       layout="total, prev, pager, next, sizes"
@@ -19,7 +19,9 @@ defineProps({
   total: { type: Number, default: 0 },
   page: { type: Number, default: 1 },
   pageSize: { type: Number, default: 10 },
-  pageSizes: { type: Array, default: () => [10, 20, 50] }
+  pageSizes: { type: Array, default: () => [10, 20, 50] },
+  /** 无数据时仍展示分页栏（避免批量删光后底栏消失） */
+  showEmpty: { type: Boolean, default: false }
 })
 
 const emit = defineEmits(['update:page', 'update:pageSize', 'change'])

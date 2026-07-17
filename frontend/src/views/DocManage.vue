@@ -11,6 +11,15 @@
             同步状态
           </el-button>
           <el-button
+            type="danger"
+            plain
+            :disabled="!selectedKbId || !selectedIds.length"
+            :loading="batchDeleting"
+            @click="openBatchDelete"
+          >
+            批量删除{{ selectedIds.length ? `（${selectedIds.length}）` : '' }}
+          </el-button>
+          <el-button
             type="primary"
             class="doc-top__upload-btn"
             :disabled="!selectedKbId"
@@ -69,76 +78,88 @@
           </div>
         </div>
 
-        <!-- 文档列表卡片 -->
+        <!-- 文档列表卡片：空列表时仍保留表头 + 分页 -->
         <section class="list-card">
+          <div class="list-head">
+            <span class="col-check">
+              <el-checkbox
+                :model-value="isAllSelected"
+                :indeterminate="isIndeterminate"
+                :disabled="!filteredList.length"
+                @change="toggleSelectAll"
+              />
+            </span>
+            <span class="col-name">文档名称</span>
+            <span class="col-time">上传时间</span>
+            <span class="col-action">操作</span>
+          </div>
+
           <EmptyState
             v-if="!filteredList.length && !docStore.loading"
             type="doc"
             tip="暂无文档，请点击右上角上传"
           />
 
-          <template v-else>
-            <div class="list-head">
-              <span class="col-name">文档名称</span>
-              <span class="col-time">上传时间</span>
-              <span class="col-action">操作</span>
-            </div>
+          <ul v-else class="list-body">
+            <li v-for="row in filteredList" :key="row.id" class="list-row">
+              <div class="col-check">
+                <el-checkbox
+                  :model-value="selectedIds.includes(String(row.id))"
+                  @change="(val) => toggleSelect(row.id, val)"
+                />
+              </div>
+              <div class="col-name">
+                <el-icon
+                  class="status-icon"
+                  :class="[statusIconClass(row.status), { 'is-loading': !isCompleted(row.status) && !isFailed(row.status) }]"
+                  :size="16"
+                >
+                  <CircleCheck v-if="isCompleted(row.status)" />
+                  <WarningFilled v-else-if="isFailed(row.status)" />
+                  <Loading v-else />
+                </el-icon>
+                <span class="file-name" :title="row.filename || row.file_name">
+                  {{ row.filename || row.file_name || row.id }}
+                </span>
+              </div>
+              <div class="col-time">
+                {{ formatDate(row.uploaded_at || row.created_at, 'datetime') }}
+              </div>
+              <div class="col-action">
+                <el-button
+                  class="ghost-btn"
+                  size="small"
+                  @click="openPreview(row)"
+                >
+                  查看
+                </el-button>
+                <el-button
+                  v-if="isFailed(row.status)"
+                  class="ghost-btn ghost-btn--danger"
+                  size="small"
+                  disabled
+                >
+                  解析失败
+                </el-button>
+                <el-button
+                  class="ghost-btn ghost-btn--danger"
+                  size="small"
+                  @click="openDelete(row)"
+                >
+                  删除
+                </el-button>
+              </div>
+            </li>
+          </ul>
 
-            <ul class="list-body">
-              <li v-for="row in filteredList" :key="row.id" class="list-row">
-                <div class="col-name">
-                  <el-icon
-                    class="status-icon"
-                    :class="[statusIconClass(row.status), { 'is-loading': !isCompleted(row.status) && !isFailed(row.status) }]"
-                    :size="16"
-                  >
-                    <CircleCheck v-if="isCompleted(row.status)" />
-                    <WarningFilled v-else-if="isFailed(row.status)" />
-                    <Loading v-else />
-                  </el-icon>
-                  <span class="file-name" :title="row.filename || row.file_name">
-                    {{ row.filename || row.file_name || row.id }}
-                  </span>
-                </div>
-                <div class="col-time">
-                  {{ formatDate(row.uploaded_at || row.created_at, 'datetime') }}
-                </div>
-                <div class="col-action">
-                  <el-button
-                    class="ghost-btn"
-                    size="small"
-                    @click="openPreview(row)"
-                  >
-                    查看
-                  </el-button>
-                  <el-button
-                    v-if="isFailed(row.status)"
-                    class="ghost-btn ghost-btn--danger"
-                    size="small"
-                    disabled
-                  >
-                    解析失败
-                  </el-button>
-                  <el-button
-                    class="ghost-btn ghost-btn--danger"
-                    size="small"
-                    @click="openDelete(row)"
-                  >
-                    删除
-                  </el-button>
-                </div>
-              </li>
-            </ul>
-
-            <AppPagination
-              v-if="docStore.total > 0"
-              class="list-pagination"
-              :total="docStore.total"
-              v-model:page="docStore.page"
-              v-model:page-size="docStore.pageSize"
-              @change="reloadDocs"
-            />
-          </template>
+          <AppPagination
+            class="list-pagination"
+            show-empty
+            :total="docStore.total"
+            v-model:page="docStore.page"
+            v-model:page-size="docStore.pageSize"
+            @change="reloadDocs"
+          />
         </section>
       </template>
     </template>
@@ -198,16 +219,17 @@
 
     <ConfirmDialog
       v-model="deleteVisible"
-      title="删除文档"
-      message="确认删除该文档？删除后向量数据不可恢复。"
-      :loading="deleting"
+      :title="batchMode ? '批量删除文档' : '删除文档'"
+      :message="deleteMessage"
+      :loading="deleting || batchDeleting"
       @confirm="confirmDelete"
     />
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import {
   CircleCheck,
   Loading,
@@ -237,6 +259,9 @@ const previewDoc = ref(null)
 const deleteVisible = ref(false)
 const deleting = ref(false)
 const deletingId = ref(null)
+const selectedIds = ref([])
+const batchMode = ref(false)
+const batchDeleting = ref(false)
 
 const hasKb = computed(() => kbStore.list.length > 0)
 
@@ -249,6 +274,33 @@ const filteredList = computed(() => {
     )
   }
   return rows
+})
+
+const filteredIds = computed(() =>
+  filteredList.value.map((row) => String(row.id))
+)
+
+const isAllSelected = computed(
+  () =>
+    filteredIds.value.length > 0 &&
+    filteredIds.value.every((id) => selectedIds.value.includes(id))
+)
+
+const isIndeterminate = computed(() => {
+  const n = filteredIds.value.filter((id) => selectedIds.value.includes(id)).length
+  return n > 0 && n < filteredIds.value.length
+})
+
+const deleteMessage = computed(() => {
+  if (batchMode.value) {
+    return `确认删除选中的 ${selectedIds.value.length} 个文档？删除后向量数据不可恢复。`
+  }
+  return '确认删除该文档？删除后向量数据不可恢复。'
+})
+
+watch(filteredList, () => {
+  const valid = new Set(filteredIds.value)
+  selectedIds.value = selectedIds.value.filter((id) => valid.has(id))
 })
 
 const stats = computed(() => {
@@ -341,6 +393,7 @@ async function onKbChange(kbId) {
   kbStore.setSelectedKb(kbId || null)
   docStore.page = 1
   searchKeyword.value = ''
+  selectedIds.value = []
   await reloadDocs()
 }
 
@@ -354,22 +407,76 @@ function onUploadFail() {
   uploadProgress.value = 0
 }
 
+function toggleSelect(id, checked) {
+  const sid = String(id)
+  if (checked) {
+    if (!selectedIds.value.includes(sid)) selectedIds.value.push(sid)
+  } else {
+    selectedIds.value = selectedIds.value.filter((x) => x !== sid)
+  }
+}
+
+function toggleSelectAll(checked) {
+  if (checked) {
+    selectedIds.value = [...new Set([...selectedIds.value, ...filteredIds.value])]
+  } else {
+    const removeSet = new Set(filteredIds.value)
+    selectedIds.value = selectedIds.value.filter((id) => !removeSet.has(id))
+  }
+}
+
 function openDelete(row) {
+  batchMode.value = false
   deletingId.value = row.id
   deleteVisible.value = true
 }
 
+function openBatchDelete() {
+  if (!selectedIds.value.length) {
+    ElMessage.warning('请先勾选要删除的文档')
+    return
+  }
+  batchMode.value = true
+  deletingId.value = null
+  deleteVisible.value = true
+}
+
 async function confirmDelete() {
-  if (!deletingId.value) return
   deleting.value = true
+  batchDeleting.value = batchMode.value
   try {
-    await docStore.remove(deletingId.value)
-    deleteVisible.value = false
-    await reloadDocs()
+    if (batchMode.value) {
+      const ids = [...selectedIds.value]
+      const result = await docStore.removeBatch(ids)
+      selectedIds.value = []
+      deleteVisible.value = false
+      if (result.fail) {
+        ElMessage.warning(`成功删除 ${result.ok} 个，失败 ${result.fail} 个`)
+      } else {
+        ElMessage.success(`已删除 ${result.ok} 个文档`)
+      }
+      // 删光后回到第 1 页，分页栏仍显示 Total 0
+      if (docStore.total === 0) {
+        docStore.page = 1
+      }
+    } else {
+      if (!deletingId.value) return
+      await docStore.remove(deletingId.value)
+      selectedIds.value = selectedIds.value.filter(
+        (id) => id !== String(deletingId.value)
+      )
+      deleteVisible.value = false
+      if (docStore.total === 0) {
+        docStore.page = 1
+      }
+    }
   } catch (e) {
     // 全局 axios 处理
   } finally {
     deleting.value = false
+    batchDeleting.value = false
+    batchMode.value = false
+    deletingId.value = null
   }
 }
 
@@ -491,10 +598,16 @@ onMounted(() => {
 .list-head,
 .list-row {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(140px, 1fr) minmax(200px, 1fr);
+  grid-template-columns: 36px minmax(0, 2fr) minmax(140px, 1fr) minmax(200px, 1fr);
   gap: 12px;
   align-items: center;
   padding: 12px 20px;
+}
+
+.col-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .list-head {
