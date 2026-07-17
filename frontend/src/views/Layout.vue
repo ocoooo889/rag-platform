@@ -31,10 +31,11 @@
           <el-icon><Monitor /></el-icon>
           <span>大模型管理</span>
         </el-menu-item>
-        <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
+        <!-- 品牌配置页面暂不显示，后续需要时取消注释 -->
+        <!-- <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
           <el-icon><Setting /></el-icon>
           <span>品牌配置</span>
-        </el-menu-item>
+        </el-menu-item> -->
         <el-menu-item v-if="canSeeMenu('/knowledge-bases')" index="/knowledge-bases">
           <el-icon><Folder /></el-icon>
           <span>知识库管理</span>

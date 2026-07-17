@@ -114,6 +114,8 @@ const handleLogin = async () => {
     router.push(redirectPath)
   } catch (error) {
     console.error(error)
+    const errorMsg = error.response?.data?.message || error.response?.data?.msg || error.message || '登录失败，请检查账号密码'
+    ElMessage.error(errorMsg)
   } finally {
     loading.value = false
   }
