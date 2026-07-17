@@ -9,12 +9,6 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.db.database import get_db
-from app.utils.auth import get_current_user
-from app.utils.permission import require_kb_access
-from app.db.models import User
-
-
 from app import config
 from app.db.database import get_db
 from app.db.models import User
@@ -90,16 +84,11 @@ def _prepare_chunk_rows(kb_id: str):
 
 
 @router.post("/send")
-
-async def chat_send(req: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    await require_kb_access(req.kb_id, user, db)
-
 async def chat_send(
     req: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-
     if not (req.kb_id or "").strip():
         return fail(400, "缺少必填参数: kb_id")
     if not (req.query or "").strip():
@@ -160,16 +149,11 @@ async def chat_send(
 
 
 @router.post("/stream")
-
-async def chat_stream(req: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    await require_kb_access(req.kb_id, user, db)
-
 async def chat_stream(
     req: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-
     if not (req.kb_id or "").strip():
         return fail(400, "缺少必填参数: kb_id")
     if not (req.query or "").strip():

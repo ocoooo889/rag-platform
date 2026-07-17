@@ -6,8 +6,6 @@ FastAPI 入口（3号先注册 rag/chat；4号后续挂 CRUD 路由）
 
 import time
 import uuid
-import sys
-import subprocess
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -55,6 +53,7 @@ Instrumentator().instrument(app).expose(app)
 app.include_router(rag.router, prefix="/api/rag")
 app.include_router(chat.router, prefix="/api/chat")
 
+# B 路由自带 /api 前缀，此处不再二次挂 prefix（避免双路径）
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(roles.router)
@@ -65,26 +64,18 @@ app.include_router(user_groups.router)
 app.include_router(branding.router)
 app.include_router(dashboard.router)
 
-app.include_router(auth.router, prefix="/api/auth")
-app.include_router(users.router, prefix="/api/users")
-app.include_router(roles.router, prefix="/api/roles")
-app.include_router(kb.router, prefix="/api/knowledge-bases")
-app.include_router(docs.router, prefix="/api/docs")
-app.include_router(models.router, prefix="/api/models")
-app.include_router(user_groups.router, prefix="/api/user-groups")
-app.include_router(branding.router, prefix="/api/system/branding")
-app.include_router(dashboard.router, prefix="/api/dashboard")
-
 
 @app.on_event("startup")
 async def startup():
     Path(config.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
-    # 初始化数据库种子
-    script_path = Path(__file__).resolve().parents[2] / "scripts" / "init_db.py"
-    if script_path.exists():
-        subprocess.run([sys.executable, str(script_path)], check=True)
-    else:
-        logger.warning(f"init_db.py not found at {script_path}")
+    # 与 ORM 对齐的建表 + 种子（替代旧版不一致的纯 SQL init_db）
+    try:
+        from app.db.seed import init_schema_and_seed
+
+        init_schema_and_seed()
+    except Exception as e:
+        logger.error(f"数据库初始化失败: {e}")
+        raise
 
 
 @app.get("/health")
