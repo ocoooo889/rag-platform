@@ -1,0 +1,92 @@
+"""
+FastAPI 入口（3号先注册 rag/chat；4号后续挂 CRUD 路由）
+启动：在 backend 目录执行
+  uvicorn app.main:app --reload --port 8001
+"""
+
+import time
+import uuid
+from pathlib import Path
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
+
+from app import config
+from app.api import (
+    chat, rag, auth, users, roles, kb, docs, models, user_groups, branding, dashboard
+)
+from app.utils.logger import logger, request_id_var, action_var
+
+app = FastAPI(title="智能 RAG 平台 API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    req_id = str(uuid.uuid4())
+    request_id_var.set(req_id)
+    action_var.set(f"{request.method} {request.url.path}")
+    
+    start_time = time.time()
+    response = await call_next(request)
+    duration_ms = (time.time() - start_time) * 1000
+    
+    logger.info(
+        f"{request.method} {request.url.path} - {response.status_code}",
+        extra={
+            "duration_ms": round(duration_ms, 2),
+            "request_id": req_id
+        }
+    )
+    return response
+
+# 挂载 Prometheus 监控
+Instrumentator().instrument(app).expose(app)
+
+app.include_router(rag.router, prefix="/api/rag")
+app.include_router(chat.router, prefix="/api/chat")
+
+# B 路由自带 /api 前缀，此处不再二次挂 prefix（避免双路径）
+app.include_router(auth.router)
+app.include_router(users.router)
+app.include_router(roles.router)
+app.include_router(kb.router)
+app.include_router(docs.router)
+app.include_router(models.router)
+app.include_router(user_groups.router)
+app.include_router(branding.router)
+app.include_router(dashboard.router)
+
+
+@app.on_event("startup")
+async def startup():
+    Path(config.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
+    # 与 ORM 对齐的建表 + 种子（替代旧版不一致的纯 SQL init_db）
+    try:
+        from app.db.seed import init_schema_and_seed
+
+        init_schema_and_seed()
+    except Exception as e:
+        logger.error(f"数据库初始化失败: {e}")
+        raise
+
+
+@app.get("/health")
+@app.get("/api/health")
+async def health():
+    return {
+        "code": 0,
+        "msg": "success",
+        "data": {
+            "status": "ok",
+            "env": config.ENV,
+            "collection": config.CHROMA_COLLECTION_NAME,
+        },
+    }
