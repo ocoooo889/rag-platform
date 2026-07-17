@@ -1,9 +1,12 @@
 /**
- * 智能对话会话接口
+ * 智能对话会话接口（前端 B）
  * Mock / Real 双分支；SSE 经 runSSE 通用钩子（页面无感知）
+ *
+ * [LUO-F03] 真后端目前仅有 send/stream。默认不请求 session CRUD，避免 404；
+ * 仅 stream/send。后端补齐会话 API 后设 VITE_CHAT_SESSION_API=true 再开启。
  */
 import request, { API_BASE_URL, getToken, getEnvTag } from '@/utils/request'
-import { isMockOpen, mockResolve } from '@/mock/flag'
+import { MOCK_OPEN, mockResolve } from '@/mock/flag'
 import {
   mockSessions,
   mockMessagesBySession,
@@ -14,9 +17,22 @@ import {
 import { matchMockScenario } from '@/mock/scenarios'
 import { runSSE, closeSSE, createSSEController } from '@/composables/useSSE'
 
+/** 是否允许打真实会话 CRUD（默认 false = 本地会话降级） */
+export function isChatSessionApiEnabled() {
+  return String(import.meta.env.VITE_CHAT_SESSION_API || '').toLowerCase() === 'true'
+}
+
+function rejectSessionApiUnavailable() {
+  return Promise.reject({
+    code: 404,
+    msg: '会话历史接口未启用，已使用本地会话',
+    data: { localOnly: true }
+  })
+}
+
 /** 创建会话 */
 export async function createChatSession(data = {}) {
-  if (isMockOpen()) {
+  if (MOCK_OPEN()) {
     const sessionId = nextMockId('s')
     const row = {
       session_id: sessionId,
@@ -29,12 +45,16 @@ export async function createChatSession(data = {}) {
     mockMessagesBySession[sessionId] = []
     return mockResolve({ session_id: sessionId })
   }
+  // [LUO-F03] 关 Mock 默认不打不存在的 session 接口
+  if (!isChatSessionApiEnabled()) {
+    return rejectSessionApiUnavailable()
+  }
   return request.post('/api/chat/session', data, { silent: true })
 }
 
 /** 获取会话列表 */
 export async function fetchChatSessions(params = {}) {
-  if (isMockOpen()) {
+  if (MOCK_OPEN()) {
     let items = [...mockSessions]
     if (params.kb_id) {
       items = items.filter((s) => String(s.kb_id) === String(params.kb_id))
@@ -48,12 +68,15 @@ export async function fetchChatSessions(params = {}) {
       page_size: pageSize
     })
   }
+  if (!isChatSessionApiEnabled()) {
+    return rejectSessionApiUnavailable()
+  }
   return request.get('/api/chat/sessions', { params, silent: true })
 }
 
 /** 获取会话历史 */
 export async function fetchChatMessages(sessionId) {
-  if (isMockOpen()) {
+  if (MOCK_OPEN()) {
     const items = mockMessagesBySession[String(sessionId)] || []
     return mockResolve({
       items,
@@ -62,6 +85,9 @@ export async function fetchChatMessages(sessionId) {
       page_size: 50
     })
   }
+  if (!isChatSessionApiEnabled()) {
+    return rejectSessionApiUnavailable()
+  }
   return request
     .get(`/api/chat/sessions/${sessionId}/messages`, { silent: true })
     .catch(() => request.get(`/api/chat/${sessionId}/messages`, { silent: true }))
@@ -69,12 +95,15 @@ export async function fetchChatMessages(sessionId) {
 
 /** 删除会话 */
 export async function deleteChatSession(sessionId) {
-  if (isMockOpen()) {
+  if (MOCK_OPEN()) {
     const sid = String(sessionId)
     const idx = mockSessions.findIndex((s) => String(s.session_id) === sid)
     if (idx !== -1) mockSessions.splice(idx, 1)
     delete mockMessagesBySession[sid]
     return mockResolve(null)
+  }
+  if (!isChatSessionApiEnabled()) {
+    return rejectSessionApiUnavailable()
   }
   return request
     .delete(`/api/chat/sessions/${sessionId}`, { silent: true })
@@ -97,14 +126,19 @@ export async function streamChat(payload, handlers = {}) {
     body.session_id = String(payload.session_id)
   }
 
-  const scenario = isMockOpen() ? matchMockScenario(body.query) : null
+  const scenario = MOCK_OPEN() ? matchMockScenario(body.query) : null
   let errorScenario = null
   if (scenario === 'timeout') errorScenario = 'timeout'
   if (scenario === 'llm_error') errorScenario = 'llm_error'
 
+  // [LUO-F02] baseURL 为空时用相对路径，走 Vite 代理
+  const streamUrl = API_BASE_URL
+    ? `${API_BASE_URL}/api/chat/stream`
+    : '/api/chat/stream'
+
   return runSSE({
     payload: body,
-    url: `${API_BASE_URL}/api/chat/stream`,
+    url: streamUrl,
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

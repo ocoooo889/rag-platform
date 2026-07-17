@@ -38,7 +38,7 @@ export const useKbStore = defineStore('kb', () => {
         ...extra
       })
       const raw = res.data
-      // [LUO-A02] 兼容 Mock items / yulin list / 直接数组
+      // api/kb 已归一为 { items, total }；仍兜底数组 / list
       list.value = Array.isArray(raw) ? raw : raw?.items || raw?.list || []
       total.value = Array.isArray(raw) ? raw.length : raw?.total || list.value.length
       // 当前选中知识库不存在时，回退到首个知识库

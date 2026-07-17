@@ -1,6 +1,6 @@
 /**
- * 契约对齐 Mock 数据集（1:1 字段）
- * 仅在 VITE_MOCK_OPEN=true 时使用；禁止写入真实请求路径
+ * 契约对齐 Mock 数据集（前端 B）
+ * 仅在 MOCK_OPEN() / VITE_USE_MOCK=true 时使用；禁止写入真实请求路径
  */
 import { DOC_STATUS } from '@/utils/docStatus'
 

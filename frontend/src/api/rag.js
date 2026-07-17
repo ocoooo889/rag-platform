@@ -1,23 +1,20 @@
 /**
- * 命中率测试检索接口
- * [LUO-A01/R3] 方案1：前端适配后端 A 契约
- *   入参：kb_id + 单个 doc_id + search_type + query + top_n
- *   出参：data.hits / data.total_hits（不再使用 doc_ids / mode / items）
+ * 命中率测试（前端 B）— if (MOCK_OPEN()) 双分支
+ * 后端 A：POST /api/rag/test_retrieve
+ * 入参：kb_id, doc_id, search_type(vector|keyword|hybrid), query, top_n
+ * 出参：search_type, total_hits, hits[{ chunk_id, content, score, source_doc, doc_id }]
  */
 import request from '@/utils/request'
-import { isMockOpen, mockResolve, mockReject } from '@/mock/flag'
+import { MOCK_OPEN, mockResolve, mockReject } from '@/mock/flag'
 import { matchMockScenario, mockScenarioReject } from '@/mock/scenarios'
 import { buildRetrieveMockData } from '@/mock/rag.mock'
 import { mockDocList } from '@/mock/data'
 import { DOC_STATUS, normalizeDocStatus } from '@/utils/docStatus'
 
 /**
- * 单文档检索（后端 A：POST /api/rag/test_retrieve）
- * 多文档由 store 循环调用本方法后合并 hits
- * @param {{ kb_id: string, doc_id: string, search_type: string, query: string, top_n: number }} data
+ * 单文档检索；多文档由 hitTest store 限流循环调用
  */
 export async function testRetrieve(data) {
-  // 契约字段强制归一：禁止再传 doc_ids / mode
   const body = {
     kb_id: String(data.kb_id),
     doc_id: String(data.doc_id),
@@ -26,7 +23,7 @@ export async function testRetrieve(data) {
     top_n: data.top_n
   }
 
-  if (isMockOpen()) {
+  if (MOCK_OPEN()) {
     if (!body.kb_id || !body.doc_id || !(body.query || '').trim()) {
       return mockReject(400, '缺少必填参数')
     }
@@ -65,6 +62,6 @@ export async function testRetrieve(data) {
     )
   }
 
-  // 真实后端 HTTP（保留完整请求，关 Mock 联调）
+  // 真实后端 HTTP
   return request.post('/api/rag/test_retrieve', body)
 }

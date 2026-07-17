@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "smoke:mock": "vite-node scripts/smoke-mock.js"
+    "smoke:mock": "vite-node --mode mock scripts/smoke-mock.js"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",

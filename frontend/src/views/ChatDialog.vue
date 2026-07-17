@@ -14,6 +14,10 @@
           @click="onCreateSession"
         />
       </div>
+      <!-- [LUO-F03] 真后端无会话 CRUD 时提示仅本地会话 + stream -->
+      <p v-if="localSessionMode" class="session-panel__hint">
+        当前为本地会话（无服务端历史），对话走实时流式回答
+      </p>
 
       <EmptyState v-if="!chatStore.sessions.length" type="chat" />
 
@@ -147,6 +151,8 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useKbStore } from '@/stores/kb'
 import { useChatStore } from '@/stores/chat'
+import { MOCK_OPEN } from '@/mock/flag'
+import { isChatSessionApiEnabled } from '@/api/chat'
 import AppButton from '@/components/AppButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ChatBubble from '@/components/ChatBubble.vue'
@@ -165,6 +171,8 @@ const bootLoading = ref(false)
 const pageError = ref('')
 
 const hasKb = computed(() => kbStore.list.length > 0)
+/** [LUO-F03] 关 Mock 且未开会话 API → 本地会话降级 */
+const localSessionMode = computed(() => !MOCK_OPEN() && !isChatSessionApiEnabled())
 
 /** 输入无内容或加载中 → 发送按钮置灰 */
 const canSend = computed(
@@ -334,6 +342,13 @@ defineExpose({
   display: flex;
   flex-direction: column;
   background: var(--bg-color-card);
+}
+
+.session-panel__hint {
+  margin: 0 12px 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--el-text-color-secondary, #909399);
 }
 
 .session-panel__header {

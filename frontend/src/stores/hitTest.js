@@ -1,10 +1,32 @@
 /**
  * 命中率测试 Pinia Store
  * [LUO-A01/R3] 多选文档时循环调用单 doc_id 接口，合并 data.hits
+ * [LUO-F06] 限制并发，避免多文档同时打满检索/向量服务
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { testRetrieve } from '@/api/rag'
+
+/** 多文档检索最大并发（前端侧限流；批量 doc_ids 需后端扩展） */
+const RETRIEVE_CONCURRENCY = 2
+
+async function mapPool(items, concurrency, mapper) {
+  const results = new Array(items.length)
+  let cursor = 0
+  async function worker() {
+    while (cursor < items.length) {
+      const idx = cursor++
+      try {
+        results[idx] = { status: 'fulfilled', value: await mapper(items[idx], idx) }
+      } catch (reason) {
+        results[idx] = { status: 'rejected', reason }
+      }
+    }
+  }
+  const n = Math.min(Math.max(concurrency, 1), items.length || 1)
+  await Promise.all(Array.from({ length: n }, () => worker()))
+  return results
+}
 
 export const useHitTestStore = defineStore('hitTest', () => {
   const kbId = ref(null)
@@ -53,17 +75,15 @@ export const useHitTestStore = defineStore('hitTest', () => {
         return results.value
       }
 
-      // [LUO-A01] 后端仅支持单个 doc_id：前端循环调用后按 score 合并
-      const settled = await Promise.allSettled(
-        ids.map((docId) =>
-          testRetrieve({
-            kb_id: kbId.value,
-            doc_id: docId,
-            search_type: searchType.value,
-            query: query.value,
-            top_n: topN.value
-          })
-        )
+      // [LUO-A01]+[LUO-F06] 单 doc_id 契约 + 并发上限
+      const settled = await mapPool(ids, RETRIEVE_CONCURRENCY, (docId) =>
+        testRetrieve({
+          kb_id: kbId.value,
+          doc_id: docId,
+          search_type: searchType.value,
+          query: query.value,
+          top_n: topN.value
+        })
       )
 
       let merged = []

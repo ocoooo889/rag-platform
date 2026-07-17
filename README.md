@@ -95,36 +95,32 @@ npm run dev
 
 ## 前端联调环境变量（feature/luoyue-knowledge-base）
 
-> 对应测试报告验收项：`VITE_USE_MOCK` / `VITE_API_PROXY`（LUO-D01 / LUO-D02）
+> 对应测试报告：`VITE_USE_MOCK` / `VITE_API_PROXY`（LUO-D01/D02、LUO-F01/F02）
 
 | 变量 | 含义 | 示例 |
 |------|------|------|
-| `VITE_USE_MOCK` | `true` 走应用层 Mock；`false` 走真实后端 | `true` / `false` |
-| `VITE_API_PROXY` | Vite 开发代理目标（**默认 8001，勿用 8000 Chroma**） | `http://127.0.0.1:8001` |
-| `VITE_API_BASE_URL` | Axios `baseURL`；直连后端时填写 | `http://127.0.0.1:8001` |
-| `VITE_DEV_PORT` | 开发端口，默认 5173；并行可用 5174 | `5173` |
+| `VITE_USE_MOCK` | `true` 走应用层 Mock；**development 默认 `false`**（防假绿） | `false` |
+| `VITE_API_PROXY` | Vite `/api` 代理目标（**默认 8001，勿用 8000 Chroma**） | `http://127.0.0.1:8001` |
+| `VITE_API_BASE_URL` | Axios `baseURL`；**开发建议留空走代理**；填绝对地址则直连（需 CORS） | （空） |
+| `VITE_DEV_PORT` | 开发端口，默认 5173；并行可用 5174 | `5174` |
 
 ```bash
 cd frontend
 
-# Mock 模式（本地无后端也可演示）
-# .env.development 中 VITE_USE_MOCK=true
+# 默认：关 Mock + 相对路径走 Vite 代理 → 8001
 npm run dev
 
-# 真实后端联调（代理 → 8001）
-# VITE_USE_MOCK=false
-# VITE_API_PROXY=http://127.0.0.1:8001
-npm run dev
-
-# 多前端并行（端口 5174 + 后端可改 8012）
-# VITE_API_PROXY=http://127.0.0.1:8012
-npm run dev -- --port 5174
-
-# Mock 冒烟
+# Mock 演示：复制 .env.local 写入 VITE_USE_MOCK=true 后 npm run dev
+# 或仅冒烟（不启页面）：
 npm run smoke:mock
+
+# 多前端并行（端口 5174）；后端若改 8012，同步改 VITE_API_PROXY
+npm run dev -- --port 5174
 ```
 
-兼容旧变量名：`VITE_MOCK_OPEN`（等同 `VITE_USE_MOCK`）、`VITE_API_PROXY_TARGET`（等同 `VITE_API_PROXY`）。
+兼容旧变量名：`VITE_MOCK_OPEN`、`VITE_API_PROXY_TARGET`。
+
+**关 Mock 对话说明（LUO-F03）**：默认不请求会话 CRUD（避免 404），仅 `POST /api/chat/stream` + 本地会话列表。后端补齐会话接口后，在 `.env.local` 设 `VITE_CHAT_SESSION_API=true`。
 
 ## 项目结构
 

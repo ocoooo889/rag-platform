@@ -1,8 +1,8 @@
 /**
- * 智能对话 Pinia Store
+ * 智能对话 Pinia Store（前端 B）
  * - P0：kb 范围 + SSE 流式（POST /api/chat/stream）
- * - session_id 可由后端 start 事件回传；无会话 CRUD 时走内存列表兜底
- * - resetState：登出清空，防止跨账号污染
+ * - [LUO-F03] 无会话 CRUD 时：load/create/messages/delete 失败则内存列表兜底，不阻断 stream
+ * - session_id 可由后端 start 事件回传；resetState 登出清空
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
@@ -13,8 +13,15 @@ import {
   deleteChatSession,
   streamChat,
   closeSSE,
-  createSSEController
+  createSSEController,
+  isChatSessionApiEnabled
 } from '@/api/chat'
+import { MOCK_OPEN } from '@/mock/flag'
+
+/** [LUO-F03] Mock 或显式开启会话 API 时才请求服务端历史 */
+function useRemoteSessions() {
+  return MOCK_OPEN() || isChatSessionApiEnabled()
+}
 
 function localId() {
   return `local-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
@@ -61,12 +68,15 @@ export const useChatStore = defineStore('chat', () => {
   async function loadSessions() {
     loading.value = true
     try {
+      // [LUO-F03] 关 Mock 默认本地列表，不请求缺失的 sessions API
+      if (!useRemoteSessions()) {
+        return sessions.value
+      }
       const res = await fetchChatSessions({ kb_id: selectedKbId.value })
       const data = res.data || {}
       sessions.value = data.items || data.list || []
       return sessions.value
     } catch (e) {
-      // 后端无 sessions 路由时保留内存列表
       return sessions.value
     } finally {
       loading.value = false
@@ -77,19 +87,21 @@ export const useChatStore = defineStore('chat', () => {
     loading.value = true
     try {
       cacheCurrentMessages()
-      try {
-        const res = await createChatSession({
-          kb_id: selectedKbId.value,
-          ...payload
-        })
-        const sessionId = String(res.data?.session_id || res.data?.id || '')
-        if (sessionId) {
-          upsertSession(sessionId, '新会话')
-          await switchSession(sessionId)
-          return sessionId
+      if (useRemoteSessions()) {
+        try {
+          const res = await createChatSession({
+            kb_id: selectedKbId.value,
+            ...payload
+          })
+          const sessionId = String(res.data?.session_id || res.data?.id || '')
+          if (sessionId) {
+            upsertSession(sessionId, '新会话')
+            await switchSession(sessionId)
+            return sessionId
+          }
+        } catch (e) {
+          // 回落本地占位
         }
-      } catch (e) {
-        // 无创建接口：本地占位，真正 id 由 SSE start 回填
       }
       abortCurrentStream()
       const tempId = localId()
@@ -110,14 +122,18 @@ export const useChatStore = defineStore('chat', () => {
     currentSessionId.value = sid
     loading.value = true
     try {
-      try {
-        const res = await fetchChatMessages(sid)
-        const data = res.data || {}
-        messages.value = data.items || data.list || data.messages || []
-        messageCache.value[sid] = [...messages.value]
-      } catch (e) {
-        messages.value = [...(messageCache.value[sid] || [])]
+      if (useRemoteSessions()) {
+        try {
+          const res = await fetchChatMessages(sid)
+          const data = res.data || {}
+          messages.value = data.items || data.list || data.messages || []
+          messageCache.value[sid] = [...messages.value]
+          return
+        } catch (e) {
+          // 走内存缓存
+        }
       }
+      messages.value = [...(messageCache.value[sid] || [])]
     } finally {
       loading.value = false
     }
@@ -127,10 +143,12 @@ export const useChatStore = defineStore('chat', () => {
     const sid = String(sessionId)
     loading.value = true
     try {
-      try {
-        await deleteChatSession(sid)
-      } catch (e) {
-        // 忽略后端无删除接口
+      if (useRemoteSessions()) {
+        try {
+          await deleteChatSession(sid)
+        } catch (e) {
+          // 忽略
+        }
       }
       sessions.value = sessions.value.filter((s) => String(s.session_id) !== sid)
       delete messageCache.value[sid]

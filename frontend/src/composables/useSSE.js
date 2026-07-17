@@ -6,7 +6,7 @@
  *
  * 页面 / store 只依赖 onStart / onMessage / onDone / onError，不感知分支
  */
-import { isMockOpen } from '@/mock/flag'
+import { MOCK_OPEN, isMockOpen } from '@/mock/flag'
 import { createSSEController, closeSSE } from '@/utils/sse'
 
 export function splitStreamChunks(text, size = 2) {
@@ -293,7 +293,7 @@ export async function runSSE(options = {}) {
   const activeSignal = signal || controller.signal
 
   try {
-    if (isMockOpen()) {
+    if (MOCK_OPEN()) {
       runMockSSE({
         payload,
         handlers,
@@ -358,7 +358,7 @@ export function useSSE() {
     return controller
   }
 
-  return { state, start, abort, isMockOpen }
+  return { state, start, abort, isMockOpen: MOCK_OPEN, MOCK_OPEN }
 }
 
-export { createSSEController, closeSSE, isMockOpen }
+export { createSSEController, closeSSE, isMockOpen, MOCK_OPEN }
