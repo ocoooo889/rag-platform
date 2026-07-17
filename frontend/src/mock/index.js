@@ -1,5 +1,7 @@
 /**
- * Mock 聚合说明文件
- * vite-plugin-mock 自动加载同目录下 *.mock.js，本文件不重复注册路由
+ * Mock 模块入口（非 vite-plugin-mock）
+ * 开关：VITE_MOCK_OPEN；数据：./data；异常场景：./scenarios
  */
-export default []
+export { isMockOpen, mockOk, mockFail, mockDelay, mockResolve, mockReject } from './flag'
+export { matchMockScenario, mockTimeout, mockScenarioReject } from './scenarios'
+export * from './data'

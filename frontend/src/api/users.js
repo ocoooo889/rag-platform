@@ -1,10 +1,6 @@
 import request from '@/utils/request'
-
-const mockUsers = [
-  { id: 1, username: 'admin', display_name: '管理员', status: '启用', role_id: 1, created_at: '2024-01-01T00:00:00' },
-  { id: 2, username: 'editor', display_name: '编辑员', status: '启用', role_id: 2, created_at: '2024-01-02T00:00:00' },
-  { id: 3, username: 'user', display_name: '普通用户', status: '启用', role_id: 3, created_at: '2024-01-03T00:00:00' }
-]
+import { isMockOpen, mockResolve, mockReject } from '@/mock/flag'
+import { MOCK_USERS, nextMockId } from '@/mock/data'
 
 function unwrap(res) {
   if (res && typeof res === 'object' && 'data' in res && ('code' in res || 'message' in res || 'msg' in res)) {
@@ -13,44 +9,51 @@ function unwrap(res) {
   return res
 }
 
+const users = MOCK_USERS.map((u) => ({ ...u }))
+
 export const getUsersApi = async (params) => {
-  try {
-    return unwrap(await request.get('/api/users', { params })) || mockUsers
-  } catch {
-    return mockUsers
+  if (isMockOpen()) {
+    let list = [...users]
+    const kw = (params?.keyword || params?.username || '').trim()
+    if (kw) list = list.filter((u) => u.username.includes(kw) || (u.display_name || '').includes(kw))
+    return unwrap(await mockResolve(list))
   }
+  return unwrap(await request.get('/api/users', { params }))
 }
 
 export const createUserApi = async (data) => {
-  try {
-    return unwrap(await request.post('/api/users', data))
-  } catch {
-    const newUser = { id: Date.now(), ...data }
-    mockUsers.push(newUser)
-    return newUser
+  if (isMockOpen()) {
+    const row = {
+      id: nextMockId('u'),
+      username: data.username,
+      display_name: data.display_name || data.username,
+      role_id: data.role_id,
+      role_name: data.role_name || '',
+      status: data.status || '启用',
+      created_at: new Date().toISOString()
+    }
+    users.push(row)
+    return unwrap(await mockResolve({ user_id: row.id, ...row }))
   }
+  return unwrap(await request.post('/api/users', data))
 }
 
 export const updateUserApi = async (id, data) => {
-  try {
-    return unwrap(await request.put(`/api/users/${id}`, data))
-  } catch {
-    const idx = mockUsers.findIndex((u) => u.id === id)
-    if (idx !== -1) {
-      mockUsers[idx] = { ...mockUsers[idx], ...data }
-    }
-    return mockUsers[idx]
+  if (isMockOpen()) {
+    const idx = users.findIndex((u) => String(u.id) === String(id))
+    if (idx === -1) return mockReject(404, '用户不存在')
+    users[idx] = { ...users[idx], ...data }
+    return unwrap(await mockResolve(users[idx]))
   }
+  return unwrap(await request.put(`/api/users/${id}`, data))
 }
 
 export const deleteUserApi = async (id) => {
-  try {
-    return unwrap(await request.delete(`/api/users/${id}`))
-  } catch {
-    const idx = mockUsers.findIndex((u) => u.id === id)
-    if (idx !== -1) {
-      mockUsers[idx].status = '已停用'
-    }
-    return { msg: '用户删除(停用)成功' }
+  if (isMockOpen()) {
+    const idx = users.findIndex((u) => String(u.id) === String(id))
+    if (idx === -1) return mockReject(404, '用户不存在')
+    users[idx].status = '已停用'
+    return unwrap(await mockResolve({ msg: '用户删除(停用)成功' }))
   }
+  return unwrap(await request.delete(`/api/users/${id}`))
 }

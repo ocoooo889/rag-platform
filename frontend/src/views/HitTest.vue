@@ -1,7 +1,10 @@
 <template>
-  <div class="hit-test" v-loading="hitStore.loading" element-loading-text="加载中...">
+  <div class="hit-test">
     <div class="page-header">
-      <h2>命中率测试</h2>
+      <div>
+        <h2>命中率测试</h2>
+        <p class="page-desc">选择知识库与就绪文档，切换检索模式验证召回效果</p>
+      </div>
       <AppButton
         type="primary"
         text="导出 CSV"
@@ -11,108 +14,149 @@
       />
     </div>
 
-    <!-- 无知识库时隐藏运行测试主入口 -->
-    <EmptyState v-if="!hasKb" type="kb" tip="暂无知识库，无法进行命中测试" />
+    <EmptyState v-if="pageError" type="error" :tip="pageError">
+      <AppButton type="primary" text="重新加载" @click="loadBase" />
+    </EmptyState>
 
-    <template v-else>
-      <el-form label-width="96px" class="filter-form">
-        <!-- 级联：知识库 -> 文档 -->
-        <el-form-item label="知识库">
-          <el-select
-            v-model="hitStore.kbId"
-            placeholder="请选择知识库"
-            style="width: 280px"
-            @change="onKbChange"
-          >
-            <el-option
-              v-for="kb in kbStore.list"
-              :key="kb.id"
-              :label="kb.name"
-              :value="kb.id"
+    <EmptyState v-else-if="!hasKb && !bootLoading" type="kb" tip="暂无知识库，无法进行命中测试" />
+
+    <div v-else v-loading="bootLoading" element-loading-text="加载中..." class="hit-test__body">
+      <!-- 筛选区 -->
+      <section class="panel filter-panel">
+        <el-form label-width="88px" class="filter-form" @submit.prevent>
+          <el-form-item label="知识库">
+            <el-select
+              v-model="hitStore.kbId"
+              placeholder="请选择知识库"
+              filterable
+              style="width: 280px"
+              @change="onKbChange"
+            >
+              <el-option
+                v-for="kb in kbStore.list"
+                :key="kb.id"
+                :label="kb.name"
+                :value="kb.id"
+              />
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="文档">
+            <el-select
+              v-model="hitStore.docIds"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="请选择已完成文档（非 completed 不可选）"
+              style="width: 460px"
+              :disabled="!hitStore.kbId || docsLoading"
+              :loading="docsLoading"
+            >
+              <el-option
+                v-for="doc in docOptions"
+                :key="doc.id"
+                :label="formatDocLabel(doc)"
+                :value="doc.id"
+                :disabled="!isDocSelectable(doc.status)"
+              >
+                <div class="doc-option">
+                  <span class="doc-option__name">{{ doc.filename || doc.file_name || doc.id }}</span>
+                  <el-tag size="small" :type="getDocStatusTagType(doc.status)" effect="plain">
+                    {{ getDocStatusLabel(doc.status) }}
+                  </el-tag>
+                </div>
+              </el-option>
+            </el-select>
+          </el-form-item>
+
+          <el-form-item label="测试问题">
+            <el-input
+              v-model="hitStore.query"
+              type="textarea"
+              :rows="3"
+              maxlength="500"
+              show-word-limit
+              placeholder="请输入测试问题"
+              style="max-width: 640px"
+              :disabled="hitStore.loading"
             />
-          </el-select>
-        </el-form-item>
+          </el-form-item>
 
-        <el-form-item label="文档">
-          <el-select
-            v-model="hitStore.docIds"
-            multiple
-            collapse-tags
-            placeholder="请选择文档"
-            style="width: 360px"
-            :disabled="!hitStore.kbId"
-          >
-            <el-option
-              v-for="doc in docOptions"
-              :key="doc.id"
-              :label="doc.file_name"
-              :value="doc.id"
+          <el-form-item label="TopN">
+            <el-slider
+              v-model="hitStore.topN"
+              :min="3"
+              :max="10"
+              :step="1"
+              show-stops
+              :disabled="hitStore.loading"
+              style="max-width: 360px"
             />
-          </el-select>
-        </el-form-item>
+          </el-form-item>
 
-        <!-- 检索模式：切换后清空历史结果 -->
-        <el-form-item label="检索模式">
-          <el-radio-group :model-value="hitStore.mode" @change="onModeChange">
-            <el-radio-button label="vector">向量</el-radio-button>
-            <el-radio-button label="keyword">关键词</el-radio-button>
-            <el-radio-button label="hybrid">混合</el-radio-button>
-          </el-radio-group>
-        </el-form-item>
+          <el-form-item>
+            <AppButton
+              type="primary"
+              text="运行测试"
+              :loading="hitStore.loading"
+              loading-mode="normal"
+              :disabled="!canRun"
+              :title="runDisabledTip"
+              @click="onRunTest"
+            />
+          </el-form-item>
+        </el-form>
+      </section>
 
-        <el-form-item label="测试问题">
-          <el-input
-            v-model="hitStore.query"
-            type="textarea"
-            :rows="3"
-            maxlength="500"
-            placeholder="请输入测试问题"
-            style="max-width: 640px"
+      <!-- 三模式 Tab -->
+      <section class="panel mode-panel">
+        <el-tabs
+          :model-value="hitStore.searchType"
+          class="mode-tabs"
+          @tab-change="onModeChange"
+        >
+          <el-tab-pane
+            v-for="tab in MODE_TABS"
+            :key="tab.name"
+            :label="tab.label"
+            :name="tab.name"
+            :disabled="hitStore.loading"
+          >
+            <div class="mode-tip">{{ tab.tip }}</div>
+          </el-tab-pane>
+        </el-tabs>
+
+        <!-- 结果区：加载 / 报错 / 空 / 列表 -->
+        <div class="result-area" v-loading="hitStore.loading" element-loading-text="检索中...">
+          <EmptyState
+            v-if="hitStore.errorMsg && !hitStore.loading"
+            type="error"
+            :tip="hitStore.errorMsg"
+          >
+            <AppButton type="primary" text="重试" :disabled="!canRun" @click="onRunTest" />
+          </EmptyState>
+
+          <EmptyState
+            v-else-if="hitStore.hasSearched && !hitStore.results.length && !hitStore.loading"
+            type="retrieve"
           />
-        </el-form-item>
 
-        <el-form-item label="TopN">
-          <el-slider
-            v-model="hitStore.topN"
-            :min="3"
-            :max="10"
-            :step="1"
-            show-stops
-            style="max-width: 360px"
+          <div v-else-if="!hitStore.hasSearched && !hitStore.loading" class="result-placeholder">
+            选择文档并输入问题后，点击「运行测试」查看命中结果
+          </div>
+
+          <RetrieveResultCard
+            v-for="item in hitStore.results"
+            :key="`${item.chunk_id}-${item.rank}`"
+            :rank="item.rank"
+            :score="item.score"
+            :content="item.content"
+            :source-doc="item.source_doc"
+            :chunk-id="item.chunk_id"
           />
-        </el-form-item>
-
-        <el-form-item>
-          <!-- 无文档时主按钮置灰；点击内再做未选/空输入兜底拦截 -->
-          <AppButton
-            type="primary"
-            text="运行测试"
-            :loading="hitStore.loading"
-            loading-mode="normal"
-            :disabled="!canRun"
-            :title="runDisabledTip"
-            @click="onRunTest"
-          />
-        </el-form-item>
-      </el-form>
-
-      <!-- 检索结果区 -->
-      <div class="result-area">
-        <EmptyState
-          v-if="hitStore.hasSearched && !hitStore.results.length"
-          type="retrieve"
-        />
-        <RetrieveResultCard
-          v-for="item in hitStore.results"
-          :key="`${item.chunk_id}-${item.rank}`"
-          :rank="item.rank"
-          :score="item.score"
-          :content="item.content"
-          :source-doc="item.source_doc"
-          :chunk-id="item.chunk_id"
-        />
-      </div>
-    </template>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -123,37 +167,92 @@ import { useKbStore } from '@/stores/kb'
 import { useDocStore } from '@/stores/doc'
 import { useHitTestStore } from '@/stores/hitTest'
 import { exportCSV } from '@/utils/exportCSV'
+import {
+  getDocStatusLabel,
+  getDocStatusTagType,
+  isDocSelectable
+} from '@/utils/docStatus'
 import AppButton from '@/components/AppButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import RetrieveResultCard from '@/components/RetrieveResultCard.vue'
+
+const MODE_TABS = [
+  {
+    name: 'vector',
+    label: '向量检索',
+    tip: '基于语义向量相似度召回，适合表述不同但含义相近的问题。'
+  },
+  {
+    name: 'keyword',
+    label: '关键词检索',
+    tip: '基于关键词匹配召回，适合专有名词、编号等精确查询。'
+  },
+  {
+    name: 'hybrid',
+    label: '混合检索',
+    tip: '融合向量与关键词结果，兼顾语义覆盖与精确命中。'
+  }
+]
 
 const kbStore = useKbStore()
 const docStore = useDocStore()
 const hitStore = useHitTestStore()
 
 const docOptions = ref([])
+const bootLoading = ref(false)
+const docsLoading = ref(false)
+const pageError = ref('')
 
 const hasKb = computed(() => kbStore.list.length > 0)
-const hasDocs = computed(() => docOptions.value.length > 0)
-const canRun = computed(() => hasKb.value && hasDocs.value && !!hitStore.kbId)
-const canExport = computed(() => Array.isArray(hitStore.results) && hitStore.results.length > 0)
+const readyDocs = computed(() => docOptions.value.filter((d) => isDocSelectable(d.status)))
+
+/** 输入无内容、加载中、未选 completed 文档 → 按钮置灰 */
+const canRun = computed(() => {
+  if (bootLoading.value || hitStore.loading) return false
+  if (!hasKb.value || !hitStore.kbId) return false
+  if (!readyDocs.value.length) return false
+  if (!hitStore.docIds.length) return false
+  if (!hitStore.query.trim()) return false
+  return true
+})
+
+const canExport = computed(
+  () => Array.isArray(hitStore.results) && hitStore.results.length > 0 && !hitStore.loading
+)
 
 const runDisabledTip = computed(() => {
-  if (!hasKb.value) return '无操作权限：暂无可用知识库'
+  if (hitStore.loading) return '检索进行中'
+  if (!hasKb.value) return '暂无可用知识库'
   if (!hitStore.kbId) return '请先选择知识库'
-  if (!hasDocs.value) return '无操作权限：当前知识库暂无文档'
+  if (!readyDocs.value.length) return '暂无已完成文档（仅 status=completed 可测）'
+  if (!hitStore.docIds.length) return '请选择至少一篇已完成文档'
+  if (!hitStore.query.trim()) return '请输入测试问题'
   return '运行命中测试'
 })
 
+function formatDocLabel(doc) {
+  const name = doc.filename || doc.file_name || doc.id
+  if (isDocSelectable(doc.status)) return name
+  return `${name}（${getDocStatusLabel(doc.status)}，不可测）`
+}
+
 async function loadBase() {
+  pageError.value = ''
+  bootLoading.value = true
   try {
     await kbStore.loadList({ page: 1, page_size: 100 })
     if (kbStore.selectedKbId) {
       hitStore.kbId = kbStore.selectedKbId
       await loadDocs(hitStore.kbId)
+    } else if (kbStore.list.length) {
+      hitStore.kbId = kbStore.list[0].id
+      kbStore.setSelectedKb(hitStore.kbId)
+      await loadDocs(hitStore.kbId)
     }
   } catch (e) {
-    // 全局 axios 处理
+    pageError.value = e?.message || e?.msg || '页面加载失败，请重试'
+  } finally {
+    bootLoading.value = false
   }
 }
 
@@ -161,12 +260,14 @@ async function loadDocs(kbId) {
   docOptions.value = []
   hitStore.docIds = []
   if (!kbId) return
+  docsLoading.value = true
   try {
     await docStore.loadList(kbId, { page: 1, page_size: 200 })
-    // 仅展示当前库文档，跨库隔离
-    docOptions.value = (docStore.list || []).filter((d) => d.status !== 'failed')
+    docOptions.value = [...(docStore.list || [])]
   } catch (e) {
-    // 全局 axios 处理
+    ElMessage.error(e?.message || e?.msg || '文档列表加载失败')
+  } finally {
+    docsLoading.value = false
   }
 }
 
@@ -177,37 +278,31 @@ async function onKbChange(kbId) {
 }
 
 function onModeChange(mode) {
-  // 切换模式清空历史结果，三种模式排序差异由后端/Mock 返回保证
+  if (hitStore.loading) return
   hitStore.setMode(mode)
 }
 
-/**
- * 运行测试：5 大边界拦截
- * 1) 未选文档阻断
- * 2) 空输入阻断
- * 3) 无匹配空状态（结果区）
- * 4) 模式切换清结果（setMode）
- * 5) 三种模式结果排序差异化展示（接口返回）
- */
 async function onRunTest() {
-  if (!hitStore.docIds.length) {
-    ElMessage.warning('请先选择文档')
+  const validIds = hitStore.docIds.filter((id) =>
+    readyDocs.value.some((d) => String(d.id) === String(id))
+  )
+  hitStore.docIds = validIds
+
+  if (!canRun.value && !hitStore.loading) {
+    ElMessage.warning(runDisabledTip.value)
     return
   }
-  if (!hitStore.query.trim()) {
-    ElMessage.warning('请输入测试问题')
-    return
-  }
+
   try {
     await hitStore.runTest()
   } catch (e) {
-    // code5001 等由全局拦截统一提示
+    // 错误文案已写入 hitStore.errorMsg，页面展示兜底 UI
   }
 }
 
-/** CSV 导出：前置判空 + UTF-8 BOM，字段固定 */
 function onExport() {
-  const ok = exportCSV(
+  if (!canExport.value) return
+  exportCSV(
     hitStore.results.map((item) => ({
       rank: item.rank,
       score: item.score,
@@ -224,10 +319,6 @@ function onExport() {
     ],
     'rag检索结果'
   )
-  if (!ok) {
-    // 无数据不执行导出；按钮已置灰，此处兜底
-    return
-  }
 }
 
 onMounted(() => {
@@ -237,26 +328,84 @@ onMounted(() => {
 
 <style scoped>
 .hit-test {
-  padding: 16px;
+  padding: 16px 20px 24px;
 }
 
 .page-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 16px;
   margin-bottom: 16px;
 }
 
 .page-header h2 {
-  margin: 0;
+  margin: 0 0 4px;
   color: var(--text-color-primary);
+  font-size: 20px;
+}
+
+.page-desc {
+  margin: 0;
+  color: var(--text-color-secondary);
+  font-size: 13px;
+}
+
+.hit-test__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 320px;
+}
+
+.panel {
+  background: var(--bg-color-card);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px 18px;
 }
 
 .filter-form {
+  margin-bottom: 0;
+}
+
+.doc-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.doc-option__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mode-tabs :deep(.el-tabs__header) {
+  margin-bottom: 8px;
+}
+
+.mode-tip {
   margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-color-page);
+  color: var(--text-color-regular);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .result-area {
-  margin-top: 8px;
+  min-height: 180px;
+  position: relative;
+}
+
+.result-placeholder {
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--text-color-secondary);
+  font-size: 13px;
 }
 </style>

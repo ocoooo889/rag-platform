@@ -1,126 +1,133 @@
 /**
- * 智能对话会话接口封装（对接后端 A）
- * - 会话 CRUD 走 axios
- * - 流式对话走 fetch + ReadableStream（不使用 EventSource）
- * - session_id 全程按 UUID 字符串传递，不做类型转换
- * - 历史上下文拼接 / 10 轮截断由后端处理
+ * 智能对话会话接口
+ * Mock / Real 双分支；SSE 经 runSSE 通用钩子（页面无感知）
  */
-import request, { getToken, getEnvTag } from '@/utils/request'
-import { createSSEController, closeSSE } from '@/utils/sse'
+import request, { API_BASE_URL, getToken, getEnvTag } from '@/utils/request'
+import { isMockOpen, mockResolve } from '@/mock/flag'
+import {
+  mockSessions,
+  mockMessagesBySession,
+  nextMockId,
+  MOCK_SSE_ANSWER,
+  MOCK_SSE_REFERENCES
+} from '@/mock/data'
+import { matchMockScenario } from '@/mock/scenarios'
+import { runSSE, closeSSE, createSSEController } from '@/composables/useSSE'
 
-/** 创建会话，返回 UUID v4 字符串 session_id */
-export function createChatSession(data = {}) {
-  return request.post('/api/chat/session', data)
+/** 创建会话 */
+export async function createChatSession(data = {}) {
+  if (isMockOpen()) {
+    const sessionId = nextMockId('s')
+    const row = {
+      session_id: sessionId,
+      title: '新会话',
+      kb_id: data.kb_id || null,
+      last_message: '',
+      updated_at: new Date().toISOString()
+    }
+    mockSessions.unshift(row)
+    mockMessagesBySession[sessionId] = []
+    return mockResolve({ session_id: sessionId })
+  }
+  return request.post('/api/chat/session', data, { silent: true })
 }
 
-/** 获取当前用户全部历史会话列表 */
-export function fetchChatSessions() {
-  return request.get('/api/chat/sessions')
+/** 获取会话列表 */
+export async function fetchChatSessions(params = {}) {
+  if (isMockOpen()) {
+    let items = [...mockSessions]
+    if (params.kb_id) {
+      items = items.filter((s) => String(s.kb_id) === String(params.kb_id))
+    }
+    const page = Number(params.page) || 1
+    const pageSize = Number(params.page_size) || 20
+    return mockResolve({
+      items,
+      total: items.length,
+      page,
+      page_size: pageSize
+    })
+  }
+  return request.get('/api/chat/sessions', { params, silent: true })
 }
 
-/** 获取指定会话历史消息（后端已完成 10 轮截断） */
-export function fetchChatMessages(sessionId) {
-  return request.get(`/api/chat/${sessionId}/messages`)
+/** 获取会话历史 */
+export async function fetchChatMessages(sessionId) {
+  if (isMockOpen()) {
+    const items = mockMessagesBySession[String(sessionId)] || []
+    return mockResolve({
+      items,
+      total: items.length,
+      page: 1,
+      page_size: 50
+    })
+  }
+  return request
+    .get(`/api/chat/sessions/${sessionId}/messages`, { silent: true })
+    .catch(() => request.get(`/api/chat/${sessionId}/messages`, { silent: true }))
 }
 
-/** 删除会话及其消息记录 */
-export function deleteChatSession(sessionId) {
-  return request.delete(`/api/chat/${sessionId}`)
+/** 删除会话 */
+export async function deleteChatSession(sessionId) {
+  if (isMockOpen()) {
+    const sid = String(sessionId)
+    const idx = mockSessions.findIndex((s) => String(s.session_id) === sid)
+    if (idx !== -1) mockSessions.splice(idx, 1)
+    delete mockMessagesBySession[sid]
+    return mockResolve(null)
+  }
+  return request
+    .delete(`/api/chat/sessions/${sessionId}`, { silent: true })
+    .catch(() => request.delete(`/api/chat/${sessionId}`, { silent: true }))
 }
 
 /**
- * 流式对话：fetch + ReadableStream + AbortController
- * @param {{ session_id: string, kb_id: string|number, question: string }} payload
- * @param {{ onMessage: Function, onDone: Function, onError: Function, signal?: AbortSignal }} handlers
- * @returns {AbortController}
+ * 流式对话：组装契约入参后交给 runSSE
+ * Mock 异常：query 含 __timeout__ / __5002__ 等触发词
  */
 export async function streamChat(payload, handlers = {}) {
-  const { onMessage, onDone, onError } = handlers
-  const controller = handlers.signal ? null : createSSEController()
-  const signal = handlers.signal || controller.signal
-
-  try {
-    const response = await fetch('/api/chat/stream', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${getToken()}`
-      },
-      body: JSON.stringify({
-        ...payload,
-        // session_id 保持字符串；env 由请求体携带，与全局拦截语义一致
-        session_id: String(payload.session_id),
-        env: getEnvTag()
-      }),
-      signal
-    })
-
-    if (!response.ok) {
-      let errBody = null
-      try {
-        errBody = await response.json()
-      } catch (e) {
-        // ignore parse error
-      }
-      const error = errBody || { code: response.status, message: '流式对话请求失败' }
-      onError && onError(error)
-      return controller
-    }
-
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder('utf-8')
-    let buffer = ''
-    let finished = false
-
-    const finish = (event) => {
-      if (finished) return
-      finished = true
-      onDone && onDone(event)
-    }
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-
-      // 按 SSE 事件块拆分（空行分隔）
-      const chunks = buffer.split('\n\n')
-      buffer = chunks.pop() || ''
-
-      for (const chunk of chunks) {
-        const lines = chunk.split('\n')
-        for (const line of lines) {
-          if (!line.startsWith('data:')) continue
-          const raw = line.slice(5).trim()
-          if (!raw || raw === '[DONE]') {
-            finish()
-            continue
-          }
-          try {
-            const event = JSON.parse(raw)
-            if (event.done) {
-              finish(event)
-            } else {
-              onMessage && onMessage(event)
-            }
-          } catch (e) {
-            // 非 JSON 片段按纯文本增量追加
-            onMessage && onMessage({ content: raw })
-          }
-        }
-      }
-    }
-    finish()
-  } catch (error) {
-    if (error?.name === 'AbortError') {
-      // 主动中断不视为业务异常
-      return controller
-    }
-    onError && onError(error)
+  const body = {
+    kb_id: String(payload.kb_id),
+    query: payload.query || payload.question || '',
+    search_type: payload.search_type || 'hybrid',
+    top_n: payload.top_n || 3,
+    env: getEnvTag()
+  }
+  if (payload.session_id) {
+    body.session_id = String(payload.session_id)
   }
 
-  return controller
+  const scenario = isMockOpen() ? matchMockScenario(body.query) : null
+  let errorScenario = null
+  if (scenario === 'timeout') errorScenario = 'timeout'
+  if (scenario === 'llm_error') errorScenario = 'llm_error'
+
+  return runSSE({
+    payload: body,
+    url: `${API_BASE_URL}/api/chat/stream`,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${getToken()}`
+    },
+    body,
+    signal: handlers.signal,
+    handlers: {
+      onStart: handlers.onStart,
+      onMessage: handlers.onMessage,
+      onDone: handlers.onDone,
+      onError: handlers.onError
+    },
+    mock: {
+      answerText: MOCK_SSE_ANSWER,
+      references: MOCK_SSE_REFERENCES,
+      intervalMs: 45,
+      chunkSize: 2,
+      errorScenario,
+      sessionIdFactory: () => nextMockId('s'),
+      requestIdFactory: () => nextMockId('req')
+    }
+  })
 }
 
-/** 对外暴露关闭能力，便于页面统一调用 */
 export { closeSSE, createSSEController }

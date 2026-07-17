@@ -1,9 +1,6 @@
 import request from '@/utils/request'
-
-const mockModels = [
-  { id: 1, model_type: 'chat', model_name: 'GPT-3.5', api_base_url: 'https://api.openai.com/v1', dimension: 1024, is_active: true },
-  { id: 2, model_type: 'embedding', model_name: 'text-embedding-ada-002', api_base_url: 'https://api.openai.com/v1', dimension: 1536, is_active: true }
-]
+import { isMockOpen, mockResolve, mockReject } from '@/mock/flag'
+import { MOCK_MODELS, nextMockId } from '@/mock/data'
 
 function unwrap(res) {
   if (res && typeof res === 'object' && 'data' in res && ('code' in res || 'message' in res || 'msg' in res)) {
@@ -12,44 +9,38 @@ function unwrap(res) {
   return res
 }
 
+const models = MOCK_MODELS.map((m) => ({ ...m }))
+
 export const getModelsApi = async () => {
-  try {
-    return unwrap(await request.get('/api/models')) || mockModels
-  } catch {
-    return mockModels
-  }
+  if (isMockOpen()) return unwrap(await mockResolve(models))
+  return unwrap(await request.get('/api/models'))
 }
 
 export const createModelApi = async (data) => {
-  try {
-    return unwrap(await request.post('/api/models', data))
-  } catch {
-    const newModel = { id: Date.now(), ...data }
-    mockModels.push(newModel)
-    return newModel
+  if (isMockOpen()) {
+    const row = { id: nextMockId('m'), ...data }
+    models.push(row)
+    return unwrap(await mockResolve(row))
   }
+  return unwrap(await request.post('/api/models', data))
 }
 
 export const updateModelApi = async (id, data) => {
-  try {
-    return unwrap(await request.put(`/api/models/${id}`, data))
-  } catch {
-    const idx = mockModels.findIndex((m) => m.id === id)
-    if (idx !== -1) {
-      mockModels[idx] = { ...mockModels[idx], ...data }
-    }
-    return mockModels[idx]
+  if (isMockOpen()) {
+    const idx = models.findIndex((m) => String(m.id) === String(id))
+    if (idx === -1) return mockReject(404, '模型不存在')
+    models[idx] = { ...models[idx], ...data }
+    return unwrap(await mockResolve(models[idx]))
   }
+  return unwrap(await request.put(`/api/models/${id}`, data))
 }
 
 export const deleteModelApi = async (id) => {
-  try {
-    return unwrap(await request.delete(`/api/models/${id}`))
-  } catch {
-    const idx = mockModels.findIndex((m) => m.id === id)
-    if (idx !== -1) {
-      mockModels.splice(idx, 1)
-    }
-    return { msg: '模型配置删除成功' }
+  if (isMockOpen()) {
+    const idx = models.findIndex((m) => String(m.id) === String(id))
+    if (idx === -1) return mockReject(404, '模型不存在')
+    models.splice(idx, 1)
+    return unwrap(await mockResolve(null))
   }
+  return unwrap(await request.delete(`/api/models/${id}`))
 }

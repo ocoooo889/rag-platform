@@ -1,7 +1,11 @@
 """
 FastAPI 入口（3号先注册 rag/chat；4号后续挂 CRUD 路由）
 启动：在 backend 目录执行
-  uvicorn app.main:app --reload --port 8001
+  uvicorn app.main:app --reload --host 127.0.0.1 --port 8001
+
+端口约定：
+  - FastAPI API：8001（与 frontend Vite 代理一致）
+  - Chroma 向量库：8000（勿与 API 混用）
 """
 
 from pathlib import Path

@@ -23,8 +23,12 @@
   --status-pending-bg: #f4f4f5;
   --status-processing-text: #409eff;
   --status-processing-bg: #ecf5ff;
+  --status-vectoring-text: #409eff;
+  --status-vectoring-bg: #ecf5ff;
   --status-completed-text: #67c23a;
   --status-completed-bg: #f0f9eb;
+  --status-ready-text: #67c23a;
+  --status-ready-bg: #f0f9eb;
   --status-failed-text: #f56c6c;
   --status-failed-bg: #fef0f0;
 }

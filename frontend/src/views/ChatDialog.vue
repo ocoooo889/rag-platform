@@ -1,16 +1,16 @@
 <template>
-  <div class="chat-dialog" v-loading="chatStore.loading" element-loading-text="加载中...">
+  <div class="chat-dialog" v-loading="bootLoading" element-loading-text="加载中...">
     <!-- 左侧会话列表 -->
     <aside class="session-panel">
       <div class="session-panel__header">
         <span>会话列表</span>
-        <!-- 无可用知识库时，隐藏所有新建会话入口 -->
         <AppButton
           v-if="hasKb"
           type="primary"
           text="新建会话"
           :loading="creating"
           loading-mode="normal"
+          :disabled="chatStore.streaming || !chatStore.selectedKbId"
           @click="onCreateSession"
         />
       </div>
@@ -30,6 +30,7 @@
             type="danger"
             text="删除"
             link
+            :disabled="chatStore.streaming"
             @click.stop="openDelete(item.session_id)"
           />
         </li>
@@ -61,47 +62,72 @@
           text="新建会话"
           :loading="creating"
           loading-mode="normal"
+          :disabled="chatStore.streaming || !chatStore.selectedKbId"
           @click="onCreateSession"
         />
       </div>
 
-      <EmptyState v-if="!hasKb" type="kb" tip="暂无知识库，无法发起智能对话" />
+      <EmptyState
+        v-if="pageError"
+        type="error"
+        :tip="pageError"
+      >
+        <AppButton type="primary" text="重新加载" @click="initPage" />
+      </EmptyState>
+
+      <EmptyState
+        v-else-if="!hasKb"
+        type="kb"
+        tip="暂无知识库，无法发起智能对话"
+      />
 
       <template v-else>
         <div class="message-list" ref="messageListRef">
           <EmptyState
             v-if="!chatStore.messages.length && !chatStore.streaming"
             type="chat"
+            tip="输入问题开始对话，无需先新建会话"
           />
+
           <ChatBubble
             v-for="(msg, index) in chatStore.messages"
             :key="`${msg.role}-${index}`"
             :role="msg.role"
             :content="msg.content"
+            :error="msg.error || ''"
             :sources="msg.sources || []"
+            :streaming="isStreamingMessage(index)"
           />
         </div>
 
-        <!-- 无知识库时隐藏提问输入框；有知识库才展示 -->
         <div class="composer">
           <el-input
             v-model="question"
             type="textarea"
             :rows="3"
             maxlength="1000"
+            show-word-limit
             placeholder="请输入问题，Enter 发送，Shift+Enter 换行"
-            :disabled="chatStore.streaming || !chatStore.currentSessionId"
+            :disabled="chatStore.streaming || !chatStore.selectedKbId"
             @keydown.enter.exact.prevent="onSend"
           />
-          <AppButton
-            type="primary"
-            text="发送"
-            :loading="chatStore.streaming"
-            loading-mode="sse"
-            :disabled="!canSend"
-            :title="sendDisabledTip"
-            @click="onSend"
-          />
+          <div class="composer__actions">
+            <AppButton
+              v-if="chatStore.streaming"
+              type="danger"
+              text="停止生成"
+              @click="onStopStream"
+            />
+            <AppButton
+              type="primary"
+              text="发送"
+              :loading="chatStore.streaming"
+              loading-mode="sse"
+              :disabled="!canSend"
+              :title="sendDisabledTip"
+              @click="onSend"
+            />
+          </div>
         </div>
       </template>
     </section>
@@ -135,24 +161,36 @@ const deleting = ref(false)
 const deleteVisible = ref(false)
 const deletingId = ref(null)
 const messageListRef = ref(null)
+const bootLoading = ref(false)
+const pageError = ref('')
 
 const hasKb = computed(() => kbStore.list.length > 0)
+
+/** 输入无内容或加载中 → 发送按钮置灰 */
 const canSend = computed(
   () =>
     hasKb.value &&
     !!chatStore.selectedKbId &&
-    !!chatStore.currentSessionId &&
     !!question.value.trim() &&
-    !chatStore.streaming
+    !chatStore.streaming &&
+    !bootLoading.value
 )
 
 const sendDisabledTip = computed(() => {
-  if (!hasKb.value) return '无操作权限：暂无可用知识库'
+  if (chatStore.streaming) return 'AI 生成中'
+  if (!hasKb.value) return '暂无可用知识库'
   if (!chatStore.selectedKbId) return '请先选择知识库'
-  if (!chatStore.currentSessionId) return '请先新建或选择会话'
   if (!question.value.trim()) return '请输入问题'
   return '发送问题'
 })
+
+function isStreamingMessage(index) {
+  return (
+    chatStore.streaming &&
+    index === chatStore.messages.length - 1 &&
+    chatStore.messages[index]?.role === 'assistant'
+  )
+}
 
 async function scrollToBottom() {
   await nextTick()
@@ -179,7 +217,16 @@ watch(
   }
 )
 
+watch(
+  () => chatStore.selectedKbId,
+  (kbId) => {
+    if (kbId) kbStore.setSelectedKb(kbId)
+  }
+)
+
 async function initPage() {
+  pageError.value = ''
+  bootLoading.value = true
   try {
     await kbStore.loadList({ page: 1, page_size: 100 })
     if (kbStore.selectedKbId) {
@@ -187,12 +234,13 @@ async function initPage() {
     } else if (kbStore.list.length) {
       chatStore.selectedKbId = kbStore.list[0].id
     }
-    // 有知识库才拉取会话；无知识库隐藏新建入口与输入框
     if (hasKb.value) {
       await chatStore.loadSessions()
     }
   } catch (e) {
-    // 全局 axios 处理
+    pageError.value = e?.message || e?.msg || '对话页加载失败，请重试'
+  } finally {
+    bootLoading.value = false
   }
 }
 
@@ -204,7 +252,6 @@ async function onCreateSession() {
   }
   creating.value = true
   try {
-    // session_id 由后端返回 UUID 字符串，前端不做类型转换
     await chatStore.createSession({ kb_id: chatStore.selectedKbId })
   } catch (e) {
     // 全局 axios 处理
@@ -215,7 +262,6 @@ async function onCreateSession() {
 
 async function onSwitchSession(sessionId) {
   try {
-    // switchSession 内部会 Abort 当前 SSE
     await chatStore.switchSession(sessionId)
   } catch (e) {
     // 全局 axios 处理
@@ -240,15 +286,21 @@ async function confirmDelete() {
   }
 }
 
+function onStopStream() {
+  chatStore.abortCurrentStream()
+}
+
 async function onSend() {
-  if (!canSend.value) return
+  if (!canSend.value) {
+    ElMessage.warning(sendDisabledTip.value)
+    return
+  }
   const text = question.value.trim()
   question.value = ''
   try {
-    // 流式入参携带 session_id；历史拼接与 10 轮截断由后端完成
     await chatStore.sendQuestion(text)
   } catch (e) {
-    // code5002 等由 store / 全局拦截兜底
+    // store / 全局拦截兜底
   }
 }
 
@@ -257,8 +309,11 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  // 页面销毁时彻底中断 SSE，避免后台持续推送
   chatStore.abortCurrentStream()
+})
+
+defineExpose({
+  scrollToBottom
 })
 </script>
 
@@ -268,6 +323,8 @@ onUnmounted(() => {
   height: calc(100vh - 120px);
   min-height: 520px;
   border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
   background: var(--bg-color-page);
 }
 
@@ -304,9 +361,10 @@ onUnmounted(() => {
   gap: 8px;
   padding: 10px;
   margin-bottom: 6px;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   color: var(--text-color-regular);
+  transition: background 0.15s ease;
 }
 
 .session-item:hover,
@@ -326,6 +384,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  background: var(--bg-color-card);
 }
 
 .chat-panel__header {
@@ -347,6 +406,7 @@ onUnmounted(() => {
   flex: 1;
   overflow: auto;
   padding: 16px;
+  scroll-behavior: smooth;
 }
 
 .composer {
@@ -355,5 +415,12 @@ onUnmounted(() => {
   align-items: flex-end;
   padding: 12px 16px 16px;
   border-top: 1px solid var(--border-color);
+  background: var(--bg-color-card);
+}
+
+.composer__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 </style>

@@ -1,10 +1,6 @@
 import request from '@/utils/request'
-
-const mockRoles = [
-  { id: 1, name: '管理员', permissions: 'all' },
-  { id: 2, name: '编辑员', permissions: 'edit' },
-  { id: 3, name: '普通用户', permissions: 'view' }
-]
+import { isMockOpen, mockResolve, mockReject } from '@/mock/flag'
+import { MOCK_ROLES, nextMockId } from '@/mock/data'
 
 function unwrap(res) {
   if (res && typeof res === 'object' && 'data' in res && ('code' in res || 'message' in res || 'msg' in res)) {
@@ -13,44 +9,44 @@ function unwrap(res) {
   return res
 }
 
+const roles = [...MOCK_ROLES]
+
 export const getRolesApi = async () => {
-  try {
-    return unwrap(await request.get('/api/roles')) || mockRoles
-  } catch {
-    return mockRoles
-  }
+  if (isMockOpen()) return unwrap(await mockResolve(roles))
+  return unwrap(await request.get('/api/roles'))
 }
 
 export const createRoleApi = async (data) => {
-  try {
-    return unwrap(await request.post('/api/roles', data))
-  } catch {
-    const newRole = { id: Date.now(), ...data }
-    mockRoles.push(newRole)
-    return newRole
+  if (isMockOpen()) {
+    const row = {
+      id: nextMockId('r'),
+      name: data.name,
+      description: data.description || '',
+      permissions: data.permissions || [],
+      created_at: new Date().toISOString()
+    }
+    roles.push(row)
+    return unwrap(await mockResolve(row))
   }
+  return unwrap(await request.post('/api/roles', data))
 }
 
 export const updateRoleApi = async (id, data) => {
-  try {
-    return unwrap(await request.put(`/api/roles/${id}`, data))
-  } catch {
-    const idx = mockRoles.findIndex((r) => r.id === id)
-    if (idx !== -1) {
-      mockRoles[idx] = { ...mockRoles[idx], ...data }
-    }
-    return mockRoles[idx]
+  if (isMockOpen()) {
+    const idx = roles.findIndex((r) => String(r.id) === String(id))
+    if (idx === -1) return mockReject(404, '角色不存在')
+    roles[idx] = { ...roles[idx], ...data }
+    return unwrap(await mockResolve(roles[idx]))
   }
+  return unwrap(await request.put(`/api/roles/${id}`, data))
 }
 
 export const deleteRoleApi = async (id) => {
-  try {
-    return unwrap(await request.delete(`/api/roles/${id}`))
-  } catch {
-    const idx = mockRoles.findIndex((r) => r.id === id)
-    if (idx !== -1) {
-      mockRoles.splice(idx, 1)
-    }
-    return { msg: '角色删除成功' }
+  if (isMockOpen()) {
+    const idx = roles.findIndex((r) => String(r.id) === String(id))
+    if (idx === -1) return mockReject(404, '角色不存在')
+    roles.splice(idx, 1)
+    return unwrap(await mockResolve(null))
   }
+  return unwrap(await request.delete(`/api/roles/${id}`))
 }

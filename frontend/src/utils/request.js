@@ -1,9 +1,8 @@
 /**
- * 全局 Axios 封装（前端 B 规范 + 兼容前端 A）
- * - 自动携带 JWT Token
- * - 自动附加 env 环境标识
- * - 统一错误码弹窗：0/400/401/403/404/500/5001/5002 + A 扩展码
- * - 成功时返回完整业务体 { code, message, data }，由各模块自行取 data
+ * 全局 Axios 封装
+ * - baseURL 统一读取 VITE_API_BASE_URL（.env.development / .env.production）
+ * - 自动携带 JWT Token、env 环境标识
+ * - 统一错误码提示：0/400/401/403/404/500/5001/5002 + 扩展码 4001–4003
  */
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
@@ -21,6 +20,18 @@ const ERROR_MESSAGES = {
   4003: '系统品牌配置未初始化，使用默认值'
 }
 
+/** 去掉末尾斜杠，避免与 /api/... 拼接出现双斜杠 */
+function normalizeBaseUrl(url = '') {
+  return String(url || '').trim().replace(/\/$/, '')
+}
+
+/**
+ * 全局 API 基础地址
+ * - 开发：.env.development → 如 http://127.0.0.1:8001
+ * - 生产：.env.production → 同域可留空
+ */
+export const API_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL || '')
+
 function getEnvTag() {
   return localStorage.getItem('rag_env') || import.meta.env.VITE_APP_ENV || 'dev'
 }
@@ -30,7 +41,7 @@ function getToken() {
 }
 
 const request = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE || '',
+  baseURL: API_BASE_URL,
   timeout: 60000
 })
 
@@ -60,6 +71,7 @@ request.interceptors.response.use(
     if (response.config.responseType === 'blob') {
       return response.data
     }
+    const silent = response.config.silent === true
     const res = response.data
     if (!res || typeof res.code === 'undefined') {
       return res
@@ -67,17 +79,18 @@ request.interceptors.response.use(
     if (res.code === 0) {
       return res
     }
-    // 前端 A 扩展业务码
     if (res.code === 4003) {
-      ElMessage.warning(ERROR_MESSAGES[4003])
+      if (!silent) ElMessage.warning(ERROR_MESSAGES[4003])
       return res
     }
     if (res.code === 4001 || res.code === 4002) {
-      ElMessage.warning(res.message || res.msg || ERROR_MESSAGES[res.code])
+      if (!silent) {
+        ElMessage.warning(res.message || res.msg || ERROR_MESSAGES[res.code])
+      }
       return Promise.reject(res)
     }
     const msg = ERROR_MESSAGES[res.code] || res.message || res.msg || '请求失败'
-    ElMessage.error(msg)
+    if (!silent) ElMessage.error(msg)
     if (res.code === 401) {
       window.location.href = '/login'
     }
@@ -87,6 +100,7 @@ request.interceptors.response.use(
     if (axios.isCancel?.(error) || error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError') {
       return Promise.reject(error)
     }
+    const silent = error?.config?.silent === true
     const code = error?.response?.data?.code
     const msg =
       ERROR_MESSAGES[code] ||
@@ -94,7 +108,7 @@ request.interceptors.response.use(
       error?.response?.data?.msg ||
       error.message ||
       '网络异常，请稍后重试'
-    ElMessage.error(msg)
+    if (!silent) ElMessage.error(msg)
     if (code === 401 || error?.response?.status === 401) {
       window.location.href = '/login'
     }
