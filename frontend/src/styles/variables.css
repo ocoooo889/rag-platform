@@ -1,0 +1,41 @@
+:root {
+  --color-primary: #409eff;
+  --color-assistant-avatar: #67c23a;
+
+  --text-color-primary: #303133;
+  --text-color-regular: #606266;
+  --text-color-secondary: #909399;
+  --text-color-inverse: #ffffff;
+
+  --bg-color-page: #f5f7fa;
+  --bg-color-card: #ffffff;
+  --bg-color-hover: #ecf5ff;
+  --bg-color-user-bubble: #e8f3ff;
+  --bg-color-ai-bubble: #f4f4f5;
+
+  --border-color: #ebeef5;
+
+  --score-color-high: #67c23a;
+  --score-color-mid: #e6a23c;
+  --score-color-low: #f56c6c;
+
+  --status-pending-text: #909399;
+  --status-pending-bg: #f4f4f5;
+  --status-processing-text: #409eff;
+  --status-processing-bg: #ecf5ff;
+  --status-completed-text: #67c23a;
+  --status-completed-bg: #f0f9eb;
+  --status-failed-text: #f56c6c;
+  --status-failed-bg: #fef0f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  background: var(--bg-color-page);
+  color: var(--text-color-primary);
+}
