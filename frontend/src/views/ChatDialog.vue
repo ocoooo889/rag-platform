@@ -1,7 +1,7 @@
 <template>
   <div
     class="chat-dialog"
-    :class="{ 'chat-dialog--resizing': resizing }"
+    :class="{ 'chat-dialog--resizing': resizing || vResizing }"
     :style="{ gridTemplateColumns: panelWidth + 'px 6px 1fr' }"
     v-loading="bootLoading"
     element-loading-text="加载中..."
@@ -112,12 +112,19 @@
           </div>
         </div>
 
-        <footer class="composer-dock">
+        <!-- 上下可拖拽分割条 -->
+        <div
+          class="v-resize-handle"
+          :class="{ 'is-resizing': vResizing }"
+          @mousedown="onVResizeStart"
+        />
+
+        <footer class="composer-dock" :style="{ height: composerHeight + 'px' }">
           <div class="composer-box">
             <el-input
               v-model="question"
               type="textarea"
-              :autosize="{ minRows: 2, maxRows: 8 }"
+              :rows="3"
               class="composer-input"
               maxlength="1000"
               placeholder="给 RAG 智能助手发送消息"
@@ -209,6 +216,32 @@ function onResizeStart(e) {
 
   function onUp() {
     resizing.value = false
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+  }
+
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
+
+/** 上下拖拽：调整底部输入区高度 */
+const composerHeight = ref(148)
+const vResizing = ref(false)
+
+function onVResizeStart(e) {
+  e.preventDefault()
+  vResizing.value = true
+  const startY = e.clientY
+  const startH = composerHeight.value
+
+  function onMove(ev) {
+    // 向上拖 → 输入区变高；向下拖 → 变矮
+    const delta = startY - ev.clientY
+    composerHeight.value = Math.max(120, Math.min(420, startH + delta))
+  }
+
+  function onUp() {
+    vResizing.value = false
     document.removeEventListener('mousemove', onMove)
     document.removeEventListener('mouseup', onUp)
   }
@@ -311,6 +344,17 @@ async function initPage() {
     }
     if (hasKb.value) {
       await chatStore.loadSessions()
+      // 进入页面：左侧展示历史列表，主区拼出全部历史对话
+      if (chatStore.sessions.length) {
+        const targetId =
+          chatStore.currentSessionId &&
+          chatStore.sessions.some(
+            (s) => String(s.session_id) === String(chatStore.currentSessionId)
+          )
+            ? chatStore.currentSessionId
+            : chatStore.sessions[0].session_id
+        await chatStore.switchSession(targetId)
+      }
     }
   } catch (e) {
     pageError.value = e?.message || e?.msg || '对话页加载失败，请重试'
@@ -607,30 +651,92 @@ defineExpose({
   flex-direction: column;
   gap: 8px;
   padding-bottom: 16px;
+  width: 100%;
+}
+
+.message-thread :deep(.chat-bubble) {
+  margin-bottom: 4px;
+}
+
+.message-thread :deep(.chat-bubble__body) {
+  max-width: 85%;
+}
+
+/* ---- 上下分割条 ---- */
+.v-resize-handle {
+  flex-shrink: 0;
+  height: 6px;
+  cursor: row-resize;
+  background: transparent;
+  position: relative;
+  z-index: 2;
+}
+
+.v-resize-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-color);
+  transition: background 0.15s, width 0.15s;
+}
+
+.v-resize-handle:hover::after,
+.v-resize-handle.is-resizing::after {
+  background: var(--color-primary);
+  width: 56px;
+}
+
+.chat-dialog--resizing,
+.chat-main__inner:has(.v-resize-handle.is-resizing) {
+  user-select: none;
 }
 
 /* ---- 底部输入区 ---- */
 .composer-dock {
   flex-shrink: 0;
-  padding: 0 24px 24px;
+  height: 148px;
+  min-height: 120px;
+  max-height: 420px;
+  padding: 8px 24px 16px;
   display: flex;
   justify-content: center;
+  box-sizing: border-box;
+  border-top: 1px solid var(--border-color);
+  background: #fff;
 }
 
 .composer-box {
   width: 100%;
   max-width: 800px;
+  height: 100%;
   background: #f4f5f7;
   border: 1px solid #e8eaed;
   border-radius: 24px;
-  padding: 14px 16px 12px;
+  padding: 12px 16px 10px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
   transition: border-color 0.2s, box-shadow 0.2s;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 .composer-box:focus-within {
   border-color: #c6daf5;
   box-shadow: 0 4px 20px rgba(64, 158, 255, 0.1);
+}
+
+.composer-input {
+  flex: 1;
+  min-height: 0;
+}
+
+.composer-input :deep(.el-textarea) {
+  height: 100%;
 }
 
 .composer-input :deep(.el-textarea__inner) {
@@ -641,7 +747,9 @@ defineExpose({
   resize: none;
   font-size: 15px;
   line-height: 1.6;
+  height: 100% !important;
   min-height: 48px;
+  overflow-y: auto;
 }
 
 .composer-input :deep(.el-textarea__inner::-webkit-resizer) {
@@ -654,6 +762,7 @@ defineExpose({
   justify-content: space-between;
   margin-top: 8px;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .composer-toolbar__left {
