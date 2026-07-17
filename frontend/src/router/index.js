@@ -4,7 +4,9 @@ import Login from '@/views/Login.vue'
 import Dashboard from '@/views/Dashboard.vue'
 import RoleManage from '@/views/RoleManage.vue'
 import UserManage from '@/views/UserManage.vue'
+import UserGroupManage from '@/views/UserGroupManage.vue'
 import ModelManage from '@/views/ModelManage.vue'
+import BrandingConfig from '@/views/BrandingConfig.vue'
 
 const routes = [
   { path: '/login', name: 'Login', component: Login },
@@ -33,9 +35,21 @@ const routes = [
         meta: { roles: ['管理员'] }
       },
       {
+        path: 'user-groups',
+        name: 'UserGroups',
+        component: UserGroupManage,
+        meta: { roles: ['管理员'] }
+      },
+      {
         path: 'models',
         name: 'Models',
         component: ModelManage,
+        meta: { roles: ['管理员'] }
+      },
+      {
+        path: 'branding',
+        name: 'Branding',
+        component: BrandingConfig,
         meta: { roles: ['管理员'] }
       },
       {

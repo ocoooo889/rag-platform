@@ -21,9 +21,17 @@
           <el-icon><User /></el-icon>
           <span>用户管理</span>
         </el-menu-item>
+        <el-menu-item v-if="canSeeMenu('/user-groups')" index="/user-groups">
+          <el-icon><UserFilled /></el-icon>
+          <span>用户组管理</span>
+        </el-menu-item>
         <el-menu-item v-if="canSeeMenu('/models')" index="/models">
           <el-icon><Monitor /></el-icon>
           <span>大模型管理</span>
+        </el-menu-item>
+        <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
+          <el-icon><Setting /></el-icon>
+          <span>品牌配置</span>
         </el-menu-item>
         <el-menu-item v-if="canSeeMenu('/knowledge-bases')" index="/knowledge-bases">
           <el-icon><Folder /></el-icon>
@@ -72,7 +80,8 @@ import {
   Folder,
   Document,
   Search,
-  ChatDotRound
+  ChatDotRound,
+  Setting
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -84,7 +93,9 @@ const menuRoles = {
   '/dashboard': ['管理员', '编辑员'],
   '/roles': ['管理员'],
   '/users': ['管理员'],
+  '/user-groups': ['管理员'],
   '/models': ['管理员'],
+  '/branding': ['管理员'],
   '/knowledge-bases': ['管理员', '编辑员'],
   '/documents': ['管理员', '编辑员'],
   '/hit-test': ['管理员', '编辑员'],
