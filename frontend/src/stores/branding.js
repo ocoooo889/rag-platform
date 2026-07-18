@@ -8,15 +8,33 @@ const DEFAULTS = {
   brand_name: 'RAG 智能知识平台',
   brand_logo_url: '/uploads/branding/logo.png',
   brand_favicon_url: '/uploads/branding/favicon.ico',
-  brand_theme_color: '#4A7AFF',
+  brand_theme_color: '#3D9BFF',
   brand_login_title: '企业知识，智能问答',
-  brand_footer_text: 'Powered by RAG Platform'
+  brand_footer_text: 'Powered by RAG Platform',
+  brand_logo_history: []
+}
+
+function normalizeBranding(data) {
+  const next = { ...DEFAULTS, ...(data || {}) }
+  const hist = next.brand_logo_history
+  if (typeof hist === 'string') {
+    try {
+      next.brand_logo_history = JSON.parse(hist)
+    } catch {
+      next.brand_logo_history = []
+    }
+  }
+  if (!Array.isArray(next.brand_logo_history)) {
+    next.brand_logo_history = []
+  }
+  next.brand_logo_history = next.brand_logo_history.filter((u) => typeof u === 'string' && u)
+  return next
 }
 
 function readCachedBranding() {
   try {
     const raw = localStorage.getItem(BRANDING_KEY)
-    return raw ? JSON.parse(raw) : { ...DEFAULTS }
+    return normalizeBranding(raw ? JSON.parse(raw) : { ...DEFAULTS })
   } catch (e) {
     return { ...DEFAULTS }
   }
@@ -39,9 +57,13 @@ export const useBrandingStore = defineStore('branding', () => {
   const brandThemeColor = computed(() => config.value.brand_theme_color || DEFAULTS.brand_theme_color)
   const brandLoginTitle = computed(() => config.value.brand_login_title || DEFAULTS.brand_login_title)
   const brandFooterText = computed(() => config.value.brand_footer_text || DEFAULTS.brand_footer_text)
+  const brandLogoHistory = computed(() => {
+    const list = config.value.brand_logo_history
+    return Array.isArray(list) ? list : []
+  })
 
   function setConfig(newConfig) {
-    config.value = { ...DEFAULTS, ...newConfig }
+    config.value = normalizeBranding(newConfig)
     saveBrandingToCache(config.value)
   }
 
@@ -53,6 +75,7 @@ export const useBrandingStore = defineStore('branding', () => {
         favicon.href = brandFaviconUrl.value
       }
       document.documentElement.style.setProperty('--el-color-primary', brandThemeColor.value)
+      document.documentElement.style.setProperty('--color-primary', brandThemeColor.value)
     }
   }
 
@@ -82,6 +105,7 @@ export const useBrandingStore = defineStore('branding', () => {
     brandThemeColor,
     brandLoginTitle,
     brandFooterText,
+    brandLogoHistory,
     setConfig,
     applyBranding,
     fetchBranding,

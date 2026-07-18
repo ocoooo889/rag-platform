@@ -30,6 +30,7 @@ export const createUserApi = async (data) => {
       role_id: data.role_id,
       role_name: data.role_name || '',
       status: data.status || '启用',
+      kb_ids: Array.isArray(data.kb_ids) ? [...data.kb_ids] : [],
       created_at: new Date().toISOString()
     }
     users.push(row)

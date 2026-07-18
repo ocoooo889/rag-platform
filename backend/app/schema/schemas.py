@@ -133,3 +133,4 @@ class BrandingConfigOut(BaseModel):
     brand_theme_color: str
     brand_login_title: str
     brand_footer_text: str
+    brand_logo_history: List[str] = []

@@ -41,12 +41,14 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    kb_ids: Optional[List[str]] = None  # 可直接授权访问的知识库
 
 class UserUpdate(BaseModel):
     display_name: Optional[str] = None
     status: Optional[str] = None
     role_id: Optional[int] = None
     group_ids: Optional[List[int]] = None # V2 支持更新所属用户组
+    kb_ids: Optional[List[str]] = None  # 用户直接授权的知识库（全量覆盖）
 
 # 知识库相关
 class KnowledgeBaseBase(BaseModel):

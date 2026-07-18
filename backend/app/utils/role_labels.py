@@ -28,6 +28,7 @@ def build_user_payload(user: User) -> dict[str, Any]:
         "id": user.id,
         "username": user.username,
         "display_name": user.display_name,
+        "avatar_url": getattr(user, "avatar_url", None) or "",
         "role": role_code,
         "role_name": role_label_of(role_code),
         "status": user.status,

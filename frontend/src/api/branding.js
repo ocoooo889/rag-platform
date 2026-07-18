@@ -7,7 +7,8 @@ const mockBranding = {
   brand_favicon_url: '/uploads/branding/favicon.ico',
   brand_theme_color: '#409EFF',
   brand_login_title: '企业知识，智能问答',
-  brand_footer_text: 'Powered by RAG Platform'
+  brand_footer_text: 'Powered by RAG Platform',
+  brand_logo_history: []
 }
 
 function unwrap(res) {
@@ -59,11 +60,26 @@ export const updateBrandingApi = async (data) => {
     if (data instanceof FormData) {
       for (const [key, value] of data.entries()) {
         if (typeof value === 'string') mockBranding[key] = value
+        if (key === 'brand_logo' && value instanceof File) {
+          const url = `/uploads/branding/logo_${Date.now()}.png?v=${Date.now()}`
+          mockBranding.brand_logo_url = url
+          const hist = Array.isArray(mockBranding.brand_logo_history)
+            ? mockBranding.brand_logo_history
+            : []
+          mockBranding.brand_logo_history = [url, ...hist.filter((u) => u !== url)].slice(0, 3)
+        }
+        if (key === 'brand_logo_history_pick' && typeof value === 'string') {
+          mockBranding.brand_logo_url = value
+          const hist = Array.isArray(mockBranding.brand_logo_history)
+            ? mockBranding.brand_logo_history
+            : []
+          mockBranding.brand_logo_history = [value, ...hist.filter((u) => u !== value)].slice(0, 3)
+        }
       }
     } else {
       Object.assign(mockBranding, data)
     }
-    return { ...mockBranding }
+    return { ...mockBranding, brand_logo_history: [...(mockBranding.brand_logo_history || [])] }
   }
   // 勿手动设 Content-Type，交给浏览器带 boundary
   const formData = toFormData(data)

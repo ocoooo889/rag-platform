@@ -18,3 +18,9 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     search_type: str = "hybrid"
     top_n: int = Field(default=3, ge=1, le=10)
+
+
+class ChatSessionUpdate(BaseModel):
+    """会话管理：重命名 / 置顶"""
+    title: str | None = Field(default=None, max_length=25)
+    pinned: bool | None = None

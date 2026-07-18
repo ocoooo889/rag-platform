@@ -1,22 +1,32 @@
 <template>
-  <div class="user-group-manage">
+  <div class="user-group-manage page-shell">
     <div class="page-header">
       <h2>用户组管理</h2>
       <el-button type="primary" @click="openAddDialog">新增用户组</el-button>
     </div>
-    <el-table :data="groupList" border>
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="name" label="用户组名称" />
-      <el-table-column prop="description" label="描述" />
-      <el-table-column prop="member_count" label="成员数" width="80" />
-      <el-table-column prop="kb_count" label="授权知识库数" width="120" />
-      <el-table-column prop="created_at" label="创建时间" width="180" />
-      <el-table-column label="操作">
+    <div class="page-body">
+    <el-table :data="groupList" border table-layout="fixed">
+      <el-table-column prop="id" label="ID" min-width="56" />
+      <el-table-column prop="name" label="用户组名称" min-width="100" show-overflow-tooltip />
+      <el-table-column
+        prop="description"
+        label="描述"
+        width="400"
+        show-overflow-tooltip
+      />
+      <el-table-column prop="member_count" label="成员数" min-width="80" />
+      <el-table-column prop="kb_count" label="授权知识库数" min-width="120" />
+      <el-table-column label="创建时间" min-width="110">
+        <template #default="{ row }">
+          {{ formatDate(row.created_at, 'YYYY/MM/DD') }}
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" min-width="280" fixed="right">
         <template #default="scope">
-          <el-button type="text" @click="openMembersDialog(scope.row)">成员管理</el-button>
-          <el-button type="text" @click="openKbAccessDialog(scope.row)">知识库授权</el-button>
-          <el-button type="text" @click="openEditDialog(scope.row)">编辑</el-button>
-          <el-button type="text" danger @click="handleDelete(scope.row)">删除</el-button>
+          <el-button text @click="openMembersDialog(scope.row)">成员管理</el-button>
+          <el-button text @click="openKbAccessDialog(scope.row)">知识库授权</el-button>
+          <el-button text @click="openEditDialog(scope.row)">编辑</el-button>
+          <el-button text type="danger" @click="handleDelete(scope.row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -98,6 +108,7 @@
         <el-button type="primary" @click="handleSaveKbAccess">确定</el-button>
       </template>
     </el-dialog>
+    </div>
   </div>
 </template>
 
@@ -114,6 +125,7 @@ import {
 import { getUsersApi } from '@/api/users'
 import { fetchKnowledgeBases } from '@/api/kb'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { formatDate } from '@/utils/format'
 
 const formRef = ref(null)
 const dialogVisible = ref(false)
@@ -265,16 +277,7 @@ onMounted(() => {
 
 <style scoped>
 .user-group-manage {
-  padding: 10px 0;
-}
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-.page-header h2 {
-  margin: 0;
+  /* page-shell 由 admin.css 统一 */
 }
 .members-dialog,
 .kb-access-dialog {

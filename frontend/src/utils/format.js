@@ -13,7 +13,7 @@ export function formatFileSize(bytes) {
 /**
  * 日期格式化
  * @param {string|number|Date} date 日期
- * @param {'YYYYMMDD'|'datetime'} pattern 输出模式
+ * @param {'YYYYMMDD'|'datetime'|'date'|'YYYY/MM/DD'} pattern 输出模式
  * @returns {string}
  */
 export function formatDate(date, pattern = 'YYYYMMDD') {
@@ -27,6 +27,9 @@ export function formatDate(date, pattern = 'YYYYMMDD') {
   const s = String(d.getSeconds()).padStart(2, '0')
   if (pattern === 'datetime') {
     return `${y}-${m}-${day} ${h}:${min}:${s}`
+  }
+  if (pattern === 'date' || pattern === 'YYYY/MM/DD') {
+    return `${y}/${m}/${day}`
   }
   return `${y}${m}${day}`
 }

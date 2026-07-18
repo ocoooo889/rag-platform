@@ -1,6 +1,7 @@
 <template>
-  <!-- 通用按钮：内置三类加载文案，防止重复点击 -->
+  <!-- 统一封装：主操作对齐文档管理「批量删除」= type="primary" 实心主题色 -->
   <el-button
+    class="app-button"
     :type="type"
     :link="link"
     :disabled="disabled || loading"
@@ -20,11 +21,13 @@ defineOptions({ inheritAttrs: false })
 
 const props = defineProps({
   type: { type: String, default: 'primary' },
+  /** true 时为行内文字链（对齐角色管理「编辑」） */
   link: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
   /** normal | upload | sse */
   loadingMode: { type: String, default: 'normal' },
+  /** 按钮文案 */
   text: { type: String, default: '' },
   title: { type: String, default: '' }
 })

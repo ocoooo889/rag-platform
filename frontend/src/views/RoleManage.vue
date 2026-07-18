@@ -1,9 +1,10 @@
 <template>
-  <div class="role-manage">
+  <div class="role-manage page-shell">
     <div class="page-header">
       <h2>角色管理</h2>
       <el-button type="primary" @click="openAddDialog">新增角色</el-button>
     </div>
+    <div class="page-body">
     <el-table :data="roleList" border>
       <el-table-column prop="id" label="ID" width="80" />
       <el-table-column label="角色名称" min-width="140">
@@ -18,8 +19,8 @@
       </el-table-column>
       <el-table-column label="操作" width="160">
         <template #default="{ row }">
-          <el-button type="text" @click="openEditDialog(row)">编辑</el-button>
-          <el-button type="text" danger @click="handleDelete(row)">删除</el-button>
+          <el-button text @click="openEditDialog(row)">编辑</el-button>
+          <el-button text type="danger" @click="handleDelete(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -47,6 +48,7 @@
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+    </div>
   </div>
 </template>
 
@@ -197,15 +199,6 @@ onMounted(() => {
 
 <style scoped>
 .role-manage {
-  padding: 10px 0;
-}
-.page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-.page-header h2 {
-  margin: 0;
+  /* page-shell 布局由 admin.css 统一 */
 }
 </style>

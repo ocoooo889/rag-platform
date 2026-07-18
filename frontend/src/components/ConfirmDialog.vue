@@ -4,26 +4,19 @@
     :model-value="modelValue"
     :title="title"
     width="420px"
+    align-center
     append-to-body
     @close="onCancel"
   >
     <p class="confirm-message">{{ message }}</p>
     <template #footer>
-      <AppButton type="default" text="取消" @click="onCancel" />
-      <AppButton
-        type="danger"
-        :loading="loading"
-        loading-mode="normal"
-        text="确认"
-        @click="onConfirm"
-      />
+      <el-button @click="onCancel">取消</el-button>
+      <el-button type="primary" :loading="loading" @click="onConfirm">确认</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup>
-import AppButton from './AppButton.vue'
-
 defineProps({
   modelValue: { type: Boolean, default: false },
   title: { type: String, default: '确认操作' },
@@ -47,6 +40,6 @@ function onConfirm() {
 .confirm-message {
   margin: 0;
   line-height: 1.6;
-  color: var(--text-color-primary);
+  color: var(--admin-text, var(--text-color-regular));
 }
 </style>

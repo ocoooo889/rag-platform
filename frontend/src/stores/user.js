@@ -75,7 +75,6 @@ export const useUserStore = defineStore('user', () => {
 
   async function ensureUserInfo() {
     if (!token.value) return null
-    if (userInfo.value?.role) return userInfo.value
     try {
       const me = await fetchMeApi()
       if (me) setUserInfo(me)

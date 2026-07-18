@@ -108,6 +108,41 @@ export async function deleteChatSession(sessionId) {
     .catch(() => request.delete(`/api/chat/${sessionId}`, { silent: true }))
 }
 
+/** 更新会话：重命名 / 置顶 */
+export async function updateChatSession(sessionId, data = {}) {
+  const sid = String(sessionId)
+  const payload = {}
+  if (data.title != null) payload.title = String(data.title).trim().slice(0, 25)
+  if (data.pinned != null) payload.pinned = !!data.pinned
+
+  if (MOCK_OPEN()) {
+    const row = mockSessions.find((s) => String(s.session_id) === sid)
+    if (!row) {
+      return Promise.reject({ code: 404, msg: '会话不存在' })
+    }
+    if (payload.title != null) {
+      if (!payload.title) {
+        return Promise.reject({ code: 400, msg: '标题不能为空' })
+      }
+      row.title = payload.title
+    }
+    if (payload.pinned != null) {
+      row.pinned = payload.pinned
+    }
+    // 置顶排前
+    mockSessions.sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned))
+    return mockResolve({
+      session_id: sid,
+      title: row.title || '',
+      pinned: !!row.pinned
+    })
+  }
+  if (!isChatSessionApiEnabled()) {
+    return rejectSessionApiUnavailable()
+  }
+  return request.patch(`/api/chat/sessions/${sid}`, payload)
+}
+
 /**
  * 流式对话：组装契约入参后交给 runSSE
  * Mock 异常：query 含 __timeout__ / __5002__ 等触发词
