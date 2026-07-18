@@ -18,9 +18,11 @@
         </div>
       </div>
       <div class="login-header">
-        <div class="logo-icon"></div>
-        <h1>智能RAG平台</h1>
-        <p>登录平台</p>
+        <div class="logo-icon" :style="{ backgroundColor: brandingStore.brandThemeColor }">
+          <img v-if="brandingStore.brandLogoUrl && brandingStore.brandLogoUrl !== '/uploads/branding/logo.png'" :src="brandingStore.brandLogoUrl" alt="Logo" />
+        </div>
+        <h1>{{ brandingStore.brandName }}</h1>
+        <p>{{ brandingStore.brandLoginTitle }}</p>
       </div>
       <el-form :model="form" :rules="rules" ref="formRef" class="login-form">
         <el-form-item prop="username">
@@ -39,27 +41,34 @@
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" class="login-btn" @click="handleLogin" :loading="loading">
+          <el-button type="primary" class="login-btn" @click="handleLogin" :loading="loading" :style="{ backgroundColor: brandingStore.brandThemeColor, borderColor: brandingStore.brandThemeColor }">
             登录
           </el-button>
         </el-form-item>
       </el-form>
+      <div class="login-footer">{{ brandingStore.brandFooterText }}</div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useBrandingStore } from '@/stores/branding'
 import { loginApi } from '@/api/auth'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const userStore = useUserStore()
+const brandingStore = useBrandingStore()
 const formRef = ref(null)
 const loading = ref(false)
 const loginType = ref('employee')
+
+onMounted(() => {
+  brandingStore.fetchBranding()
+})
 
 const form = reactive({
   username: '',
@@ -105,6 +114,8 @@ const handleLogin = async () => {
     router.push(redirectPath)
   } catch (error) {
     console.error(error)
+    const errorMsg = error.response?.data?.message || error.response?.data?.msg || error.message || '登录失败，请检查账号密码'
+    ElMessage.error(errorMsg)
   } finally {
     loading.value = false
   }
@@ -176,5 +187,16 @@ const handleLogin = async () => {
   width: 100%;
   height: 44px;
   font-size: 16px;
+}
+.login-footer {
+  text-align: center;
+  padding: 15px 40px 30px;
+  font-size: 12px;
+  color: #909399;
+}
+.logo-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 </style>

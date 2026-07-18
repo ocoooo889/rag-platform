@@ -2,9 +2,11 @@
   <el-container class="layout-container">
     <el-aside width="200px" class="aside">
       <div class="logo">
-        <div class="logo-icon"></div>
+        <div class="logo-icon" :style="{ backgroundColor: brandingStore.brandThemeColor }">
+          <img v-if="brandingStore.brandLogoUrl && brandingStore.brandLogoUrl !== '/uploads/branding/logo.png'" :src="brandingStore.brandLogoUrl" alt="Logo" />
+        </div>
         <div class="logo-text">
-          <span class="logo-title">智能RAG平台</span>
+          <span class="logo-title">{{ brandingStore.brandName }}</span>
           <span class="logo-subtitle">RAG管理后台</span>
         </div>
       </div>
@@ -29,10 +31,11 @@
           <el-icon><Monitor /></el-icon>
           <span>大模型管理</span>
         </el-menu-item>
-        <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
+        <!-- 品牌配置页面暂不显示，后续需要时取消注释 -->
+        <!-- <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
           <el-icon><Setting /></el-icon>
           <span>品牌配置</span>
-        </el-menu-item>
+        </el-menu-item> -->
         <el-menu-item v-if="canSeeMenu('/knowledge-bases')" index="/knowledge-bases">
           <el-icon><Folder /></el-icon>
           <span>知识库管理</span>
@@ -54,7 +57,7 @@
     <el-container>
       <el-header class="header">
         <div class="header-left">
-          <span>RAG管理后台</span>
+          <span>{{ brandingStore.brandName }}</span>
         </div>
         <div class="header-right">
           <el-button v-if="canSeeMenu('/chat')" type="primary" link @click="goToChat">智能对话</el-button>
@@ -69,9 +72,10 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
+import { useBrandingStore } from '@/stores/branding'
 import {
   HomeFilled,
   UserFilled,
@@ -86,6 +90,11 @@ import {
 
 const router = useRouter()
 const userStore = useUserStore()
+const brandingStore = useBrandingStore()
+
+onMounted(() => {
+  brandingStore.fetchBranding()
+})
 
 const activeMenu = computed(() => router.currentRoute.value.path)
 
@@ -136,9 +145,17 @@ const handleLogout = () => {
 .logo-icon {
   width: 40px;
   height: 40px;
-  background-color: #f56c6c;
   border-radius: 8px;
   margin-right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.logo-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
 }
 .logo-text {
   display: flex;

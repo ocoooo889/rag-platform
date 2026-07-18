@@ -148,13 +148,28 @@ const handleSubmit = async () => {
       data.append('brand_logo', logoFileList.value[0].raw)
     }
     
-    await updateBrandingApi(data)
+    const updateResult = await updateBrandingApi(data)
+    console.log('updateBrandingApi result:', updateResult)
     
-    await brandingStore.fetchBranding()
+    const fetchResult = await brandingStore.fetchBranding()
+    console.log('fetchBranding result:', fetchResult)
+    
     ElMessage.success('品牌配置更新成功')
+    
+    if (logoFileList.value.length > 0 && logoFileList.value[0].raw) {
+      const logoUrl = updateResult?.brand_logo_url || brandingStore.brandLogoUrl
+      if (logoUrl && logoUrl !== '/uploads/branding/logo.png') {
+        previewLogoUrl.value = logoUrl
+      }
+    }
   } catch (error) {
-    console.error(error)
-    ElMessage.error('品牌配置更新失败')
+    console.error('handleSubmit error:', error)
+    if (error.response?.status === 422) {
+      const errorMsg = error.response.data?.detail || error.response.data?.message || '参数格式错误'
+      ElMessage.error(errorMsg)
+    } else {
+      ElMessage.error('品牌配置更新失败')
+    }
   } finally {
     loading.value = false
   }
