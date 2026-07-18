@@ -19,7 +19,7 @@
               :auto-upload="false"
               :limit="1"
               :accept="'image/png,image/jpeg,image/svg+xml'"
-              :file-list="logoFileList"
+              v-model:file-list="logoFileList"
               :on-change="handleLogoChange"
               :on-remove="handleLogoRemove"
             >
@@ -101,17 +101,22 @@ const rules = {
 
 const previewLogoUrl = ref('')
 
-const handleLogoChange = (file) => {
-  if (file.size > 2 * 1024 * 1024) {
+const handleLogoChange = (file, files) => {
+  const raw = file?.raw
+  if (!raw) return
+  if (raw.size > 2 * 1024 * 1024) {
     ElMessage.error('Logo 文件大小不能超过 2MB')
     logoFileList.value = []
+    previewLogoUrl.value = ''
     return
   }
+  // 受控 file-list：只保留最新一张
+  logoFileList.value = files?.length ? [files[files.length - 1]] : [file]
   const reader = new FileReader()
   reader.onload = (e) => {
     previewLogoUrl.value = e.target.result
   }
-  reader.readAsDataURL(file.raw)
+  reader.readAsDataURL(raw)
 }
 
 const handleLogoRemove = () => {
@@ -143,25 +148,22 @@ const handleSubmit = async () => {
     data.append('brand_theme_color', form.brand_theme_color)
     data.append('brand_login_title', form.brand_login_title)
     data.append('brand_footer_text', form.brand_footer_text)
-    
-    if (logoFileList.value.length > 0 && logoFileList.value[0].raw) {
-      data.append('brand_logo', logoFileList.value[0].raw)
+
+    const logoRaw = logoFileList.value.find((f) => f?.raw)?.raw
+    if (logoRaw) {
+      data.append('brand_logo', logoRaw, logoRaw.name || 'logo.png')
     }
-    
+
     const updateResult = await updateBrandingApi(data)
-    console.log('updateBrandingApi result:', updateResult)
-    
-    const fetchResult = await brandingStore.fetchBranding()
-    console.log('fetchBranding result:', fetchResult)
-    
+    await brandingStore.fetchBranding()
+
     ElMessage.success('品牌配置更新成功')
-    
-    if (logoFileList.value.length > 0 && logoFileList.value[0].raw) {
-      const logoUrl = updateResult?.brand_logo_url || brandingStore.brandLogoUrl
-      if (logoUrl && logoUrl !== '/uploads/branding/logo.png') {
-        previewLogoUrl.value = logoUrl
-      }
+
+    const logoUrl = updateResult?.brand_logo_url || brandingStore.brandLogoUrl
+    if (logoUrl && logoUrl !== '/uploads/branding/logo.png') {
+      previewLogoUrl.value = logoUrl
     }
+    logoFileList.value = []
   } catch (error) {
     console.error('handleSubmit error:', error)
     if (error.response?.status === 422) {

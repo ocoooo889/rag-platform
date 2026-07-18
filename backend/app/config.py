@@ -104,9 +104,12 @@ _has_dashscope = bool(_clean_secret(os.getenv("DASHSCOPE_API_KEY"))) or (
 if _has_dashscope and not os.getenv("OPENAI_BASE_URL"):
     _default_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", _default_base)
-# 百炼兼容模式下若未显式指定，默认 text-embedding-v4
-if "dashscope" in (OPENAI_BASE_URL or "").lower() and not os.getenv("EMBEDDING_MODEL"):
-    EMBEDDING_MODEL = "text-embedding-v4"
+# 百炼兼容模式下若未显式指定，默认百炼模型（避免落到 gpt-4o-mini）
+if "dashscope" in (OPENAI_BASE_URL or "").lower():
+    if not os.getenv("EMBEDDING_MODEL"):
+        EMBEDDING_MODEL = "text-embedding-v4"
+    if not os.getenv("LLM_MODEL"):
+        LLM_MODEL = "qwen-plus"
 
 # ============================================================
 # JWT 鉴权

@@ -25,71 +25,52 @@ function unwrap(res) {
   return res
 }
 
-export const getBrandingApi = async () => {
+/** 已是 FormData 则原样返回，避免 for...in FormData 丢字段导致后端 422 */
+function toFormData(data) {
+  if (data instanceof FormData) return data
+  const formData = new FormData()
+  if (!data || typeof data !== 'object') return formData
+  for (const [key, value] of Object.entries(data)) {
+    if (value === null || value === undefined) continue
+    formData.append(key, value)
+  }
+  return formData
+}
 
+export const getBrandingApi = async () => {
   if (isMockOpen()) {
     return { ...mockBranding }
-
+  }
   try {
     const res = await request.get('/api/system/branding', { cache: 'no-cache' })
     const data = unwrap(res)
-    console.log('getBrandingApi - raw response:', res)
-    console.log('getBrandingApi - unwrapped data:', data)
     if (!data || typeof data !== 'object' || !data.brand_name) {
-      console.warn('getBrandingApi - invalid data, using mock:', data)
-      return mockBranding
+      return { ...mockBranding }
     }
     return data
   } catch (error) {
     console.error('getBrandingApi error:', error)
-    return mockBranding
-
+    return { ...mockBranding }
   }
-  return unwrap(await request.get('/api/system/branding'))
 }
 
 export const updateBrandingApi = async (data) => {
-
   if (isMockOpen()) {
-    Object.assign(mockBranding, data)
-    return { ...mockBranding }
-  }
-  const formData = new FormData()
-  for (const key in data) {
-    if (data[key] !== null && data[key] !== undefined) {
-      formData.append(key, data[key])
-    }
-  }
-
-  try {
-    let formData = data
-    if (!(data instanceof FormData)) {
-      formData = new FormData()
-      for (const key in data) {
-        if (data[key] !== null && data[key] !== undefined) {
-          formData.append(key, data[key])
-        }
-      }
-    }
-    const res = await request.put('/api/system/branding', formData)
-    const result = unwrap(res)
-    console.log('updateBrandingApi - raw response:', res)
-    console.log('updateBrandingApi - unwrapped result:', result)
-    return result
-  } catch (error) {
-    console.error('updateBrandingApi error:', error)
     if (data instanceof FormData) {
-      const plainData = {}
-      data.forEach((value, key) => {
-        if (!(value instanceof File)) {
-          plainData[key] = value
-        }
-      })
-      Object.assign(mockBranding, plainData)
+      for (const [key, value] of data.entries()) {
+        if (typeof value === 'string') mockBranding[key] = value
+      }
     } else {
       Object.assign(mockBranding, data)
     }
+    return { ...mockBranding }
+  }
+  // 勿手动设 Content-Type，交给浏览器带 boundary
+  const formData = toFormData(data)
+  try {
+    return unwrap(await request.put('/api/system/branding', formData))
+  } catch (error) {
+    console.error('updateBrandingApi error:', error)
     throw error
   }
-
 }
