@@ -61,7 +61,6 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const roleList = ref([])
 
-
 /** 权限码 → 中文 */
 const PERM_LABELS = {
   '*': '全部权限',
@@ -121,31 +120,6 @@ function inferPreset(permissions) {
   if (joined === [...PRESET_PERMS.user].sort().join(',')) return 'user'
   if (joined === [...PRESET_PERMS.view].sort().join(',')) return 'view'
   return 'user'
-
-const permissionMap = {
-  'all': '全部权限',
-  'edit': '编辑权限',
-  'view': '查看权限',
-  'kb:view': '知识库查看',
-  'kb:manage': '知识库管理',
-  'doc:view': '文档查看',
-  'doc:manage': '文档管理',
-  'chat:send': '发送消息',
-  'rag:test': '命中率测试',
-  'user:view': '用户查看',
-  'user:manage': '用户管理',
-  'role:view': '角色查看',
-  'role:manage': '角色管理'
-}
-
-const getPermissionLabel = (value) => {
-  if (Array.isArray(value)) {
-    return value.map(p => permissionMap[p] || p).join('、')
-  }
-  if (value === '["*"]') return '全部权限'
-  if (value === '["kb:view","doc:view","chat:send","rag:test"]') return '知识库查看、文档查看、发送消息、命中率测试'
-  return permissionMap[value] || value
-
 }
 
 const form = reactive({
@@ -180,18 +154,7 @@ const openEditDialog = (row) => {
   isEdit.value = true
   form.id = row.id
   form.name = row.name
-
   form.permPreset = inferPreset(row.permissions)
-
-  const perms = row.permissions
-  if (perms && typeof perms === 'object') {
-    if (Array.isArray(perms)) {
-      form.permissions = perms.includes('*') ? 'all' : (perms.includes('edit') ? 'edit' : 'view')
-    }
-  } else {
-    form.permissions = ''
-  }
-
   dialogVisible.value = true
 }
 
@@ -200,37 +163,17 @@ const handleSubmit = async () => {
   await formRef.value.validate()
   const permissions = PRESET_PERMS[form.permPreset] || PRESET_PERMS.user
   try {
-    const permissionsMap = {
-      'all': ['*'],
-      'edit': ['kb:view', 'kb:manage', 'doc:view', 'doc:manage', 'chat:send', 'rag:test', 'user:view', 'user:manage', 'role:view', 'role:manage'],
-      'view': ['kb:view', 'doc:view', 'chat:send', 'rag:test']
-    }
-    const submitData = { 
-      name: form.name, 
-      permissions: permissionsMap[form.permissions] || [] 
-    }
-    
     if (isEdit.value) {
-
       await updateRoleApi(form.id, { name: form.name, permissions })
       ElMessage.success('更新成功')
     } else {
       await createRoleApi({ name: form.name, permissions })
-
-      await updateRoleApi(form.id, submitData)
-      ElMessage.success('更新成功')
-    } else {
-      await createRoleApi(submitData)
-
       ElMessage.success('创建成功')
     }
     dialogVisible.value = false
     fetchRoles()
   } catch (error) {
     console.error(error)
-    if (error.response?.status === 422) {
-      ElMessage.error('参数格式错误，请检查输入')
-    }
   }
 }
 
