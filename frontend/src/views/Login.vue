@@ -36,7 +36,6 @@
         </div>
       </div>
       <div class="login-header">
-
         <img
           v-if="brandingStore.brandLogoUrl && !logoBroken"
           :src="brandingStore.brandLogoUrl"
@@ -45,11 +44,6 @@
           @error="onLogoError"
         />
         <div v-else class="logo-icon"></div>
-
-        <div class="logo-icon" :style="{ backgroundColor: brandingStore.brandThemeColor }">
-          <img v-if="brandingStore.brandLogoUrl && brandingStore.brandLogoUrl !== '/uploads/branding/logo.png'" :src="brandingStore.brandLogoUrl" alt="Logo" />
-        </div>
-
         <h1>{{ brandingStore.brandName }}</h1>
         <p>{{ brandingStore.brandLoginTitle }}</p>
       </div>
@@ -70,12 +64,11 @@
           />
         </el-form-item>
         <el-form-item>
-          <el-button type="primary" class="login-btn" @click="handleLogin" :loading="loading" :style="{ backgroundColor: brandingStore.brandThemeColor, borderColor: brandingStore.brandThemeColor }">
+          <el-button type="primary" class="login-btn" @click="handleLogin" :loading="loading">
             登录
           </el-button>
         </el-form-item>
       </el-form>
-      <div class="login-footer">{{ brandingStore.brandFooterText }}</div>
     </div>
   </div>
 </template>
@@ -96,10 +89,6 @@ const formRef = ref(null)
 const loading = ref(false)
 const loginType = ref('employee')
 const logoBroken = ref(false)
-
-onMounted(() => {
-  brandingStore.fetchBranding()
-})
 
 const form = reactive({
   username: '',
@@ -148,7 +137,6 @@ const handleLogin = async () => {
     const redirectPath = isAdminRole(role) ? '/dashboard' : '/chat'
     router.push(redirectPath)
   } catch (error) {
-
     const msg =
       error?.message ||
       error?.msg ||
@@ -159,11 +147,6 @@ const handleLogin = async () => {
         ? '用户名或密码错误，请重新输入'
         : msg
     )
-
-    console.error(error)
-    const errorMsg = error.response?.data?.message || error.response?.data?.msg || error.message || '登录失败，请检查账号密码'
-    ElMessage.error(errorMsg)
-
   } finally {
     loading.value = false
   }
@@ -369,16 +352,5 @@ const handleLogin = async () => {
   .login-hero {
     display: none;
   }
-}
-.login-footer {
-  text-align: center;
-  padding: 15px 40px 30px;
-  font-size: 12px;
-  color: #909399;
-}
-.logo-icon img {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
 }
 </style>

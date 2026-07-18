@@ -99,17 +99,12 @@ export const useDocStore = defineStore('doc', () => {
     try {
       await deleteDocument(id)
       if (currentKbId.value) {
-        // 当前页删空时回退一页，避免空白页无数据
-        if (list.value.length <= 1 && page.value > 1) {
-          page.value -= 1
-        }
         await loadList(currentKbId.value)
       }
     } finally {
       loading.value = false
     }
   }
-
 
   async function removeBatch(ids) {
     loading.value = true
@@ -118,31 +113,6 @@ export const useDocStore = defineStore('doc', () => {
       if (currentKbId.value) {
         await loadList(currentKbId.value)
       }
-
-  /** 批量删除：逐个调用单删接口，最后刷新一次列表 */
-  async function removeBatch(ids = []) {
-    const idList = [...new Set((ids || []).map((id) => String(id)).filter(Boolean))]
-    if (!idList.length) return { ok: 0, fail: 0 }
-    loading.value = true
-    let ok = 0
-    let fail = 0
-    try {
-      for (const id of idList) {
-        try {
-          await deleteDocument(id)
-          ok += 1
-        } catch (e) {
-          fail += 1
-        }
-      }
-      if (currentKbId.value) {
-        if (ok >= list.value.length && page.value > 1) {
-          page.value = 1
-        }
-        await loadList(currentKbId.value)
-      }
-      return { ok, fail }
-
     } finally {
       loading.value = false
     }
@@ -166,12 +136,8 @@ export const useDocStore = defineStore('doc', () => {
     upload,
     remove,
     removeBatch,
-
     resetUploadProgress,
     startPolling,
     stopPolling
-
-    resetUploadProgress
-
   }
 })
