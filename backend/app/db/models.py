@@ -17,6 +17,7 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     display_name = Column(String)
+    avatar_url = Column(String, nullable=True)  # 用户自定义头像
     role_id = Column(Integer, ForeignKey("roles.id"))
     status = Column(String, default="启用") # 启用 / 已停用
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -64,6 +65,16 @@ class KbGroupAccess(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     __table_args__ = (UniqueConstraint("kb_id", "group_id", name="uq_kb_group"),)
+
+class UserKbAccess(Base):
+    """用户直接授权可访问的知识库（与用户组授权并存）"""
+    __tablename__ = "user_kb_access"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kb_id = Column(String(50), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("user_id", "kb_id", name="uq_user_kb"),)
 
 class Document(Base):
     __tablename__ = "documents"

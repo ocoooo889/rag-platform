@@ -13,15 +13,15 @@
         <span>RAG 智能助手</span>
       </div>
 
-      <AppButton
+      <el-button
         class="new-session-btn"
         type="primary"
-        text="开启新对话"
         :loading="creating"
-        loading-mode="normal"
         :disabled="chatStore.streaming || !chatStore.selectedKbId"
         @click="onCreateSession"
-      />
+      >
+        {{ creating ? '加载中...' : '开启新对话' }}
+      </el-button>
 
       <el-input
         v-model="sessionKeyword"
@@ -36,18 +36,53 @@
           v-for="item in filteredSessions"
           :key="item.session_id"
           class="session-item"
-          :class="{ active: item.session_id === chatStore.currentSessionId }"
+          :class="{
+            active: item.session_id === chatStore.currentSessionId,
+            pinned: item.pinned
+          }"
           @click="onSwitchSession(item.session_id)"
         >
           <span class="session-item__title">{{ item.title || '未命名会话' }}</span>
-          <button
-            type="button"
-            class="session-item__delete"
-            :disabled="chatStore.streaming"
-            @click.stop="openDelete(item.session_id)"
+          <el-dropdown
+            trigger="click"
+            placement="bottom-end"
+            :teleported="true"
+            popper-class="session-action-menu"
+            @command="(cmd) => onSessionCommand(cmd, item)"
           >
-            ×
-          </button>
+            <span
+              class="session-item__action"
+              :class="{ 'is-pinned': item.pinned }"
+              role="button"
+              tabindex="0"
+              :aria-label="item.pinned ? '已置顶，点击管理会话' : '会话操作'"
+              :title="item.pinned ? '已置顶' : '更多操作'"
+              @click.stop
+            >
+              <el-icon v-if="item.pinned" class="session-item__action-pin" :size="14">
+                <Top />
+              </el-icon>
+              <el-icon class="session-item__action-more" :size="16">
+                <MoreFilled />
+              </el-icon>
+            </span>
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item command="pin">
+                  <el-icon><Top /></el-icon>
+                  <span>{{ item.pinned ? '取消置顶' : '置顶' }}</span>
+                </el-dropdown-item>
+                <el-dropdown-item command="rename">
+                  <el-icon><EditPen /></el-icon>
+                  <span>重命名</span>
+                </el-dropdown-item>
+                <el-dropdown-item command="delete" divided class="session-action-danger">
+                  <el-icon><Delete /></el-icon>
+                  <span>删除</span>
+                </el-dropdown-item>
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
         </li>
       </ul>
 
@@ -64,7 +99,7 @@
     <!-- 右侧主区域 -->
     <section class="chat-main">
       <EmptyState v-if="pageError" type="error" :tip="pageError">
-        <AppButton type="primary" text="重新加载" @click="initPage" />
+        <el-button type="primary" @click="initPage">重新加载</el-button>
       </EmptyState>
 
       <EmptyState
@@ -87,14 +122,14 @@
               <p class="welcome-subtitle">选择知识库范围后输入问题，系统将基于文档内容回答</p>
 
               <div class="suggest-row">
-                <AppButton
+                <el-button
                   v-for="item in suggestions"
                   :key="item"
-                  type="default"
                   class="suggest-chip"
-                  :text="item"
                   @click="useSuggestion(item)"
-                />
+                >
+                  {{ item }}
+                </el-button>
               </div>
             </div>
 
@@ -120,7 +155,10 @@
         />
 
         <footer class="composer-dock" :style="{ height: composerHeight + 'px' }">
-          <div class="composer-box">
+          <div
+            class="composer-box"
+            :class="{ 'composer-box--active': composerActive }"
+          >
             <el-input
               v-model="question"
               type="textarea"
@@ -129,11 +167,15 @@
               maxlength="1000"
               placeholder="给 RAG 智能助手发送消息"
               :disabled="chatStore.streaming || !chatStore.selectedKbId"
+              @focus="composerActive = true"
+              @blur="composerActive = false"
               @keydown.enter.exact.prevent="onSend"
             />
             <div class="composer-toolbar">
               <div class="composer-toolbar__left">
+                <label class="kb-chip-label" for="composer-kb-select">知识库：</label>
                 <el-select
+                  id="composer-kb-select"
                   v-model="chatStore.selectedKbId"
                   class="kb-chip-select"
                   placeholder="选择知识库"
@@ -146,26 +188,26 @@
                     :value="kb.id"
                   />
                 </el-select>
-                <AppButton
+                <el-button
                   v-if="chatStore.streaming"
+                  text
                   type="danger"
-                  link
-                  text="停止生成"
                   @click="onStopStream"
-                />
+                >
+                  停止生成
+                </el-button>
               </div>
-              <AppButton
+              <button
+                type="button"
                 class="send-btn"
-                type="primary"
-                circle
-                :loading="chatStore.streaming"
-                loading-mode="sse"
-                :disabled="!canSend"
+                :disabled="!canSend || chatStore.streaming"
                 :title="sendDisabledTip"
+                :aria-label="chatStore.streaming ? '生成中' : '发送'"
                 @click="onSend"
               >
-                <el-icon v-if="!chatStore.streaming"><Top /></el-icon>
-              </AppButton>
+                <span v-if="chatStore.streaming" class="send-btn__loading" />
+                <el-icon v-else :size="18"><Top /></el-icon>
+              </button>
             </div>
           </div>
         </footer>
@@ -179,16 +221,36 @@
       :loading="deleting"
       @confirm="confirmDelete"
     />
+
+    <el-dialog
+      v-model="renameVisible"
+      title="重命名会话"
+      width="400px"
+      append-to-body
+      class="session-rename-dialog"
+      @closed="renameTitle = ''"
+    >
+      <el-input
+        v-model="renameTitle"
+        maxlength="25"
+        show-word-limit
+        placeholder="输入会话名称（最多25字）"
+        @keydown.enter.prevent="confirmRename"
+      />
+      <template #footer>
+        <el-button @click="renameVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmRename">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Search, Service, Top } from '@element-plus/icons-vue'
+import { Search, Service, Top, MoreFilled, EditPen, Delete } from '@element-plus/icons-vue'
 import { useKbStore } from '@/stores/kb'
 import { useChatStore } from '@/stores/chat'
-import AppButton from '@/components/AppButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ChatBubble from '@/components/ChatBubble.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -198,6 +260,7 @@ const chatStore = useChatStore()
 
 const question = ref('')
 const sessionKeyword = ref('')
+const composerActive = ref(false)
 const creating = ref(false)
 
 const panelWidth = ref(260)
@@ -253,6 +316,9 @@ function onVResizeStart(e) {
 const deleting = ref(false)
 const deleteVisible = ref(false)
 const deletingId = ref(null)
+const renameVisible = ref(false)
+const renameId = ref(null)
+const renameTitle = ref('')
 const messageListRef = ref(null)
 const bootLoading = ref(false)
 const pageError = ref('')
@@ -392,14 +458,57 @@ function openDelete(sessionId) {
   deleteVisible.value = true
 }
 
+async function onSessionCommand(command, item) {
+  if (chatStore.streaming) {
+    ElMessage.warning('请先停止生成后再操作会话')
+    return
+  }
+  const sid = String(item.session_id)
+  try {
+    if (command === 'pin') {
+      const pinned = await chatStore.togglePinSession(sid)
+      ElMessage.success(pinned ? '已置顶' : '已取消置顶')
+      return
+    }
+    if (command === 'rename') {
+      renameId.value = sid
+      renameTitle.value = item.title || ''
+      renameVisible.value = true
+      return
+    }
+    if (command === 'delete') {
+      openDelete(sid)
+    }
+  } catch (e) {
+    ElMessage.error(e?.msg || e?.message || '操作失败，请重试')
+  }
+}
+
+async function confirmRename() {
+  const title = renameTitle.value.trim()
+  if (!title) {
+    ElMessage.warning('请输入会话名称')
+    return
+  }
+  if (!renameId.value) return
+  try {
+    await chatStore.renameSession(renameId.value, title)
+    ElMessage.success('已重命名')
+    renameVisible.value = false
+  } catch (e) {
+    ElMessage.error(e?.msg || e?.message || '重命名失败')
+  }
+}
+
 async function confirmDelete() {
   if (!deletingId.value) return
   deleting.value = true
   try {
     await chatStore.removeSession(deletingId.value)
     deleteVisible.value = false
+    ElMessage.success('会话已删除')
   } catch (e) {
-    // 全局 axios 处理
+    ElMessage.error(e?.msg || e?.message || '删除失败')
   } finally {
     deleting.value = false
   }
@@ -445,19 +554,19 @@ defineExpose({
 .chat-dialog {
   display: grid;
   grid-template-columns: 260px 6px 1fr;
-  height: calc(100vh - 120px);
-  min-height: 560px;
+  height: calc(100vh - var(--admin-header-height) - 48px);
+  min-height: 520px;
   border: 1px solid var(--border-color);
   border-radius: 12px;
   overflow: hidden;
-  background: #fff;
+  background: var(--bg-color-card);
 }
 
 /* ---- 左侧会话栏 ---- */
 .session-panel {
   display: flex;
   flex-direction: column;
-  background: #f7f8fa;
+  background: var(--bg-color-page-soft);
   padding: 16px 12px;
   gap: 12px;
   min-height: 0;
@@ -475,12 +584,12 @@ defineExpose({
 
 .new-session-btn {
   width: 100%;
-  height: 40px;
+  /* 高度跟随全局主按钮 32px，与「批量删除」对齐 */
 }
 
 .session-panel__search :deep(.el-input__wrapper) {
   border-radius: 20px;
-  background: #fff;
+  background: var(--bg-color-card);
 }
 
 .session-list {
@@ -506,11 +615,11 @@ defineExpose({
 }
 
 .session-item:hover {
-  background: #eceef2;
+  background: var(--bg-color-hover);
 }
 
 .session-item.active {
-  background: #e8f0fe;
+  background: var(--color-primary-soft);
 }
 
 .session-item__title {
@@ -522,18 +631,59 @@ defineExpose({
   color: var(--text-color-regular);
 }
 
-.session-item__delete {
-  border: none;
-  background: transparent;
-  color: #909399;
-  cursor: pointer;
-  font-size: 16px;
-  opacity: 0;
+/* 右侧操作位：未置顶=三点；已置顶=图钉，悬停同位置变三点 */
+.session-item__action {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
+  border-radius: 8px;
+  color: rgba(180, 180, 185, 0.72);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
 }
 
-.session-item:hover .session-item__delete {
+.session-item__action-pin,
+.session-item__action-more {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  transition: opacity 0.15s ease;
+}
+
+.session-item__action:not(.is-pinned) .session-item__action-more {
+  opacity: 0.55;
+}
+
+.session-item:hover .session-item__action:not(.is-pinned) .session-item__action-more,
+.session-item.active .session-item__action:not(.is-pinned) .session-item__action-more {
   opacity: 1;
+}
+
+.session-item__action.is-pinned .session-item__action-pin {
+  opacity: 1;
+}
+
+.session-item__action.is-pinned .session-item__action-more {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.session-item__action.is-pinned:hover .session-item__action-pin {
+  opacity: 0;
+}
+
+.session-item__action.is-pinned:hover .session-item__action-more {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.session-item__action:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--admin-text, #f5f5f5);
 }
 
 .session-empty {
@@ -543,14 +693,20 @@ defineExpose({
 
 .resize-handle {
   cursor: col-resize;
-  background: var(--border-color);
   width: 6px;
-  transition: background 0.15s;
+  background: rgba(255, 255, 255, 0.08);
+  border-left: 1px solid rgba(120, 160, 255, 0.1);
+  border-right: 1px solid rgba(120, 160, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  transition: background 0.18s ease, box-shadow 0.18s ease;
 }
 
 .resize-handle:hover,
 .chat-dialog--resizing .resize-handle {
-  background: var(--color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 42%, rgba(16, 20, 32, 0.9));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--el-color-primary) 35%, transparent),
+    0 0 12px color-mix(in srgb, var(--el-color-primary) 35%, transparent);
 }
 
 .chat-dialog--resizing {
@@ -564,7 +720,7 @@ defineExpose({
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #fff;
+  background: var(--bg-color-card);
 }
 
 .chat-main__inner {
@@ -603,13 +759,13 @@ defineExpose({
   width: 72px;
   height: 72px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #409eff 0%, #66b1ff 100%);
-  color: #fff;
+  background: linear-gradient(135deg, var(--el-color-primary) 0%, var(--el-color-primary-light-3) 100%);
+  color: var(--text-color-inverse);
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 20px;
-  box-shadow: 0 8px 24px rgba(64, 158, 255, 0.25);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--el-color-primary) 28%, transparent);
 }
 
 .welcome-title {
@@ -635,14 +791,14 @@ defineExpose({
 
 .suggest-chip {
   border: 1px solid var(--border-color);
-  background: #fff;
+  background: var(--bg-color-card);
   color: var(--text-color-regular);
 }
 
 .suggest-chip:hover {
   border-color: var(--color-primary);
   color: var(--color-primary);
-  background: #f0f7ff;
+  background: var(--color-primary-soft);
 }
 
 /* ---- 消息流 ---- */
@@ -681,14 +837,18 @@ defineExpose({
   width: 40px;
   height: 3px;
   border-radius: 2px;
-  background: var(--border-color);
-  transition: background 0.15s, width 0.15s;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(120, 160, 255, 0.14);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.25);
+  transition: background 0.18s ease, width 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
 .v-resize-handle:hover::after,
 .v-resize-handle.is-resizing::after {
-  background: var(--color-primary);
   width: 56px;
+  background: color-mix(in srgb, var(--el-color-primary) 55%, rgba(16, 20, 32, 0.85));
+  border-color: color-mix(in srgb, var(--el-color-primary) 45%, transparent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--el-color-primary) 40%, transparent);
 }
 
 .chat-dialog--resizing,
@@ -696,38 +856,43 @@ defineExpose({
   user-select: none;
 }
 
-/* ---- 底部输入区 ---- */
+/* ---- 底部输入区：静默无蓝光；仅 textarea 聚焦时外壳亮蓝光 ---- */
 .composer-dock {
   flex-shrink: 0;
   height: 148px;
-  min-height: 120px;
+  min-height: 128px;
   max-height: 420px;
-  padding: 8px 24px 16px;
+  padding: 4px 28px 20px;
   display: flex;
   justify-content: center;
   box-sizing: border-box;
-  border-top: 1px solid var(--border-color);
-  background: #fff;
+  border-top: none;
+  background: transparent;
 }
 
 .composer-box {
   width: 100%;
-  max-width: 800px;
+  max-width: 820px;
   height: 100%;
-  background: #f4f5f7;
-  border: 1px solid #e8eaed;
-  border-radius: 24px;
-  padding: 12px 16px 10px;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  /* 底色透明跟页面；浅蓝毛玻璃覆盖由 admin-theme（glass-fill + blur）提供 */
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 28px;
+  padding: 16px 18px 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+  transition: border-color 0.22s ease, box-shadow 0.22s ease;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
 }
 
-.composer-box:focus-within {
-  border-color: #c6daf5;
-  box-shadow: 0 4px 20px rgba(64, 158, 255, 0.1);
+/* 打字/聚焦：仅外壳蓝光，无内层描边 */
+.composer-box--active {
+  border-color: color-mix(in srgb, var(--el-color-primary) 72%, #fff 8%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--el-color-primary) 35%, transparent),
+    0 0 22px color-mix(in srgb, var(--el-color-primary) 28%, transparent),
+    0 10px 32px rgba(0, 0, 0, 0.45);
 }
 
 .composer-input {
@@ -739,17 +904,27 @@ defineExpose({
   height: 100%;
 }
 
-.composer-input :deep(.el-textarea__inner) {
-  box-shadow: none;
-  background: transparent;
-  border: none;
-  padding: 0;
+/* 彻底盖掉 admin.css / EP 给 textarea 的 inset 蓝边，避免套娃 */
+.composer-input :deep(.el-textarea__inner),
+.composer-input :deep(.el-textarea__inner:hover),
+.composer-input :deep(.el-textarea__inner:focus) {
+  box-shadow: none !important;
+  outline: none !important;
+  background: transparent !important;
+  border: none !important;
+  padding: 2px 4px;
   resize: none;
   font-size: 15px;
-  line-height: 1.6;
+  line-height: 1.65;
+  color: var(--admin-text, #f5f5f5);
+  caret-color: var(--el-color-primary);
   height: 100% !important;
-  min-height: 48px;
+  min-height: 52px;
   overflow-y: auto;
+}
+
+.composer-input :deep(.el-textarea__inner::placeholder) {
+  color: rgba(160, 160, 165, 0.48);
 }
 
 .composer-input :deep(.el-textarea__inner::-webkit-resizer) {
@@ -760,9 +935,10 @@ defineExpose({
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 8px;
+  margin-top: 10px;
   gap: 12px;
   flex-shrink: 0;
+  min-height: 36px;
 }
 
 .composer-toolbar__left {
@@ -773,21 +949,90 @@ defineExpose({
   min-width: 0;
 }
 
+.kb-chip-label {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: rgba(200, 200, 205, 0.62);
+  cursor: default;
+  user-select: none;
+}
+
 .kb-chip-select {
-  width: 180px;
+  width: 168px;
 }
 
 .kb-chip-select :deep(.el-select__wrapper) {
-  border-radius: 18px;
-  background: #fff;
+  border-radius: 999px;
   min-height: 32px;
+  padding: 0 12px;
   font-size: 13px;
+  background: rgba(255, 255, 255, 0.04) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12) inset !important;
+  color: rgba(200, 200, 205, 0.62);
+}
+
+.kb-chip-select :deep(.el-select__wrapper:hover) {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2) inset !important;
+}
+
+.kb-chip-select :deep(.el-select__wrapper.is-focused) {
+  /* 下拉聚焦也不给蓝边，避免和外壳抢戏 */
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2) inset !important;
+}
+
+.kb-chip-select :deep(.el-select__placeholder),
+.kb-chip-select :deep(.el-select__selected-item) {
+  color: rgba(200, 200, 205, 0.62);
 }
 
 .send-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 36px;
   height: 36px;
   flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  color: #fff;
+  background: var(--el-color-primary);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--el-color-primary) 40%, transparent);
+  transition: transform 0.15s ease, opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.send-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--el-color-primary) 48%, transparent);
+}
+
+.send-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.send-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+  box-shadow: none;
+}
+
+.send-btn__loading {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: send-spin 0.7s linear infinite;
+}
+
+@keyframes send-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (max-width: 1200px) {
@@ -813,7 +1058,7 @@ defineExpose({
   }
 
   .composer-dock {
-    padding: 0 16px 16px;
+    padding: 4px 16px 16px;
   }
 
   .chat-content {
@@ -823,5 +1068,60 @@ defineExpose({
   .kb-chip-select {
     width: 140px;
   }
+}
+</style>
+
+<style>
+/* teleported 菜单：统一磨砂玻璃 */
+.session-action-menu.el-popper,
+.session-action-menu {
+  background: var(--glass-fill) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--glass-radius) !important;
+  padding: 6px !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-shadow) !important;
+}
+
+.session-action-menu .el-dropdown-menu {
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.session-action-menu .el-dropdown-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 140px;
+  height: 40px;
+  margin: 2px 0;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: rgba(235, 235, 240, 0.88);
+  line-height: 1;
+}
+
+.session-action-menu .el-dropdown-menu__item .el-icon {
+  margin: 0;
+  font-size: 16px;
+  color: inherit;
+}
+
+.session-action-menu .el-dropdown-menu__item:not(.is-disabled):hover,
+.session-action-menu .el-dropdown-menu__item:focus {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.session-action-menu .el-dropdown-menu__item.session-action-danger,
+.session-action-menu .el-dropdown-menu__item.session-action-danger:not(.is-disabled):hover {
+  color: #f56c6c;
+}
+
+.session-action-menu .el-popper__arrow::before {
+  background: #2a2a2a !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
 </style>

@@ -1,7 +1,6 @@
 /**
  * 智能对话 Pinia Store（前端 B）
- * - 左侧：每条用户提问对应一条历史
- * - 对话区：累积展示全部历史问答
+ * - 会话列表：置顶 / 重命名 / 删除（真后端 PATCH/DELETE；local-* 本地兜底）
  * - [LUO-F03] 无会话 CRUD 时本地兜底，不阻断 stream
  */
 import { defineStore } from 'pinia'
@@ -11,6 +10,7 @@ import {
   fetchChatSessions,
   fetchChatMessages,
   deleteChatSession,
+  updateChatSession,
   streamChat,
   closeSSE,
   createSSEController,
@@ -19,13 +19,54 @@ import {
 import { MOCK_OPEN } from '@/mock/flag'
 import { mockMessagesBySession } from '@/mock/data'
 
+const SESSION_META_KEY = 'rag-chat-session-meta'
+
 /** [LUO-F03] Mock 或显式开启会话 API 时才请求服务端历史 */
 function useRemoteSessions() {
   return MOCK_OPEN() || isChatSessionApiEnabled()
 }
 
+function isLocalSessionId(sessionId) {
+  return String(sessionId || '').startsWith('local-')
+}
+
 function localId() {
   return `local-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
+function readSessionMeta() {
+  try {
+    const raw = localStorage.getItem(SESSION_META_KEY)
+    const data = raw ? JSON.parse(raw) : {}
+    return data && typeof data === 'object' ? data : {}
+  } catch {
+    return {}
+  }
+}
+
+function writeSessionMeta(meta) {
+  try {
+    localStorage.setItem(SESSION_META_KEY, JSON.stringify(meta || {}))
+  } catch {
+    /* ignore */
+  }
+}
+
+function patchLocalMeta(sessionId, patch) {
+  const sid = String(sessionId)
+  const meta = readSessionMeta()
+  const prev = meta[sid] && typeof meta[sid] === 'object' ? meta[sid] : {}
+  const next = { ...prev, ...patch }
+  if (!next.pinned && !next.title) delete meta[sid]
+  else meta[sid] = next
+  writeSessionMeta(meta)
+  return next
+}
+
+function clearLocalMeta(sessionId) {
+  const meta = readSessionMeta()
+  delete meta[String(sessionId)]
+  writeSessionMeta(meta)
 }
 
 export const useChatStore = defineStore('chat', () => {
@@ -35,7 +76,6 @@ export const useChatStore = defineStore('chat', () => {
   const streaming = ref(false)
   const loading = ref(false)
   const selectedKbId = ref(null)
-  /** 每条左侧历史对应一轮 [user, assistant] */
   const messageCache = ref({})
   let sseController = null
 
@@ -45,7 +85,6 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = false
   }
 
-  /** 兼容 Mock references / 后端 sources */
   function normalizeMessages(list) {
     return (Array.isArray(list) ? list : []).map((m) => ({
       role: m.role || 'assistant',
@@ -59,17 +98,38 @@ export const useChatStore = defineStore('chat', () => {
     }))
   }
 
+  function normalizeSession(s) {
+    const sid = String(s.session_id)
+    const local = isLocalSessionId(sid) ? readSessionMeta()[sid] || {} : {}
+    return {
+      ...s,
+      session_id: sid,
+      title: local.title || s.title || '未命名会话',
+      pinned: local.pinned != null ? !!local.pinned : !!s.pinned,
+      updated_at: s.updated_at || new Date().toISOString()
+    }
+  }
+
+  function sortSessions(list) {
+    return [...list].sort((a, b) => {
+      const pinDiff = Number(!!b.pinned) - Number(!!a.pinned)
+      if (pinDiff) return pinDiff
+      return String(b.updated_at || '').localeCompare(String(a.updated_at || ''))
+    })
+  }
+
+  function setSessions(list) {
+    sessions.value = sortSessions((Array.isArray(list) ? list : []).map(normalizeSession))
+  }
+
   function cacheTurn(turnId, userMsg, aiMsg) {
     if (!turnId) return
     const sid = String(turnId)
     const pair = [userMsg, aiMsg]
     messageCache.value[sid] = pair
-    if (MOCK_OPEN()) {
-      mockMessagesBySession[sid] = pair
-    }
+    if (MOCK_OPEN()) mockMessagesBySession[sid] = pair
   }
 
-  /** 按左侧历史顺序拼出完整对话（旧→新） */
   function rebuildAllHistory() {
     const all = []
     const ordered = [...sessions.value].reverse()
@@ -79,9 +139,7 @@ export const useChatStore = defineStore('chat', () => {
       if ((!cached || !cached.length) && MOCK_OPEN()) {
         cached = mockMessagesBySession[sid]
       }
-      if (cached?.length) {
-        all.push(...normalizeMessages(cached))
-      }
+      if (cached?.length) all.push(...normalizeMessages(cached))
     }
     messages.value = all
   }
@@ -90,20 +148,75 @@ export const useChatStore = defineStore('chat', () => {
     const sid = String(sessionId)
     const exists = sessions.value.find((s) => String(s.session_id) === sid)
     if (exists) {
-      if (title) exists.title = title
+      if (title && isLocalSessionId(sid) && !readSessionMeta()[sid]?.title) {
+        exists.title = title
+      } else if (title && !exists.title) {
+        exists.title = title
+      }
       exists.updated_at = new Date().toISOString()
-      sessions.value = [
-        exists,
-        ...sessions.value.filter((s) => String(s.session_id) !== sid)
-      ]
+      setSessions(sessions.value)
       return
     }
-    sessions.value.unshift({
-      session_id: sid,
-      title: title || '新会话',
-      kb_id: selectedKbId.value,
-      updated_at: new Date().toISOString()
-    })
+    setSessions([
+      {
+        session_id: sid,
+        title: title || '新会话',
+        kb_id: selectedKbId.value,
+        updated_at: new Date().toISOString(),
+        pinned: false
+      },
+      ...sessions.value
+    ])
+  }
+
+  async function togglePinSession(sessionId) {
+    const sid = String(sessionId)
+    const row = sessions.value.find((s) => String(s.session_id) === sid)
+    if (!row) throw new Error('会话不存在')
+
+    const nextPinned = !row.pinned
+    const prevPinned = !!row.pinned
+    row.pinned = nextPinned
+    setSessions(sessions.value)
+
+    try {
+      if (isLocalSessionId(sid) || !useRemoteSessions()) {
+        patchLocalMeta(sid, { pinned: nextPinned })
+      } else {
+        await updateChatSession(sid, { pinned: nextPinned })
+      }
+      return nextPinned
+    } catch (e) {
+      row.pinned = prevPinned
+      setSessions(sessions.value)
+      throw e
+    }
+  }
+
+  async function renameSession(sessionId, title) {
+    const sid = String(sessionId)
+    const nextTitle = String(title || '').trim().slice(0, 25)
+    if (!nextTitle) throw new Error('请输入会话名称')
+
+    const row = sessions.value.find((s) => String(s.session_id) === sid)
+    if (!row) throw new Error('会话不存在')
+
+    const prevTitle = row.title
+    row.title = nextTitle
+    setSessions(sessions.value)
+
+    try {
+      if (isLocalSessionId(sid) || !useRemoteSessions()) {
+        patchLocalMeta(sid, { title: nextTitle })
+      } else {
+        await updateChatSession(sid, { title: nextTitle })
+      }
+      return true
+    } catch (e) {
+      row.title = prevTitle
+      setSessions(sessions.value)
+      throw e
+    }
   }
 
   async function ensureTurnSession(title) {
@@ -131,18 +244,22 @@ export const useChatStore = defineStore('chat', () => {
     loading.value = true
     try {
       if (!useRemoteSessions()) {
+        setSessions(sessions.value)
         return sessions.value
       }
-      const res = await fetchChatSessions({ kb_id: selectedKbId.value })
+      const res = await fetchChatSessions({
+        kb_id: selectedKbId.value,
+        page: 1,
+        page_size: 100
+      })
       const data = res.data || {}
       const remote = data.items || data.list || []
       const remoteIds = new Set(remote.map((s) => String(s.session_id)))
       const localOnly = sessions.value.filter(
-        (s) => !remoteIds.has(String(s.session_id))
+        (s) => isLocalSessionId(s.session_id) && !remoteIds.has(String(s.session_id))
       )
-      sessions.value = [...localOnly, ...remote]
+      setSessions([...localOnly, ...remote])
 
-      // 预取每条历史的消息，便于拼完整对话
       for (const s of remote) {
         const sid = String(s.session_id)
         if (messageCache.value[sid]?.length) continue
@@ -157,7 +274,7 @@ export const useChatStore = defineStore('chat', () => {
             if (MOCK_OPEN()) mockMessagesBySession[sid] = list
           }
         } catch (e) {
-          // 忽略单条失败
+          /* ignore */
         }
       }
       return sessions.value
@@ -168,7 +285,6 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /** 开启新对话：清空主区，保留左侧历史列表 */
   async function createSession() {
     abortCurrentStream()
     messages.value = []
@@ -176,14 +292,13 @@ export const useChatStore = defineStore('chat', () => {
     return null
   }
 
-  /** 点击左侧：选中该项，主区展示全部历史对话 */
   async function switchSession(sessionId) {
     abortCurrentStream()
     const sid = String(sessionId)
     currentSessionId.value = sid
     loading.value = true
     try {
-      if (!messageCache.value[sid]?.length && useRemoteSessions()) {
+      if (!messageCache.value[sid]?.length && useRemoteSessions() && !isLocalSessionId(sid)) {
         try {
           const res = await fetchChatMessages(sid)
           const data = res.data || {}
@@ -195,7 +310,7 @@ export const useChatStore = defineStore('chat', () => {
             if (MOCK_OPEN()) mockMessagesBySession[sid] = list
           }
         } catch (e) {
-          // ignore
+          /* ignore */
         }
       }
       rebuildAllHistory()
@@ -208,14 +323,11 @@ export const useChatStore = defineStore('chat', () => {
     const sid = String(sessionId)
     loading.value = true
     try {
-      if (useRemoteSessions()) {
-        try {
-          await deleteChatSession(sid)
-        } catch (e) {
-          // 忽略
-        }
+      if (!isLocalSessionId(sid) && useRemoteSessions()) {
+        await deleteChatSession(sid)
       }
       sessions.value = sessions.value.filter((s) => String(s.session_id) !== sid)
+      clearLocalMeta(sid)
       delete messageCache.value[sid]
       if (MOCK_OPEN()) delete mockMessagesBySession[sid]
 
@@ -230,11 +342,6 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  /**
-   * 发送问题：
-   * - 左侧新增一条历史（标题=问题）
-   * - 对话区追加本轮问答，保留已有历史
-   */
   async function sendQuestion(question) {
     if (!selectedKbId.value) return
     const text = (question || '').trim()
@@ -254,7 +361,7 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = true
     sseController = createSSEController()
 
-    const isLocalTemp = String(turnId).startsWith('local-')
+    const isLocalTemp = isLocalSessionId(turnId)
     const payload = {
       kb_id: selectedKbId.value,
       query: text,
@@ -281,28 +388,28 @@ export const useChatStore = defineStore('chat', () => {
             }
             const row = sessions.value.find((s) => String(s.session_id) === oldId)
             if (row) {
+              const oldMeta = readSessionMeta()[oldId]
               row.session_id = newId
-              row.title = title
+              if (!oldMeta?.title) row.title = title
+              if (oldMeta) {
+                clearLocalMeta(oldId)
+                patchLocalMeta(newId, oldMeta)
+              }
             } else {
               upsertSession(newId, title)
             }
             currentSessionId.value = newId
+            setSessions(sessions.value)
           }
         }
       },
       onMessage: (event) => {
-        if (event.content) {
-          aiMessage.content += event.content
-        }
+        if (event.content) aiMessage.content += event.content
         cacheTurn(currentSessionId.value, userMsg, aiMessage)
       },
       onDone: (event) => {
-        if (event?.sources?.length) {
-          aiMessage.sources = event.sources
-        }
-        if (event?.content) {
-          aiMessage.content += event.content
-        }
+        if (event?.sources?.length) aiMessage.sources = event.sources
+        if (event?.content) aiMessage.content += event.content
         if (!aiMessage.content) {
           aiMessage.content =
             '当前知识库暂无相关内容，请更换问题或补充文档后重试。'
@@ -352,6 +459,8 @@ export const useChatStore = defineStore('chat', () => {
     createSession,
     switchSession,
     removeSession,
+    togglePinSession,
+    renameSession,
     sendQuestion,
     abortCurrentStream,
     resetState,

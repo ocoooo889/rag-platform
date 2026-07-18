@@ -13,6 +13,7 @@ export const MOCK_USERS = [
     role: 'admin',
     role_name: '管理员',
     status: '启用',
+    kb_ids: [],
     created_at: '2026-07-15T09:00:00'
   },
   {
@@ -23,6 +24,7 @@ export const MOCK_USERS = [
     role: 'user',
     role_name: '普通用户',
     status: '启用',
+    kb_ids: [],
     created_at: '2026-07-15T09:20:00'
   }
 ]

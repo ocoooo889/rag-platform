@@ -2,7 +2,7 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.db.models import User, UserGroupMember, KbGroupAccess
+from app.db.models import User, UserGroupMember, KbGroupAccess, UserKbAccess
 from app.utils.auth import get_current_user
 from app.utils.exceptions import BusinessException
 
@@ -30,7 +30,7 @@ def ensure_admin_or_response(user: User):
 
 
 async def get_user_accessible_kb_ids(db: Session, user_id: int) -> list[str]:
-    """获取非 admin 用户所属用户组被授权的知识库 ID 列表"""
+    """获取非 admin 用户可访问知识库：用户组授权 ∪ 用户直接授权。"""
     group_memberships = (
         db.query(UserGroupMember.group_id)
         .filter(UserGroupMember.user_id == user_id)
@@ -38,15 +38,24 @@ async def get_user_accessible_kb_ids(db: Session, user_id: int) -> list[str]:
     )
     group_ids = [m[0] for m in group_memberships]
 
-    if not group_ids:
-        return []
+    kb_ids: set[str] = set()
 
-    kb_accesses = (
-        db.query(KbGroupAccess.kb_id)
-        .filter(KbGroupAccess.group_id.in_(group_ids))
+    if group_ids:
+        kb_accesses = (
+            db.query(KbGroupAccess.kb_id)
+            .filter(KbGroupAccess.group_id.in_(group_ids))
+            .all()
+        )
+        kb_ids.update(k[0] for k in kb_accesses)
+
+    direct = (
+        db.query(UserKbAccess.kb_id)
+        .filter(UserKbAccess.user_id == user_id)
         .all()
     )
-    return list(set(k[0] for k in kb_accesses))
+    kb_ids.update(k[0] for k in direct)
+
+    return list(kb_ids)
 
 
 async def require_kb_access(
@@ -54,7 +63,7 @@ async def require_kb_access(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """知识库访问权限校验。admin 放行；否则校验用户组授权，无权抛业务 403。"""
+    """知识库访问权限校验。admin 放行；否则校验用户组+直接授权，无权抛业务 403。"""
     if is_admin(user):
         return
 

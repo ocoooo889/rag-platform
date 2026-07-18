@@ -1,0 +1,1036 @@
+/**
+ * 管理后台暗色主题
+ * 由 Layout 在 html 上挂载 .admin-theme；离开后台时移除，不影响登录页。
+ * 策略：重映射语义 Token + Element Plus CSS 变量，业务页尽量只吃变量。
+ */
+
+html.admin-theme {
+  color-scheme: dark;
+
+  /* 语义 Token → 暗色（views / components 已大量引用） */
+  --text-color-primary: var(--admin-text);
+  --text-color-regular: rgba(210, 210, 215, 0.78);
+  --text-color-secondary: var(--admin-text-muted);
+  --text-color-inverse: #ffffff;
+
+  --bg-color-page: transparent;
+  --bg-color-page-soft: rgba(10, 13, 24, 0.45);
+  --bg-color-card: transparent;
+  --bg-color-hover: var(--admin-fill-hover);
+  --bg-color-user-bubble: var(--admin-primary-soft);
+  --bg-color-ai-bubble: rgba(10, 13, 24, 0.55);
+
+  --border-color: var(--glass-border);
+  --border-color-light: var(--glass-divider);
+  --border-color-primary: color-mix(in srgb, var(--el-color-primary) 45%, transparent);
+  --color-primary-soft: var(--admin-primary-soft);
+
+  --shadow-card: var(--glass-shadow);
+  --shadow-card-hover: var(--glass-shadow);
+
+  --radius-card: var(--glass-radius);
+  --radius-base: var(--admin-radius-sm);
+
+  --status-pending-text: rgba(200, 200, 205, 0.72);
+  --status-pending-bg: var(--admin-fill);
+  --status-processing-text: var(--el-color-primary-light-3);
+  --status-processing-bg: var(--admin-primary-soft);
+  --status-completed-text: #73d13d;
+  --status-completed-bg: var(--admin-success-soft);
+  --status-failed-text: #ff7875;
+  --status-failed-bg: var(--admin-danger-soft);
+
+  /* Element Plus 暗色变量 — 背景必须透明，否则会盖死毛玻璃 */
+  --el-bg-color: transparent;
+  --el-bg-color-page: transparent;
+  --el-bg-color-overlay: transparent;
+  --el-card-bg-color: transparent;
+  --el-dialog-bg-color: transparent;
+  --el-fill-color-blank: transparent;
+  --el-text-color-primary: var(--admin-text);
+  --el-text-color-regular: rgba(210, 210, 215, 0.78);
+  --el-text-color-secondary: var(--admin-text-muted);
+  --el-text-color-placeholder: var(--admin-text-dim);
+  --el-text-color-disabled: var(--admin-text-dim);
+  --el-border-color: var(--glass-border);
+  --el-border-color-light: var(--glass-divider);
+  --el-border-color-lighter: var(--glass-divider);
+  --el-border-color-extra-light: var(--glass-divider);
+  --el-border-color-hover: rgba(255, 255, 255, 0.18);
+  --el-fill-color: rgba(255, 255, 255, 0.06);
+  --el-fill-color-light: rgba(255, 255, 255, 0.05);
+  --el-fill-color-lighter: rgba(255, 255, 255, 0.04);
+  --el-fill-color-blank: rgba(6, 8, 14, 0.35);
+  --el-fill-color-dark: rgba(255, 255, 255, 0.08);
+  --el-mask-color: var(--glass-mask);
+  --el-box-shadow: var(--glass-shadow);
+  --el-box-shadow-light: var(--glass-shadow);
+  --el-box-shadow-lighter: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --el-disabled-bg-color: rgba(255, 255, 255, 0.04);
+  --el-disabled-text-color: var(--admin-text-dim);
+  --el-disabled-border-color: rgba(255, 255, 255, 0.08);
+  --el-overlay-color-lighter: rgba(0, 0, 0, 0.45);
+  --el-color-primary-light-9: var(--admin-primary-soft);
+  --el-color-success-light-9: var(--admin-success-soft);
+  --el-color-warning-light-9: var(--admin-warning-soft);
+  --el-color-danger-light-9: var(--admin-danger-soft);
+  --el-color-info-light-9: var(--admin-fill);
+}
+
+html.admin-theme,
+html.admin-theme body {
+  height: auto;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+html.admin-theme body {
+  background: #000000;
+  color: var(--admin-text);
+  /* Firefox：低存在感深色滚动条 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+/* 全局滚动条：深色、细、低对比，不抢视线 */
+html.admin-theme *,
+html.admin-theme *::before,
+html.admin-theme *::after {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+}
+
+html.admin-theme ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+html.admin-theme ::-webkit-scrollbar-track {
+  background: transparent;
+  border: none;
+}
+
+html.admin-theme ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+html.admin-theme ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow: none;
+}
+
+html.admin-theme ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+html.admin-theme ::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+html.admin-theme #app {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+html.admin-theme .page-header h2,
+html.admin-theme .dashboard-header h2 {
+  margin: 0 !important;
+  font-size: 22px !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+  color: #ffffff !important;
+}
+
+/* 页壳：文档流布局，标题不 sticky 黑条（对齐可用截图） */
+html.admin-theme .page-shell {
+  display: block;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+}
+
+html.admin-theme .page-header,
+html.admin-theme .dashboard-header {
+  position: relative !important;
+  top: auto !important;
+  z-index: 2;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 48px;
+  margin: 0 0 16px !important;
+  padding: 4px 4px 12px !important;
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px solid var(--glass-divider) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html.admin-theme .page-body {
+  display: block;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  padding: 4px 4px 28px;
+}
+
+/* —— 磨砂玻璃：边框 + blur（页眉除外；aside 单独处理圆角） —— */
+/* 非表格卡片：底色全透明；表格保留 glass-fill */
+html.admin-theme .aside,
+html.admin-theme .kb-card,
+html.admin-theme .el-card,
+html.admin-theme .el-dialog,
+html.admin-theme .el-message-box,
+html.admin-theme .el-drawer,
+html.admin-theme .panel,
+html.admin-theme .filter-bar,
+html.admin-theme .upload-area,
+html.admin-theme .config-form,
+html.admin-theme .config-preview,
+html.admin-theme .modal-preview,
+html.admin-theme .composer-box,
+html.admin-theme .chat-dialog,
+html.admin-theme .stat-card,
+html.admin-theme .chart-card {
+  --glass-glow: 0;
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-r: 120px;
+  background: rgba(10, 18, 36, 0.15) !important;
+  background-image: none !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--glass-radius) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
+  box-shadow: var(--glass-shadow) !important;
+  color: var(--admin-text);
+}
+
+html.admin-theme .el-table,
+html.admin-theme .app-table {
+  --glass-glow: 0;
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-r: 120px;
+  background: var(--glass-fill) !important;
+  background-image: none !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--glass-radius) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
+  box-shadow: var(--glass-shadow) !important;
+  color: var(--admin-text);
+}
+
+/* 页眉：强制去毛玻璃，透明底 */
+html.admin-theme .header {
+  background: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* 侧栏：左贴边直角，右侧 14px 圆角；深蓝黑 30% + blur */
+html.admin-theme .aside {
+  border-radius: 0 14px 14px 0 !important;
+  border-left: none !important;
+  background: rgba(10, 18, 36, 0.3) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
+}
+
+/* 对话输入框：深蓝黑 15% 底；圆角单独保留 */
+html.admin-theme .composer-box {
+  background: rgba(10, 18, 36, 0.15) !important;
+  background-image: none !important;
+  border-radius: 28px !important;
+}
+
+/* 仅描边照亮的控件：不改底色/圆角，只挂光斑变量 */
+html.admin-theme .suggest-chip,
+html.admin-theme .chat-bubble__content,
+html.admin-theme .status-item,
+html.admin-theme .retrieve-card,
+html.admin-theme .result-area,
+html.admin-theme .modal-preview__card,
+html.admin-theme .crop-stage,
+html.admin-theme .el-input__wrapper,
+html.admin-theme .el-textarea__inner,
+html.admin-theme .el-select__wrapper,
+html.admin-theme .user-avatar,
+html.admin-theme .chat-bubble__role {
+  --glass-glow: 0;
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-r: 120px;
+  position: relative;
+}
+
+html.admin-theme .kb-card,
+html.admin-theme .el-card,
+html.admin-theme .panel,
+html.admin-theme .filter-bar,
+html.admin-theme .upload-area,
+html.admin-theme .config-form,
+html.admin-theme .config-preview,
+html.admin-theme .modal-preview,
+html.admin-theme .composer-box,
+html.admin-theme .chat-dialog,
+html.admin-theme .stat-card,
+html.admin-theme .chart-card,
+html.admin-theme .el-table,
+html.admin-theme .app-table,
+html.admin-theme .el-dialog,
+html.admin-theme .el-message-box {
+  position: relative;
+}
+
+/* 侧栏 fixed：内容压在光斑之上 */
+html.admin-theme .aside > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* 局部描边亮起：仅 1px 边框环上的径向光斑 */
+html.admin-theme .aside::before,
+html.admin-theme .kb-card::before,
+html.admin-theme .el-card::before,
+html.admin-theme .panel::before,
+html.admin-theme .filter-bar::before,
+html.admin-theme .upload-area::before,
+html.admin-theme .config-form::before,
+html.admin-theme .config-preview::before,
+html.admin-theme .modal-preview::before,
+html.admin-theme .modal-preview__card::before,
+html.admin-theme .composer-box::before,
+html.admin-theme .chat-dialog::before,
+html.admin-theme .suggest-chip::before,
+html.admin-theme .chat-bubble__content::before,
+html.admin-theme .stat-card::before,
+html.admin-theme .chart-card::before,
+html.admin-theme .status-item::before,
+html.admin-theme .retrieve-card::before,
+html.admin-theme .result-area::before,
+html.admin-theme .crop-stage::before,
+html.admin-theme .el-table::before,
+html.admin-theme .app-table::before,
+html.admin-theme .el-dialog::before,
+html.admin-theme .el-message-box::before,
+html.admin-theme .el-input__wrapper::before,
+html.admin-theme .el-textarea__inner::before,
+html.admin-theme .el-select__wrapper::before,
+html.admin-theme .user-avatar::before,
+html.admin-theme .chat-bubble__role::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  opacity: var(--glass-glow);
+  background: radial-gradient(
+    var(--glow-r) circle at var(--glow-x) var(--glow-y),
+    color-mix(in srgb, var(--el-color-primary) 88%, #fff 12%) 0%,
+    color-mix(in srgb, var(--el-color-primary) 42%, transparent) 38%,
+    transparent 68%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+
+/*
+ * 表格：EP 的 .el-table--border::before 写死 width:1px;height:100%（左边框），
+ * 会把我们的描边光斑挤成左侧竖条，上下环段消失。这里强制铺满四边，并抬高层级。
+ */
+html.admin-theme .el-table::before,
+html.admin-theme .app-table::before {
+  top: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  z-index: calc(var(--el-table-index, 1) + 20) !important;
+  background-color: transparent !important;
+}
+
+/* EP 用 inner-wrapper 伪元素画上下边，会盖住光斑环的上下段；外框已有 glass-border */
+html.admin-theme .el-table__inner-wrapper::before,
+html.admin-theme .el-table--border .el-table__inner-wrapper::after,
+html.admin-theme .el-table--border::after {
+  opacity: 0 !important;
+}
+
+html.admin-theme .kb-card > *,
+html.admin-theme .panel > *,
+html.admin-theme .filter-bar > *,
+html.admin-theme .stat-card > *,
+html.admin-theme .chart-card > *,
+html.admin-theme .status-item > *,
+html.admin-theme .retrieve-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+html.admin-theme .chat-bubble__role,
+html.admin-theme .user-avatar {
+  overflow: hidden;
+}
+
+html.admin-theme .el-card__header {
+  position: relative;
+  z-index: 1;
+  border-bottom-color: var(--glass-divider);
+  color: var(--admin-text);
+  background: transparent;
+}
+
+html.admin-theme .el-card__body {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+html.admin-theme .el-dialog {
+  --el-dialog-bg-color: transparent;
+  --admin-dialog-pad-x: 24px;
+  /* 标签列：约 5 个汉字 + 必填星号 + 右内边距，与输入/分割线左缘对齐 */
+  --admin-form-label-width: 120px;
+  --admin-form-label-gap: 12px;
+  --admin-control-height: 32px;
+  overflow: hidden;
+}
+
+/* 弹窗：标题 / 表单 / 底栏同一水平边距；分隔线与输入框左右边缘对齐 */
+html.admin-theme .el-dialog__header {
+  position: relative;
+  margin-right: 0;
+  padding: 16px var(--admin-dialog-pad-x) 14px;
+  border-bottom: none;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+html.admin-theme .el-dialog__header::after {
+  content: '';
+  position: absolute;
+  /* 与输入控件左右缘对齐 */
+  left: calc(var(--admin-dialog-pad-x) + var(--admin-form-label-width));
+  right: var(--admin-dialog-pad-x);
+  bottom: 0;
+  height: 1px;
+  background: var(--glass-divider);
+  pointer-events: none;
+}
+
+html.admin-theme .el-dialog__title {
+  color: var(--admin-text);
+  line-height: 1.4;
+}
+
+html.admin-theme .el-dialog__headerbtn {
+  right: var(--admin-dialog-pad-x);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+}
+
+html.admin-theme .el-dialog__body {
+  padding: 18px var(--admin-dialog-pad-x) 6px;
+  color: rgba(210, 210, 215, 0.78);
+  background: transparent;
+  box-sizing: border-box;
+}
+
+html.admin-theme .el-dialog__footer {
+  position: relative;
+  padding: 14px var(--admin-dialog-pad-x) 16px;
+  border-top: none;
+  background: transparent;
+  box-sizing: border-box;
+  text-align: right;
+}
+
+html.admin-theme .el-dialog__footer::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--admin-dialog-pad-x) + var(--admin-form-label-width));
+  right: var(--admin-dialog-pad-x);
+  top: 0;
+  height: 1px;
+  background: var(--glass-divider);
+  pointer-events: none;
+}
+
+html.admin-theme .el-overlay-dialog .el-dialog__headerbtn .el-dialog__close {
+  color: var(--admin-text-muted);
+}
+
+/* —— 全局表单对齐（排除登录页顶置标签） —— */
+html.admin-theme .el-form:not(.login-form):not(.el-form--label-top) .el-form-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+html.admin-theme .el-form:not(.login-form):not(.el-form--label-top) .el-form-item__label-wrap {
+  display: inline-flex;
+  align-items: center;
+  float: none !important;
+  margin-right: 0 !important;
+}
+
+html.admin-theme .el-form:not(.login-form):not(.el-form--label-top) .el-form-item__label {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: flex-end;
+  float: none !important;
+  box-sizing: border-box;
+  height: var(--admin-control-height, 32px);
+  line-height: var(--admin-control-height, 32px);
+  padding: 0 var(--admin-form-label-gap, 12px) 0 0 !important;
+  margin: 0 !important;
+  color: var(--admin-text-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* 弹窗内：固定标签列宽，输入列占满；分割线/输入框共用左右基准线 */
+html.admin-theme .el-dialog .el-form:not(.el-form--label-top) .el-form-item__label {
+  width: var(--admin-form-label-width) !important;
+  max-width: var(--admin-form-label-width);
+  flex: 0 0 var(--admin-form-label-width);
+}
+
+html.admin-theme .el-dialog .el-form:not(.el-form--label-top) .el-form-item__content {
+  margin-left: 0 !important;
+  flex: 1;
+  min-width: 0;
+  line-height: var(--admin-control-height, 32px);
+}
+
+html.admin-theme .el-dialog .el-form:not(.el-form--label-top) .el-form-item__content > .el-input,
+html.admin-theme .el-dialog .el-form:not(.el-form--label-top) .el-form-item__content > .el-select,
+html.admin-theme .el-dialog .el-form:not(.el-form--label-top) .el-form-item__content > .el-textarea,
+html.admin-theme .el-dialog .el-form:not(.el-form--label-top) .el-form-item__content > .el-date-editor,
+html.admin-theme .el-dialog .el-form:not(.el-form--label-top) .el-form-item__content > .el-cascader {
+  width: 100%;
+}
+
+/* 必填星号紧贴标签文字左侧，整块右对齐到输入框 */
+html.admin-theme .el-form-item.is-required:not(.is-no-asterisk) > .el-form-item__label::before,
+html.admin-theme .el-form-item.is-required:not(.is-no-asterisk) .el-form-item__label-wrap > .el-form-item__label::before {
+  content: '*' !important;
+  color: var(--el-color-danger);
+  margin-right: 4px;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  vertical-align: baseline;
+  position: static !important;
+  top: auto !important;
+  flex-shrink: 0;
+}
+
+html.admin-theme .el-overlay {
+  background-color: var(--glass-mask) !important;
+  -webkit-backdrop-filter: blur(var(--glass-mask-blur));
+  backdrop-filter: blur(var(--glass-mask-blur));
+}
+
+/* 弹窗 / MessageBox：页面正中心（覆盖 EP 默认 margin-top: 15vh） */
+html.admin-theme .el-overlay-dialog {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+html.admin-theme .el-overlay-dialog .el-dialog {
+  margin: 0 !important;
+  --el-dialog-margin-top: 0px;
+}
+
+html.admin-theme .el-message-box__wrapper {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+html.admin-theme .el-message-box {
+  --el-messagebox-title-color: var(--admin-text);
+  background: rgba(10, 18, 36, 0.15) !important;
+  margin: 0 !important;
+}
+
+html.admin-theme .el-dropdown-menu,
+html.admin-theme .el-select-dropdown,
+html.admin-theme .el-picker__popper.el-popper,
+html.admin-theme .el-popper.is-light {
+  background: var(--glass-fill) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: var(--glass-radius) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  box-shadow: var(--glass-shadow) !important;
+}
+
+
+/*
+ * 主操作按钮统一口径（对齐文档管理「批量删除」禁用态外形）：
+ * 静态 = 半透明主题色底 + 浅白字；悬停再加深为实心主题色。
+ * 排除 text/link，避免行内「编辑」被实心样式污染。
+ */
+html.admin-theme .el-button {
+  --glass-glow: 0 !important;
+}
+
+html.admin-theme .el-button--primary:not(.is-text):not(.is-link):not(.el-button--text),
+html.admin-theme .page-header > .el-button--primary,
+html.admin-theme .table-footer > .el-button--primary,
+html.admin-theme .el-dialog__footer .el-button--primary:not(.is-text):not(.is-link),
+html.admin-theme .el-form-item .el-button--primary:not(.is-text):not(.is-link) {
+  --admin-btn-soft-bg: color-mix(in srgb, var(--el-color-primary) 38%, transparent);
+  --admin-btn-soft-border: color-mix(in srgb, var(--el-color-primary) 38%, transparent);
+  --admin-btn-soft-text: rgba(255, 255, 255, 0.72);
+  --el-button-bg-color: var(--admin-btn-soft-bg);
+  --el-button-border-color: var(--admin-btn-soft-border);
+  --el-button-text-color: var(--admin-btn-soft-text);
+  --el-button-hover-bg-color: var(--el-color-primary);
+  --el-button-hover-border-color: var(--el-color-primary);
+  --el-button-hover-text-color: #ffffff;
+  --el-button-active-bg-color: var(--el-color-primary-dark-2);
+  --el-button-active-border-color: var(--el-color-primary-dark-2);
+  --el-button-disabled-bg-color: var(--admin-btn-soft-bg);
+  --el-button-disabled-border-color: var(--admin-btn-soft-border);
+  --el-button-disabled-text-color: var(--admin-btn-soft-text);
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 16px !important;
+  line-height: 1 !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  /* 静态外形 = 原「批量删除」不可选态 */
+  background-color: var(--admin-btn-soft-bg) !important;
+  background-image: none !important;
+  border: 1px solid var(--admin-btn-soft-border) !important;
+  border-radius: var(--el-border-radius-base, 8px) !important;
+  color: var(--admin-btn-soft-text) !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  outline: none;
+}
+
+/* 实心/文字按钮去掉玻璃光斑；建议词 chip 保留自身 ::before */
+html.admin-theme .el-button--primary:not(.suggest-chip)::before,
+html.admin-theme .el-button--default:not(.suggest-chip)::before,
+html.admin-theme .el-button--danger:not(.is-text):not(.is-link):not(.suggest-chip)::before,
+html.admin-theme .el-button.is-text::before,
+html.admin-theme .el-button--text::before,
+html.admin-theme .el-button.is-link::before {
+  content: none !important;
+  display: none !important;
+}
+
+/* 可点时悬停/聚焦：加深为实心主题色，与静态软态区分 */
+html.admin-theme .el-button--primary:not(.is-text):not(.is-link):not(.el-button--text):not(.is-disabled):hover,
+html.admin-theme .el-button--primary:not(.is-text):not(.is-link):not(.el-button--text):not(.is-disabled):focus,
+html.admin-theme .page-header > .el-button--primary:not(.is-disabled):hover,
+html.admin-theme .page-header > .el-button--primary:not(.is-disabled):focus,
+html.admin-theme .table-footer > .el-button--primary:not(.is-disabled):hover,
+html.admin-theme .table-footer > .el-button--primary:not(.is-disabled):focus,
+html.admin-theme .el-dialog__footer .el-button--primary:not(.is-text):not(.is-link):not(.is-disabled):hover,
+html.admin-theme .el-dialog__footer .el-button--primary:not(.is-text):not(.is-link):not(.is-disabled):focus,
+html.admin-theme .el-form-item .el-button--primary:not(.is-text):not(.is-link):not(.is-disabled):hover,
+html.admin-theme .el-form-item .el-button--primary:not(.is-text):not(.is-link):not(.is-disabled):focus {
+  background-color: var(--el-color-primary) !important;
+  border-color: var(--el-color-primary) !important;
+  color: #ffffff !important;
+}
+
+html.admin-theme .el-button--primary:not(.is-text):not(.is-link):not(.el-button--text):not(.is-disabled):active {
+  background-color: var(--el-color-primary-dark-2) !important;
+  border-color: var(--el-color-primary-dark-2) !important;
+  color: #ffffff !important;
+}
+
+/* 真正禁用：保持同一软态外形，仅降低可点感 */
+html.admin-theme .el-button--primary:not(.is-text):not(.is-link):not(.el-button--text).is-disabled,
+html.admin-theme .el-button--primary:not(.is-text):not(.is-link):not(.el-button--text).is-disabled:hover,
+html.admin-theme .el-button--primary:not(.is-text):not(.is-link):not(.el-button--text).is-disabled:focus {
+  background-color: color-mix(in srgb, var(--el-color-primary) 38%, transparent) !important;
+  border-color: color-mix(in srgb, var(--el-color-primary) 38%, transparent) !important;
+  color: rgba(255, 255, 255, 0.72) !important;
+  opacity: 1 !important;
+  cursor: not-allowed;
+}
+
+/* 页眉右侧主按钮与标题垂直居中钉齐 */
+html.admin-theme .page-header > .el-button {
+  flex-shrink: 0;
+  align-self: center;
+  margin: 0;
+}
+
+/* 行内文字按钮：主题色 / 危险色，无边框无底 */
+html.admin-theme .el-button.is-text:not(.is-disabled):not(.el-button--danger),
+html.admin-theme .el-button--text:not(.is-disabled):not(.el-button--danger),
+html.admin-theme .el-button.is-link:not(.is-disabled):not(.el-button--danger) {
+  height: auto;
+  padding: 4px 8px;
+  color: var(--el-color-primary) !important;
+  background: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  font-weight: 500;
+}
+
+html.admin-theme .el-button.is-text.el-button--danger:not(.is-disabled),
+html.admin-theme .el-button--text.el-button--danger:not(.is-disabled),
+html.admin-theme .el-button.is-link.el-button--danger:not(.is-disabled),
+html.admin-theme .el-button--danger.is-text:not(.is-disabled),
+html.admin-theme .el-button--danger.is-link:not(.is-disabled) {
+  height: auto;
+  padding: 4px 8px;
+  color: var(--el-color-danger) !important;
+  background: transparent !important;
+  background-image: none !important;
+  border: none !important;
+  box-shadow: none !important;
+  font-weight: 500;
+}
+
+/* 危险实心按钮（确认删除等） */
+html.admin-theme .el-button--danger:not(.is-link):not(.is-text):not(.el-button--text) {
+  --el-button-bg-color: var(--el-color-danger);
+  --el-button-border-color: var(--el-color-danger);
+  --el-button-text-color: #ffffff;
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 16px !important;
+  line-height: 1 !important;
+  font-size: 14px !important;
+  background-color: var(--el-color-danger) !important;
+  border-color: var(--el-color-danger) !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+  font-weight: 600 !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html.admin-theme .el-button--default:not(.is-text):not(.is-link):not(.el-button--text):not(.suggest-chip) {
+  --el-button-bg-color: var(--admin-surface-elevated);
+  --el-button-border-color: var(--admin-border);
+  --el-button-text-color: var(--admin-text);
+  --el-button-hover-bg-color: var(--admin-fill-hover);
+  --el-button-hover-border-color: rgba(255, 255, 255, 0.18);
+  --el-button-hover-text-color: var(--admin-text);
+  height: 32px !important;
+  min-height: 32px !important;
+  padding: 0 16px !important;
+  line-height: 1 !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html.admin-theme .el-input__wrapper,
+html.admin-theme .el-select__wrapper,
+html.admin-theme .el-textarea__inner {
+  background-color: var(--admin-input-bg);
+  box-shadow: 0 0 0 1px var(--glass-divider) inset !important;
+}
+
+html.admin-theme .el-input__wrapper.is-focus,
+html.admin-theme .el-select__wrapper.is-focused,
+html.admin-theme .el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--el-color-primary) inset !important;
+}
+
+html.admin-theme .el-table,
+html.admin-theme .app-table {
+  --el-table-bg-color: transparent;
+  --el-table-tr-bg-color: transparent;
+  --el-table-header-bg-color: rgba(255, 255, 255, 0.04);
+  --el-table-row-hover-bg-color: rgba(255, 255, 255, 0.06);
+  --el-table-border-color: var(--glass-divider);
+  --el-table-text-color: var(--admin-text);
+  --el-table-header-text-color: var(--admin-text-muted);
+  --el-table-current-row-bg-color: var(--admin-primary-soft);
+  /* 边框/阴影走上方统一玻璃 + --glass-glow，此处只补表格内部变量 */
+  color: var(--admin-text);
+  overflow: hidden;
+}
+
+html.admin-theme .el-table th.el-table__cell {
+  background: rgba(255, 255, 255, 0.04) !important;
+  color: var(--admin-text-muted);
+  font-weight: 600;
+}
+
+html.admin-theme .el-table td.el-table__cell,
+html.admin-theme .el-table th.el-table__cell {
+  border-bottom-color: var(--glass-divider);
+  background: transparent !important;
+}
+
+/* 上下伪边框已在上方 opacity:0，避免盖住描边光斑 */
+
+html.admin-theme .el-table__empty-block {
+  background: transparent;
+}
+
+html.admin-theme .el-table__body tr.hover-row > td.el-table__cell {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* 固定列也保持玻璃底，避免露出实黑/全透断层 */
+html.admin-theme .el-table .el-table__fixed,
+html.admin-theme .el-table .el-table__fixed-right {
+  background: var(--glass-fill) !important;
+}
+
+html.admin-theme .el-pagination {
+  --el-pagination-bg-color: transparent;
+  --el-pagination-text-color: var(--admin-text-muted);
+  --el-pagination-button-color: var(--admin-text-muted);
+  --el-pagination-button-bg-color: var(--admin-fill);
+  --el-pagination-button-disabled-bg-color: transparent;
+  --el-pagination-hover-color: var(--el-color-primary);
+}
+
+html.admin-theme .el-pagination.is-background .btn-next,
+html.admin-theme .el-pagination.is-background .btn-prev,
+html.admin-theme .el-pagination.is-background .el-pager li {
+  background: var(--admin-fill);
+  color: var(--admin-text-muted);
+}
+
+html.admin-theme .el-pagination.is-background .el-pager li.is-active {
+  background: var(--el-color-primary);
+  color: #fff;
+}
+
+html.admin-theme .el-select-dropdown__item {
+  color: var(--admin-text-muted);
+}
+
+html.admin-theme .el-select-dropdown__item.is-hovering,
+html.admin-theme .el-select-dropdown__item:hover {
+  background: var(--admin-fill-hover);
+}
+
+html.admin-theme .el-select-dropdown__item.is-selected {
+  color: var(--el-color-primary);
+  font-weight: 600;
+}
+
+html.admin-theme .el-tag {
+  border-radius: 6px;
+}
+
+html.admin-theme .el-tag--plain {
+  background: var(--admin-fill);
+}
+
+html.admin-theme .el-empty__description p {
+  color: var(--admin-text-muted);
+}
+
+html.admin-theme .el-loading-mask {
+  background-color: rgba(13, 13, 13, 0.72);
+}
+
+html.admin-theme .el-upload-dragger {
+  background: var(--admin-input-bg);
+  border-color: var(--admin-border);
+}
+
+html.admin-theme .el-upload-dragger:hover {
+  border-color: var(--el-color-primary);
+}
+
+html.admin-theme .el-collapse {
+  --el-collapse-border-color: var(--admin-border);
+  --el-collapse-header-bg-color: transparent;
+  --el-collapse-content-bg-color: transparent;
+  border-color: var(--admin-border);
+}
+
+html.admin-theme .el-collapse-item__header,
+html.admin-theme .el-collapse-item__wrap {
+  background: transparent;
+  color: var(--admin-text);
+  border-bottom-color: var(--admin-border);
+}
+
+html.admin-theme .el-progress__text {
+  color: var(--admin-text-muted) !important;
+}
+
+html.admin-theme .el-divider {
+  border-color: var(--admin-border);
+}
+
+html.admin-theme .el-tabs__item {
+  color: var(--admin-text-muted);
+}
+
+html.admin-theme .el-tabs__item:hover {
+  color: var(--admin-text);
+}
+
+html.admin-theme .el-tabs__item.is-active {
+  color: var(--el-color-primary);
+}
+
+html.admin-theme .el-tabs__nav-wrap::after {
+  background-color: var(--admin-border);
+}
+
+html.admin-theme .el-tabs__active-bar {
+  background-color: var(--el-color-primary);
+}
+
+html.admin-theme .el-switch.is-checked .el-switch__core {
+  border-color: var(--el-color-primary);
+  background-color: var(--el-color-primary);
+}
+
+html.admin-theme .el-checkbox__inner,
+html.admin-theme .el-radio__inner {
+  background-color: var(--admin-input-bg);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+html.admin-theme .el-message {
+  background: var(--admin-surface-elevated);
+  border-color: var(--admin-border);
+}
+
+html.admin-theme .el-popper.is-dark {
+  --el-text-color-primary: #ffffff;
+  background: var(--admin-surface-elevated) !important;
+  color: #ffffff !important;
+  border: 1px solid var(--admin-border);
+}
+
+html.admin-theme .el-popper.is-dark .el-popper__arrow::before {
+  background: var(--admin-surface-elevated) !important;
+  border: 1px solid var(--admin-border);
+}
+
+/* —— 全局滑块（TopN / 裁剪缩放等）：深色玻璃风 —— */
+html.admin-theme .el-slider {
+  --el-slider-main-bg-color: var(--el-color-primary);
+  --el-slider-runway-bg-color: rgba(255, 255, 255, 0.1);
+  --el-slider-stop-bg-color: rgba(18, 22, 34, 0.92);
+  --el-slider-disabled-color: rgba(255, 255, 255, 0.18);
+  --el-text-color-primary: #ffffff;
+}
+
+html.admin-theme .el-slider__runway {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(120, 160, 255, 0.14);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+html.admin-theme .el-slider__bar {
+  background-color: var(--el-color-primary) !important;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--el-color-primary) 35%, transparent);
+}
+
+html.admin-theme .el-slider__button {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--el-color-primary) !important;
+  background-color: rgba(16, 20, 32, 0.96) !important;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 0 10px color-mix(in srgb, var(--el-color-primary) 45%, transparent);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
+}
+
+html.admin-theme .el-slider__button:hover,
+html.admin-theme .el-slider__button.dragging,
+html.admin-theme .el-slider__button.hover {
+  transform: scale(1.06);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.35),
+    0 0 14px color-mix(in srgb, var(--el-color-primary) 55%, transparent);
+}
+
+html.admin-theme .el-slider__stop {
+  background-color: rgba(210, 218, 235, 0.35) !important;
+  border: none;
+}
+
+html.admin-theme .el-slider.is-disabled .el-slider__bar {
+  background-color: rgba(255, 255, 255, 0.22) !important;
+  box-shadow: none;
+}
+
+html.admin-theme .el-slider.is-disabled .el-slider__button {
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  background-color: rgba(30, 34, 46, 0.9) !important;
+  box-shadow: none;
+}
+
+/* 滑块气泡（teleport 到 body，仍挂 admin-theme） */
+html.admin-theme .el-slider__button .el-tooltip__trigger,
+html.admin-theme .el-slider {
+  --el-text-color-primary: #ffffff;
+}
+
+html.admin-theme .el-popper.is-dark,
+html.admin-theme .el-tooltip__popper.is-dark,
+html.admin-theme .el-slider__marks-text,
+html.admin-theme .el-slider-tooltip {
+  color: rgba(235, 240, 250, 0.92) !important;
+}
+
+html.admin-theme .el-popper.is-dark,
+html.admin-theme .el-tooltip__popper.is-dark {
+  background: rgba(18, 22, 34, 0.92) !important;
+  border: 1px solid rgba(120, 160, 255, 0.22) !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4) !important;
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+}
+
+html.admin-theme .el-popper.is-dark .el-popper__arrow::before,
+html.admin-theme .el-tooltip__popper.is-dark .el-popper__arrow::before {
+  background: rgba(18, 22, 34, 0.92) !important;
+  border: 1px solid rgba(120, 160, 255, 0.22) !important;
+}

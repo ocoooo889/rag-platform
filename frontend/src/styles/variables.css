@@ -6,7 +6,7 @@
   --color-warning: #fa8c16;
   --color-purple: #722ed1;
   --color-danger: #f56c6c;
-  --color-assistant-avatar: #52c41a;
+  --color-assistant-avatar: var(--el-color-primary);
   --color-sidebar-bg: #1e2a3a;
   --color-sidebar-text: #bfcbd9;
   --color-sidebar-active: #ffffff;
@@ -46,11 +46,11 @@
   --status-failed-bg: #fef0f0;
 
   --el-color-primary: #4a7aff;
-  --el-color-primary-light-3: #6b93ff;
-  --el-color-primary-light-5: #8cacff;
-  --el-color-primary-light-7: #adc6ff;
-  --el-color-primary-light-9: #cedfff;
-  --el-color-primary-dark-2: #2f63e8;
+  --el-color-primary-light-3: color-mix(in srgb, var(--el-color-primary) 70%, #fff);
+  --el-color-primary-light-5: color-mix(in srgb, var(--el-color-primary) 50%, #fff);
+  --el-color-primary-light-7: color-mix(in srgb, var(--el-color-primary) 35%, #fff);
+  --el-color-primary-light-9: color-mix(in srgb, var(--el-color-primary) 18%, #fff);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--el-color-primary) 80%, #000);
   --el-border-radius-base: 8px;
   --el-border-radius-round: 999px;
   --el-box-shadow-light: 0 2px 12px rgba(0, 0, 0, 0.06);
@@ -69,6 +69,56 @@
   --login-font-sans: 'DM Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --login-font-serif: 'DM Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --login-font-display: var(--login-font-sans);
+
+  /* 管理后台专用 Token（只增不改名；不改 --login-*） */
+  --admin-bg: #0d0d0d;
+  --admin-sidebar: #141414;
+  --admin-surface: #1a1a1a;
+  --admin-surface-elevated: #1e1e1e;
+  --admin-border: rgba(120, 160, 255, 0.16);
+  --admin-text: #ffffff;
+  --admin-text-muted: rgba(200, 205, 220, 0.58);
+  --admin-text-dim: rgba(160, 170, 190, 0.42);
+  --admin-menu-active-bg: rgba(120, 160, 255, 0.1);
+  --admin-menu-hover-bg: rgba(255, 255, 255, 0.05);
+  --admin-badge-bg: rgba(255, 255, 255, 0.06);
+  --admin-badge-text: rgba(200, 205, 220, 0.65);
+  --admin-radius: 14px;
+  --admin-radius-sm: 10px;
+  --admin-brand-font-size: 28px;
+  /* 侧栏宽 = 左内边距 16px + 10 个汉字（与页眉系统名同宽对齐） */
+  --admin-sidebar-pad-x: 16px;
+  --admin-sidebar-width: calc(var(--admin-sidebar-pad-x) + 10 * var(--admin-brand-font-size));
+  --admin-header-height: 56px;
+  --admin-fill: rgba(255, 255, 255, 0.05);
+  --admin-fill-hover: rgba(255, 255, 255, 0.08);
+  --admin-mask: rgba(0, 0, 0, 0.72);
+  --admin-input-bg: rgba(22, 28, 40, 0.2);
+  --admin-table-header: rgba(22, 28, 40, 0.18);
+  --admin-danger-soft: rgba(245, 108, 108, 0.16);
+  --admin-success-soft: rgba(82, 196, 26, 0.14);
+  --admin-warning-soft: rgba(250, 140, 22, 0.16);
+  --admin-primary-soft: color-mix(in srgb, var(--el-color-primary) 18%, transparent);
+
+  /* 管理后台毛玻璃：对齐可用截图的通透雾面 */
+  --glass-fill: rgba(90, 120, 170, 0.12);
+  --glass-border: rgba(120, 160, 255, 0.18);
+  --glass-divider: rgba(120, 160, 255, 0.1);
+  --glass-blur: 5px;
+  --glass-saturate: 1.35;
+  --glass-radius: 14px;
+  --glass-sidebar-radius: 14px;
+  --glass-bg: var(--glass-fill);
+  --glass-bg-top: var(--glass-fill);
+  --glass-bg-mid: var(--glass-fill);
+  --glass-bg-low: var(--glass-fill);
+  --glass-bg-bottom: var(--glass-fill);
+  --glass-border-soft: rgba(120, 160, 255, 0.12);
+  --glass-inset: rgba(160, 190, 255, 0.08);
+  --glass-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+  --glass-glow-color: rgba(140, 190, 255, 0.9);
+  --glass-mask: rgba(0, 0, 0, 0.28);
+  --glass-mask-blur: 10px;
 }
 
 * {
@@ -103,7 +153,7 @@ body {
 }
 
 .el-button--primary {
-  box-shadow: 0 8px 18px rgba(74, 122, 255, 0.22);
+  box-shadow: none;
 }
 
 .el-input__wrapper,

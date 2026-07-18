@@ -1,9 +1,12 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
+import os
+import shutil
+import time
 
 from app.db.database import get_db
 from app.db.models import User
@@ -12,10 +15,13 @@ from app.utils.auth import (
     verify_password,
     create_access_token,
     get_current_user,
+    get_password_hash,
 )
 from app.utils.role_labels import build_user_payload
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+AVATAR_DIR = "./uploads/avatars"
 
 
 class LoginRequest(BaseModel):
@@ -71,3 +77,77 @@ def login_form(
 def get_me(current_user: User = Depends(get_current_user)):
     """获取当前登录用户信息。"""
     return ResponseModel(data=build_user_payload(current_user))
+
+
+class ProfileUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    old_password: Optional[str] = None
+    new_password: Optional[str] = None
+
+
+@router.put("/profile", response_model=ResponseModel)
+def update_profile(
+    req: ProfileUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """当前用户修改个人信息（显示名 / 密码）。"""
+    if req.display_name is not None:
+        name = req.display_name.strip()
+        if not name:
+            return ResponseModel(code=400, msg="显示名不能为空")
+        if len(name) > 32:
+            return ResponseModel(code=400, msg="显示名不能超过 32 个字")
+        current_user.display_name = name
+
+    if req.new_password:
+        if not req.old_password:
+            return ResponseModel(code=400, msg="请输入当前密码")
+        if not verify_password(req.old_password, current_user.hashed_password):
+            return ResponseModel(code=400, msg="当前密码不正确")
+        if len(req.new_password) < 6:
+            return ResponseModel(code=400, msg="新密码至少 6 位")
+        current_user.hashed_password = get_password_hash(req.new_password)
+
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return ResponseModel(data=build_user_payload(current_user), msg="资料已更新")
+
+
+@router.post("/avatar", response_model=ResponseModel)
+def upload_avatar(
+    avatar: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """当前用户上传自定义头像（正方形图，png/jpg/webp）。"""
+    if not avatar or not avatar.filename:
+        return ResponseModel(code=400, msg="请选择头像文件")
+
+    ext = os.path.splitext(avatar.filename)[1].lower()
+    if ext not in (".png", ".jpg", ".jpeg", ".webp"):
+        return ResponseModel(code=400, msg="仅支持 png / jpg / webp")
+
+    os.makedirs(AVATAR_DIR, exist_ok=True)
+    ts = int(time.time() * 1000)
+    filename = f"u{current_user.id}_{ts}.png"
+    path = os.path.join(AVATAR_DIR, filename)
+    with open(path, "wb") as buffer:
+        shutil.copyfileobj(avatar.file, buffer)
+
+    # 清理该用户旧头像文件（保留最新）
+    prefix = f"u{current_user.id}_"
+    for name in os.listdir(AVATAR_DIR):
+        if name.startswith(prefix) and name != filename:
+            try:
+                os.remove(os.path.join(AVATAR_DIR, name))
+            except OSError:
+                pass
+
+    url = f"/uploads/avatars/{filename}?v={ts}"
+    current_user.avatar_url = url
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+    return ResponseModel(data=build_user_payload(current_user), msg="头像已更新")

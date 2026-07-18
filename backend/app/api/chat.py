@@ -22,9 +22,10 @@ from app.db.sqlite_helper import (
     load_chat_history,
     load_chunks_by_kb,
     save_conversation,
+    update_chat_session_prefs,
 )
 from app.rag_engine.rag_pipeline import RAGPipeline
-from app.schema.rag import ChatRequest
+from app.schema.rag import ChatRequest, ChatSessionUpdate
 from app.utils.auth import get_current_user
 from app.utils.ids import new_id
 from app.utils.langfuse_tracer import new_request_id
@@ -327,6 +328,41 @@ async def chat_session_messages(
         "page": page,
         "page_size": page_size,
     })
+
+
+@router.patch("/sessions/{session_id}")
+async def chat_session_update(
+    session_id: str,
+    body: ChatSessionUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """PATCH /api/chat/sessions/{session_id} — 重命名 / 置顶"""
+    session_id = (session_id or "").strip()
+    if not session_id:
+        return fail(400, "缺少必填参数: session_id")
+
+    if body.title is None and body.pinned is None:
+        return fail(400, "请至少提供 title 或 pinned")
+
+    kb_id = get_session_kb_id(session_id)
+    if not kb_id:
+        return fail(404, "会话不存在")
+
+    await require_kb_access(kb_id, current_user, db)
+
+    try:
+        data = update_chat_session_prefs(
+            session_id,
+            title=body.title,
+            pinned=body.pinned,
+        )
+    except ValueError as e:
+        return fail(400, str(e))
+    except KeyError:
+        return fail(404, "会话不存在")
+
+    return ok(data)
 
 
 @router.delete("/sessions/{session_id}")

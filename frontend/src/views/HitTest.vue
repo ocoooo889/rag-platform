@@ -1,21 +1,20 @@
 <template>
-  <div class="hit-test">
+  <div class="hit-test page-shell">
     <div class="page-header">
-      <div>
-        <h2>命中率测试</h2>
-        <p class="page-desc">选择知识库与就绪文档，切换检索模式验证召回效果</p>
-      </div>
-      <AppButton
+      <h2>命中率测试</h2>
+      <el-button
         type="primary"
-        text="导出 CSV"
         :disabled="!canExport"
         :title="canExport ? '导出检索结果' : '暂无命中结果可导出'"
         @click="onExport"
-      />
+      >
+        导出 CSV
+      </el-button>
     </div>
 
+    <div class="page-body">
     <EmptyState v-if="pageError" type="error" :tip="pageError">
-      <AppButton type="primary" text="重新加载" @click="loadBase" />
+      <el-button type="primary" @click="loadBase">重新加载</el-button>
     </EmptyState>
 
     <EmptyState v-else-if="!hasKb && !bootLoading" type="kb" tip="暂无知识库，无法进行命中测试" />
@@ -83,27 +82,30 @@
           </el-form-item>
 
           <el-form-item label="TopN">
-            <el-slider
-              v-model="hitStore.topN"
-              :min="3"
-              :max="10"
-              :step="1"
-              show-stops
-              :disabled="hitStore.loading"
-              style="max-width: 360px"
-            />
+            <div class="topn-field">
+              <el-slider
+                v-model="hitStore.topN"
+                :min="3"
+                :max="10"
+                :step="1"
+                show-stops
+                show-tooltip
+                :disabled="hitStore.loading"
+              />
+              <span class="topn-value">{{ hitStore.topN }}</span>
+            </div>
           </el-form-item>
 
           <el-form-item>
-            <AppButton
+            <el-button
               type="primary"
-              text="运行测试"
               :loading="hitStore.loading"
-              loading-mode="normal"
               :disabled="!canRun"
               :title="runDisabledTip"
               @click="onRunTest"
-            />
+            >
+              {{ hitStore.loading ? '加载中...' : '运行测试' }}
+            </el-button>
           </el-form-item>
         </el-form>
       </section>
@@ -133,7 +135,7 @@
             type="error"
             :tip="hitStore.errorMsg"
           >
-            <AppButton type="primary" text="重试" :disabled="!canRun" @click="onRunTest" />
+            <el-button type="primary" :disabled="!canRun" @click="onRunTest">重试</el-button>
           </EmptyState>
 
           <EmptyState
@@ -157,6 +159,7 @@
         </div>
       </section>
     </div>
+    </div>
   </div>
 </template>
 
@@ -172,7 +175,6 @@ import {
   getDocStatusTagType,
   isDocSelectable
 } from '@/utils/docStatus'
-import AppButton from '@/components/AppButton.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import RetrieveResultCard from '@/components/RetrieveResultCard.vue'
 
@@ -328,27 +330,15 @@ onMounted(() => {
 
 <style scoped>
 .hit-test {
-  padding: 16px 20px 24px;
+  /* page-shell 由 admin.css 统一 */
 }
 
 .page-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
+  /* 标题样式由 admin.css 统一 */
 }
 
 .page-header h2 {
-  margin: 0 0 4px;
-  color: var(--text-color-primary);
-  font-size: 20px;
-}
-
-.page-desc {
-  margin: 0;
-  color: var(--text-color-secondary);
-  font-size: 13px;
+  /* 由 admin.css 统一 */
 }
 
 .hit-test__body {
@@ -359,7 +349,7 @@ onMounted(() => {
 }
 
 .panel {
-  background: var(--bg-color-card);
+  background: transparent;
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 16px 18px;
@@ -367,6 +357,29 @@ onMounted(() => {
 
 .filter-form {
   margin-bottom: 0;
+}
+
+.topn-field {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 400px;
+}
+
+.topn-field :deep(.el-slider) {
+  flex: 1;
+  min-width: 0;
+}
+
+.topn-value {
+  flex-shrink: 0;
+  min-width: 1.5em;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--admin-text, var(--text-color-primary));
+  line-height: 1;
+  text-align: right;
 }
 
 .doc-option {

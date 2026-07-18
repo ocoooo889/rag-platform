@@ -1,10 +1,11 @@
 <template>
-  <div class="kb-manage" v-loading="kbStore.loading" element-loading-text="加载中...">
+  <div class="kb-manage page-shell" v-loading="kbStore.loading" element-loading-text="加载中...">
     <div class="page-header">
       <h2>知识库管理</h2>
-      <AppButton type="primary" text="新建知识库" @click="openCreate" />
+      <el-button type="primary" @click="openCreate">新建知识库</el-button>
     </div>
 
+    <div class="page-body">
     <!-- 无知识库：统一空状态，并隐藏下游入口按钮 -->
     <EmptyState v-if="!kbStore.list.length && !kbStore.loading" type="kb" />
 
@@ -25,7 +26,6 @@
           >
             <div class="kb-card__title">
               <span>{{ item.name }}</span>
-              <el-tag size="small" type="info">{{ item.env_label || item.env || envTag }}</el-tag>
             </div>
             <p class="kb-card__desc">{{ item.description || '暂无描述' }}</p>
             <div class="kb-card__meta">
@@ -34,8 +34,8 @@
               <span>分片总数：{{ item.chunk_count ?? 0 }}</span>
             </div>
             <div class="kb-card__actions" @click.stop>
-              <AppButton type="primary" text="编辑" link @click="openEdit(item)" />
-              <AppButton type="danger" text="删除" link @click="openDelete(item)" />
+              <el-button text @click="openEdit(item)">编辑</el-button>
+              <el-button text type="danger" @click="openDelete(item)">删除</el-button>
             </div>
           </div>
         </el-col>
@@ -71,14 +71,8 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <AppButton type="default" text="取消" @click="formVisible = false" />
-        <AppButton
-          type="primary"
-          :loading="submitting"
-          loading-mode="normal"
-          text="保存"
-          @click="submitForm"
-        />
+        <el-button @click="formVisible = false">取消</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">保存</el-button>
       </template>
     </el-dialog>
 
@@ -89,20 +83,18 @@
       :loading="submitting"
       @confirm="confirmDelete"
     />
+    </div>
   </div>
 </template>
 
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { useKbStore } from '@/stores/kb'
-import { getEnvTag } from '@/utils/request'
-import AppButton from '@/components/AppButton.vue'
 import AppPagination from '@/components/AppPagination.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 
 const kbStore = useKbStore()
-const envTag = getEnvTag()
 
 const formVisible = ref(false)
 const deleteVisible = ref(false)
@@ -199,25 +191,15 @@ onMounted(() => {
 
 <style scoped>
 .kb-manage {
-  padding: 4px 0;
+  /* page-shell 由 admin.css 统一 */
 }
 
 .page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 20px;
-  padding: 20px 22px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--border-color-light);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
+  /* 标题样式由 admin.css 统一 */
 }
 
 .page-header h2 {
-  margin: 0;
-  font-size: 24px;
-  color: var(--text-color-primary);
+  /* 由 admin.css 统一 */
 }
 
 .kb-card {
@@ -228,42 +210,28 @@ onMounted(() => {
   overflow: hidden;
   border: 1px solid var(--border-color-light);
   border-radius: var(--radius-card);
-  background: var(--bg-color-card);
+  background: transparent;
   cursor: pointer;
   box-shadow: var(--shadow-card);
   transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-.kb-card::after {
-  position: absolute;
-  right: -32px;
-  top: -32px;
-  width: 96px;
-  height: 96px;
-  content: '';
-  background: radial-gradient(circle, rgba(74, 122, 255, 0.16), rgba(74, 122, 255, 0));
-  pointer-events: none;
-}
-
 .kb-card:hover {
   transform: translateY(-3px);
-  border-color: var(--border-color-primary);
-  box-shadow: var(--shadow-card-hover);
 }
 
 .kb-card--active {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px rgba(74, 122, 255, 0.16) inset, var(--shadow-card-hover);
+  /* 选中态交给指针邻近高亮，避免实色描边抢戏 */
 }
 
 .kb-card__title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  position: relative;
+  z-index: 1;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-color-primary);
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .kb-card__desc {
@@ -280,7 +248,7 @@ onMounted(() => {
   padding: 10px 12px;
   font-size: 12px;
   color: var(--text-color-secondary);
-  background: #f8fbff;
+  background: rgba(255, 255, 255, 0.04);
   border-radius: var(--radius-base);
 }
 

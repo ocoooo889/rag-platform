@@ -95,3 +95,34 @@ export async function fetchMeApi() {
   const response = await request.get('/api/auth/me')
   return normalizeUser(unwrap(response))
 }
+
+/** 当前用户上传头像 */
+export async function uploadAvatarApi(file) {
+  if (isMockOpen()) {
+    const url = URL.createObjectURL(file)
+    return unwrap(
+      await mockResolve({
+        avatar_url: url,
+        id: 'mock'
+      })
+    )
+  }
+  const form = new FormData()
+  form.append('avatar', file)
+  const response = await request.post('/api/auth/avatar', form)
+  return normalizeUser(unwrap(response))
+}
+
+/** 当前用户修改资料 */
+export async function updateProfileApi(data) {
+  if (isMockOpen()) {
+    return unwrap(
+      await mockResolve({
+        display_name: data.display_name,
+        avatar_url: data.avatar_url || ''
+      })
+    )
+  }
+  const response = await request.put('/api/auth/profile', data)
+  return normalizeUser(unwrap(response))
+}

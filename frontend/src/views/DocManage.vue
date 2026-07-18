@@ -1,10 +1,10 @@
 <template>
-  <div class="doc-manage" v-loading="docStore.loading" element-loading-text="加载中...">
+  <div class="doc-manage page-shell" v-loading="docStore.loading" element-loading-text="加载中...">
     <div class="page-header">
       <h2>文档管理</h2>
-      <el-tag v-if="envLabel" type="info" size="small">{{ envLabel }}</el-tag>
     </div>
 
+    <div class="page-body">
     <div class="filter-bar">
       <el-select
         v-model="selectedKbId"
@@ -20,15 +20,6 @@
           :value="kb.id"
         />
       </el-select>
-      <el-button
-        v-if="selectedKbId"
-        type="danger"
-        plain
-        :disabled="!selectedRows.length"
-        @click="openBatchDelete"
-      >
-        批量删除{{ selectedRows.length ? `（${selectedRows.length}）` : '' }}
-      </el-button>
     </div>
 
     <div v-if="hasKb" class="upload-area">
@@ -68,9 +59,9 @@
           </template>
         </el-table-column>
         <el-table-column prop="chunk_count" label="分片数量" width="100" />
-        <el-table-column label="上传时间" width="180">
+        <el-table-column label="上传时间" width="120">
           <template #default="{ row }">
-            {{ formatDate(row.uploaded_at || row.created_at, 'datetime') }}
+            {{ formatDate(row.uploaded_at || row.created_at, 'YYYY/MM/DD') }}
           </template>
         </el-table-column>
         <el-table-column label="状态" min-width="200">
@@ -86,25 +77,28 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="环境" width="140">
-          <template #default="{ row }">
-            <el-tag type="info" size="small">{{ row.env_label || row.env || envTag }}</el-tag>
-          </template>
-        </el-table-column>
         <el-table-column label="操作" width="100" fixed="right">
           <template #default="{ row }">
-            <AppButton type="danger" text="删除" link @click="openDelete(row)" />
+            <el-button text type="danger" @click="openDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </AppTable>
 
-      <AppPagination
-        v-if="selectedKbId"
-        :total="docStore.total"
-        v-model:page="docStore.page"
-        v-model:page-size="docStore.pageSize"
-        @change="reloadDocs"
-      />
+      <div v-if="selectedKbId" class="table-footer">
+        <el-button
+          type="primary"
+          :disabled="!selectedRows.length"
+          @click="openBatchDelete"
+        >
+          批量删除{{ selectedRows.length ? `（${selectedRows.length}）` : '' }}
+        </el-button>
+        <AppPagination
+          :total="docStore.total"
+          v-model:page="docStore.page"
+          v-model:page-size="docStore.pageSize"
+          @change="reloadDocs"
+        />
+      </div>
     </template>
 
     <ConfirmDialog
@@ -114,6 +108,7 @@
       :loading="deleting"
       @confirm="confirmDelete"
     />
+    </div>
   </div>
 </template>
 
@@ -123,9 +118,7 @@ import { ElMessage } from 'element-plus'
 import { useKbStore } from '@/stores/kb'
 import { useDocStore } from '@/stores/doc'
 import { formatFileSize, formatDate } from '@/utils/format'
-import { getEnvTag } from '@/utils/request'
 import { getDocStatusLabel, getDocStatusClassSuffix } from '@/utils/docStatus'
-import AppButton from '@/components/AppButton.vue'
 import AppTable from '@/components/AppTable.vue'
 import AppPagination from '@/components/AppPagination.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -134,7 +127,6 @@ import FileUploader from '@/components/FileUploader.vue'
 
 const kbStore = useKbStore()
 const docStore = useDocStore()
-const envTag = getEnvTag()
 
 const selectedKbId = ref(null)
 const uploading = ref(false)
@@ -147,10 +139,6 @@ const selectedRows = ref([])
 const tableRef = ref(null)
 
 const hasKb = computed(() => kbStore.list.length > 0)
-const envLabel = computed(() => {
-  const first = docStore.list[0]
-  return first?.env_label || (hasKb.value ? envTag : '')
-})
 
 const deleteMessage = computed(() => {
   if (batchMode.value) {
@@ -268,25 +256,15 @@ onUnmounted(() => {
 
 <style scoped>
 .doc-manage {
-  padding: 4px 0;
+  /* page-shell 由 admin.css 统一 */
 }
 
 .page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 18px;
-  padding: 20px 22px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--border-color-light);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
+  /* 标题样式由 admin.css 统一 */
 }
 
 .page-header h2 {
-  margin: 0;
-  font-size: 24px;
-  color: var(--text-color-primary);
+  /* 由 admin.css 统一 */
 }
 
 .filter-bar {
@@ -295,18 +273,30 @@ onUnmounted(() => {
   gap: 12px;
   margin-bottom: 16px;
   padding: 16px;
-  background: var(--bg-color-card);
+  background: transparent;
   border: 1px solid var(--border-color-light);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
 }
 
+.table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.table-footer :deep(.app-pagination) {
+  margin-top: 0;
+  margin-left: auto;
+}
+
 .upload-area {
   margin-bottom: 20px;
   padding: 18px;
-  background:
-    linear-gradient(135deg, rgba(74, 122, 255, 0.07) 0%, rgba(255, 255, 255, 0.96) 46%),
-    var(--bg-color-card);
+  background: color-mix(in srgb, var(--el-color-primary) 8%, var(--bg-color-card));
   border: 1px dashed var(--border-color-primary);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);

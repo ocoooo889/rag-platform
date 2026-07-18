@@ -15,6 +15,7 @@ _BRANDING_DEFAULTS = {
     "brand_theme_color": "#409EFF",
     "brand_login_title": "企业知识，智能问答",
     "brand_footer_text": "Powered by RAG Platform",
+    "brand_logo_history": "[]",
 }
 
 

@@ -1,9 +1,7 @@
 <template>
   <div class="login-page" @click="onLoginPageClick">
     <!-- 全屏流体点阵氛围底；鼠标邻近仅做提亮聚焦，不改波场结构 -->
-    <div class="login-particles" aria-hidden="true">
-      <canvas ref="particleCanvas" class="particle-canvas"></canvas>
-    </div>
+    <EnvParticleField :pause-pointer-focus="showLoginModal" />
 
     <!-- 顶栏：各导航项下方独立下拉（对齐参考：对应区域展示） -->
     <header class="login-nav" @click.stop>
@@ -103,19 +101,22 @@
             aria-labelledby="login-modal-title"
             @keydown.esc.prevent="closeLoginModal"
           >
+            <span class="pointer-edge-glow" aria-hidden="true" />
             <button type="button" class="modal-close" aria-label="关闭" @click="closeLoginModal">
               ×
             </button>
 
             <div class="login-header">
-              <img
-                v-if="brandingStore.brandLogoUrl && !logoBroken"
-                :src="brandingStore.brandLogoUrl"
-                alt="logo"
-                class="logo-img"
-                @error="onLogoError"
-              />
-              <div v-else class="logo-fallback" aria-hidden="true"></div>
+              <div class="logo-frame">
+                <img
+                  v-if="brandingStore.brandLogoUrl && !logoBroken"
+                  :src="brandingStore.brandLogoUrl"
+                  alt="logo"
+                  class="logo-img"
+                  @error="onLogoError"
+                />
+                <div v-else class="logo-fallback" aria-hidden="true"></div>
+              </div>
               <h2 id="login-modal-title">欢迎使用</h2>
               <p class="login-header__sub">
                 {{ brandingStore.brandLoginTitle || '登录您的账户' }}
@@ -231,7 +232,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useBrandingStore } from '@/stores/branding'
@@ -239,7 +240,11 @@ import { loginApi } from '@/api/auth'
 import { isAdminRole } from '@/utils/role'
 import { ElMessage } from 'element-plus'
 import { View, Hide } from '@element-plus/icons-vue'
+import EnvParticleField from '@/components/EnvParticleField.vue'
+import { useGlassPointerGlow } from '@/composables/useGlassPointerGlow'
 import '@/styles/login.css'
+
+useGlassPointerGlow()
 
 /** 提供方品牌（管理员白标改不了） */
 const PROVIDER_NAME = '六朵云'
@@ -291,277 +296,6 @@ const megaOpen = ref(false)
 const activeMegaKey = ref('about')
 const activeMegaLink = ref('')
 
-const particleCanvas = ref(null)
-let rafId = 0
-let gridPoints = []
-let softDot = null
-let softDotBlue = null
-let viewW = 0
-let viewH = 0
-let gridCols = 0
-let gridRows = 0
-
-/** 设为 false 即可立刻关掉鼠标聚焦，还原纯氛围版 */
-const ENABLE_POINTER_FOCUS = true
-const pointer = {
-  x: 0,
-  y: 0,
-  sx: 0,
-  sy: 0,
-  active: false,
-  focus: 0
-}
-
-function onPointerMove(e) {
-  if (!ENABLE_POINTER_FOCUS || showLoginModal.value) return
-  pointer.x = e.clientX
-  pointer.y = e.clientY
-  pointer.active = true
-}
-
-function onPointerLeaveWindow() {
-  pointer.active = false
-}
-
-function onDocumentMouseOut(e) {
-  if (!e.relatedTarget) onPointerLeaveWindow()
-}
-
-function fade(t) {
-  return t * t * (3 - 2 * t)
-}
-
-function hash2(ix, iy) {
-  const n = Math.sin(ix * 127.1 + iy * 311.7) * 43758.5453123
-  return n - Math.floor(n)
-}
-
-function valueNoise(x, y) {
-  const x0 = Math.floor(x)
-  const y0 = Math.floor(y)
-  const fx = x - x0
-  const fy = y - y0
-  const ux = fade(fx)
-  const uy = fade(fy)
-  const a = hash2(x0, y0)
-  const b = hash2(x0 + 1, y0)
-  const c = hash2(x0, y0 + 1)
-  const d = hash2(x0 + 1, y0 + 1)
-  return a + (b - a) * ux + (c - a) * uy + (a - b - c + d) * ux * uy
-}
-
-function fbm(x, y) {
-  let v = 0
-  let a = 0.5
-  let f = 1
-  for (let i = 0; i < 3; i++) {
-    v += a * valueNoise(x * f, y * f)
-    f *= 2.02
-    a *= 0.5
-  }
-  return v
-}
-
-/**
- * 共享高度场：整张「点布」共用同一函数
- * 粒子不单独乱抖，只随场缓变
- */
-function heightField(wx, wz, t) {
-  const morph = t * 0.045
-  const drift = t * 0.055
-  const n = fbm(wx * 0.85 + drift, wz * 0.75 + morph)
-  const w1 = Math.sin(wx * 2.15 + wz * 1.05 + t * 0.28)
-  const w2 = Math.sin(wx * 1.05 - wz * 1.65 + t * 0.18)
-  const w3 = Math.sin(wx * 3.4 + wz * 0.4 + t * 0.12 + n * 1.2)
-  return (n - 0.5) * 0.52 + w1 * 0.26 + w2 * 0.16 + w3 * 0.1
-}
-
-function ensureSoftDot() {
-  if (softDot) return softDot
-  const c = document.createElement('canvas')
-  c.width = 20
-  c.height = 20
-  const g = c.getContext('2d')
-  const grd = g.createRadialGradient(10, 10, 0, 10, 10, 9)
-  grd.addColorStop(0, 'rgba(255, 255, 255, 1)')
-  grd.addColorStop(0.35, 'rgba(230, 230, 235, 0.9)')
-  grd.addColorStop(0.7, 'rgba(190, 190, 195, 0.35)')
-  grd.addColorStop(1, 'rgba(160, 160, 165, 0)')
-  g.fillStyle = grd
-  g.beginPath()
-  g.arc(10, 10, 9, 0, Math.PI * 2)
-  g.fill()
-  softDot = c
-  return softDot
-}
-
-/** 鼠标聚焦用的蓝色光点 */
-function ensureSoftDotBlue() {
-  if (softDotBlue) return softDotBlue
-  const c = document.createElement('canvas')
-  c.width = 28
-  c.height = 28
-  const g = c.getContext('2d')
-  const grd = g.createRadialGradient(14, 14, 0, 14, 14, 13)
-  grd.addColorStop(0, 'rgba(210, 230, 255, 1)')
-  grd.addColorStop(0.25, 'rgba(120, 170, 255, 0.85)')
-  grd.addColorStop(0.55, 'rgba(64, 120, 230, 0.4)')
-  grd.addColorStop(1, 'rgba(40, 90, 200, 0)')
-  g.fillStyle = grd
-  g.beginPath()
-  g.arc(14, 14, 13, 0, Math.PI * 2)
-  g.fill()
-  softDotBlue = c
-  return softDotBlue
-}
-
-/**
- * 透视网格点阵（对齐参考视频）：
- * 固定 (i,j) 网格，投影到屏幕；高度只来自共享场
- * u/v 带过扫描，铺满四角与底边
- */
-function initParticleGrid(width, height) {
-  gridCols = Math.max(110, Math.min(160, Math.round(width / 12)))
-  gridRows = Math.max(70, Math.min(100, Math.round(height / 11)))
-  gridPoints = []
-
-  for (let j = 0; j < gridRows; j++) {
-    // 垂直过扫描：略超出底边，避免底部留黑带
-    const v = (j / (gridRows - 1)) * 1.12 - 0.02
-    for (let i = 0; i < gridCols; i++) {
-      // 水平过扫描：左右各多铺约 18%
-      const u = (i / (gridCols - 1)) * 1.36 - 0.18
-      gridPoints.push({ u, v, i, j })
-    }
-  }
-}
-
-function resizeParticleCanvas() {
-  const canvas = particleCanvas.value
-  if (!canvas) return
-  const dpr = Math.min(window.devicePixelRatio || 1, 2)
-  viewW = window.innerWidth
-  viewH = window.innerHeight
-  canvas.width = Math.floor(viewW * dpr)
-  canvas.height = Math.floor(viewH * dpr)
-  canvas.style.width = `${viewW}px`
-  canvas.style.height = `${viewH}px`
-  const ctx = canvas.getContext('2d')
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  softDot = null
-  softDotBlue = null
-  ensureSoftDot()
-  ensureSoftDotBlue()
-  initParticleGrid(viewW, viewH)
-}
-
-function drawParticles(ts) {
-  const canvas = particleCanvas.value
-  if (!canvas) return
-  const ctx = canvas.getContext('2d')
-  const width = viewW || window.innerWidth
-  const height = viewH || window.innerHeight
-  const t = (ts || 0) * 0.001
-  const sprite = ensureSoftDot()
-  const spriteBlue = ensureSoftDotBlue()
-
-  const fieldDrift = t * 0.09
-  const slowMorph = t * 0.035
-
-  // 鼠标聚焦：平滑跟随 + 进/出淡入淡出（不改网格与高度场）
-  if (ENABLE_POINTER_FOCUS) {
-    if (!pointer.sx && !pointer.sy) {
-      pointer.sx = pointer.x || width * 0.5
-      pointer.sy = pointer.y || height * 0.5
-    }
-    pointer.sx += (pointer.x - pointer.sx) * 0.14
-    pointer.sy += (pointer.y - pointer.sy) * 0.14
-    const targetFocus = pointer.active && !showLoginModal.value ? 1 : 0
-    pointer.focus += (targetFocus - pointer.focus) * 0.08
-  } else {
-    pointer.focus = 0
-  }
-
-  const focusR = Math.min(width, height) * 0.2
-  const focusR2 = focusR * focusR
-  const hasFocus = ENABLE_POINTER_FOCUS && pointer.focus > 0.01
-
-  ctx.clearRect(0, 0, width, height)
-
-  for (let n = 0; n < gridPoints.length; n++) {
-    const p = gridPoints[n]
-    const wx = p.u * 6.2 + fieldDrift
-    const wz = p.v * 4.4
-    const elev = heightField(wx, wz + slowMorph * 0.25, t)
-
-    const depth = 0.92 + Math.max(0, Math.min(1, p.v)) * 0.85
-    const persp = 1 / depth
-    const xSpan = width * (1.42 + (1 - Math.min(1, Math.max(0, p.v))) * 0.55)
-    const x = width * 0.5 + (p.u - 0.5) * xSpan * (0.5 + 0.5 * persp)
-
-    // 铺满全屏：从略高于顶边铺到略低于底边
-    const vClamped = Math.max(0, Math.min(1.15, p.v))
-    const yBase = height * (-0.06 + vClamped * 1.08)
-    const amp = height * (0.035 + Math.min(1, Math.max(0, p.v)) * 0.055)
-    const elevScale = 0.45 + Math.min(1, Math.max(0, p.v)) * 0.45
-    let y = yBase - elev * amp * elevScale * (0.8 + persp * 0.35)
-
-    if (x < -40 || x > width + 40 || y < -40 || y > height + 40) continue
-
-    const nx = x / width - 0.5
-    const ny = y / height - 0.4
-    const clearR = (nx * nx) / 0.28 + (ny * ny) / 0.07
-    const clearFade = 0.62 + 0.38 * Math.min(1, clearR)
-
-    const crest = 0.75 + Math.max(0, elev) * 0.85
-    const farFade = 0.55 + Math.min(1, Math.max(0, p.v)) * 0.45
-    let a = 0.55 * farFade * clearFade * crest
-    let s = (1.05 + Math.min(1, Math.max(0, p.v)) * 1.85) * (0.9 + Math.max(0, elev) * 0.4)
-    let fall = 0
-
-    // 邻近蓝色照亮（亮度比之前更克制）
-    if (hasFocus) {
-      const dx = x - pointer.sx
-      const dy = y - pointer.sy
-      fall = Math.exp(-(dx * dx + dy * dy) / focusR2) * pointer.focus
-      if (fall > 0.02) {
-        a *= 1 + fall * 1.15
-        s *= 1 + fall * 0.5
-        y -= fall * Math.max(0, elev) * amp * 0.18
-      }
-    }
-
-    if (a < 0.08) continue
-
-    if (fall > 0.04) {
-      // 灰白底 + 蓝色光叠加，形成聚焦蓝光
-      const mix = Math.min(1, fall * 1.35)
-      ctx.globalAlpha = Math.min(0.75, a * (1 - mix * 0.55))
-      ctx.drawImage(sprite, x - s, y - s, s * 2, s * 2)
-      ctx.globalAlpha = Math.min(0.88, a * mix * 0.95)
-      const sb = s * (1 + mix * 0.2)
-      ctx.drawImage(spriteBlue, x - sb, y - sb, sb * 2, sb * 2)
-    } else {
-      ctx.globalAlpha = Math.min(0.92, a)
-      ctx.drawImage(sprite, x - s, y - s, s * 2, s * 2)
-    }
-  }
-
-  ctx.globalAlpha = 1
-  rafId = window.requestAnimationFrame(drawParticles)
-}
-
-function startParticleEngine() {
-  resizeParticleCanvas()
-  if (rafId) window.cancelAnimationFrame(rafId)
-  rafId = window.requestAnimationFrame(drawParticles)
-}
-
-function stopParticleEngine() {
-  if (rafId) window.cancelAnimationFrame(rafId)
-  rafId = 0
-}
-
 /** 弹窗 z-index=3000，Message 需更高才能看见 */
 function toastInModal(message, type = 'error') {
   ElMessage({
@@ -590,6 +324,13 @@ function switchLoginType(type) {
 function onLogoError() {
   logoBroken.value = true
 }
+
+watch(
+  () => brandingStore.brandLogoUrl,
+  () => {
+    logoBroken.value = false
+  }
+)
 
 function closeMegaMenu() {
   megaOpen.value = false
@@ -656,12 +397,6 @@ function onKeydown(e) {
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown)
-  window.addEventListener('resize', resizeParticleCanvas)
-  window.addEventListener('mousemove', onPointerMove, { passive: true })
-  window.addEventListener('mouseleave', onPointerLeaveWindow)
-  document.addEventListener('mouseout', onDocumentMouseOut)
-  await nextTick()
-  startParticleEngine()
   try {
     await brandingStore.fetchBranding()
     brandingStore.applyBranding()
@@ -672,11 +407,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('resize', resizeParticleCanvas)
-  window.removeEventListener('mousemove', onPointerMove)
-  window.removeEventListener('mouseleave', onPointerLeaveWindow)
-  document.removeEventListener('mouseout', onDocumentMouseOut)
-  stopParticleEngine()
   document.body.style.overflow = ''
 })
 
@@ -729,23 +459,6 @@ const handleLogin = async () => {
   background: #000000;
   color: var(--login-text);
   font-family: var(--login-font-sans);
-}
-
-.login-particles {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  overflow: hidden;
-  background: #000000; /* 纯哑光黑基底 */
-}
-
-.particle-canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-  opacity: 1;
-  filter: none;
 }
 
 .login-nav {
@@ -1146,9 +859,9 @@ const handleLogin = async () => {
   justify-content: center;
   padding: 24px;
   /* 轻遮罩 + 中等模糊，粒子柔和透出 */
-  background: rgba(0, 0, 0, 0.32);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  background: var(--glass-mask);
+  -webkit-backdrop-filter: blur(var(--glass-mask-blur));
+  backdrop-filter: blur(var(--glass-mask-blur));
 }
 
 .login-modal-card {
@@ -1157,15 +870,19 @@ const handleLogin = async () => {
   overflow: hidden;
   border-radius: 24px;
   color: var(--login-text);
-  /* 极细半透蓝色轮廓（介于高饱和蓝与低饱和灰蓝之间） */
+  /* 登录浮窗独立配方，不受后台日历风 --glass-* 影响 */
+  --glass-glow: 0;
+  --glow-x: 50%;
+  --glow-y: 50%;
+  --glow-r: 140px;
   border: 1px solid rgba(120, 155, 220, 0.38);
-  /* 垂直线性透光：上半深黑低透 · 下半中饱和冷蓝柔雾 */
-  background: linear-gradient(
+  background-color: transparent;
+  background-image: linear-gradient(
     180deg,
-    rgba(6, 8, 14, 0.86) 0%,
-    rgba(10, 13, 24, 0.72) 38%,
-    rgba(15, 23, 40, 0.5) 68%,
-    rgba(22, 38, 66, 0.36) 100%
+    rgba(6, 8, 14, 0.78) 0%,
+    rgba(10, 13, 24, 0.62) 38%,
+    rgba(15, 23, 40, 0.4) 68%,
+    rgba(22, 38, 66, 0.25) 100%
   );
   -webkit-backdrop-filter: blur(18px) saturate(1.05);
   backdrop-filter: blur(18px) saturate(1.05);
@@ -1174,6 +891,32 @@ const handleLogin = async () => {
     0 8px 20px rgba(0, 0, 0, 0.28),
     0 0 0 1px rgba(120, 160, 230, 0.13),
     inset 0 0 0 1px rgba(150, 180, 235, 0.1);
+}
+
+/* 鼠标邻近描边照亮（独立层，不占用 ::before/::after 薄雾） */
+.login-modal-card .pointer-edge-glow {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  opacity: var(--glass-glow, 0);
+  background: radial-gradient(
+    var(--glow-r, 140px) circle at var(--glow-x, 50%) var(--glow-y, 50%),
+    color-mix(in srgb, var(--el-color-primary) 90%, #fff 10%) 0%,
+    color-mix(in srgb, var(--el-color-primary) 45%, transparent) 38%,
+    transparent 68%
+  );
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
 }
 
 /* 细腻均匀薄雾磨砂（哑光细砂，克制） */
@@ -1225,7 +968,7 @@ const handleLogin = async () => {
   position: absolute;
   top: 10px;
   right: 14px;
-  z-index: 2;
+  z-index: 3;
   border: 0;
   background: transparent;
   color: var(--login-text-muted);
@@ -1273,38 +1016,47 @@ const handleLogin = async () => {
 }
 
 .login-header {
-  padding: 40px 48px 20px;
+  padding: 32px 48px 18px;
   text-align: center;
+}
+
+.logo-frame {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 14px;
+  border-radius: 14px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .logo-img {
   display: block;
-  width: 48px;
-  height: 48px;
-  object-fit: contain;
-  margin: 0 auto 16px;
-  border-radius: 12px;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
 }
 
 .logo-fallback {
-  width: 48px;
-  height: 48px;
-  margin: 0 auto 16px;
-  border-radius: 12px;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
   background: linear-gradient(
     135deg,
     var(--el-color-primary-light-3, var(--el-color-primary)),
     var(--el-color-primary)
   );
-  box-shadow: 0 10px 24px var(--login-glow);
+  box-shadow: none;
 }
 
 .login-header h2 {
-  margin: 0 0 12px;
+  margin: 0 0 8px;
   font-family: var(--login-font-sans);
-  font-size: 36px;
+  font-size: 26px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   line-height: 1.3;
   color: var(--login-text);
 }
@@ -1312,9 +1064,9 @@ const handleLogin = async () => {
 .login-header__sub {
   margin: 0;
   color: rgba(200, 200, 205, 0.55);
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 400;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .login-form {
