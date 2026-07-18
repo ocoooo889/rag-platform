@@ -149,7 +149,8 @@ const fetchGroups = async () => {
 const fetchUsers = async () => {
   try {
     const data = await getUsersApi()
-    userList.value = data.map(u => ({
+    const list = Array.isArray(data) ? data : data?.items || []
+    userList.value = list.map((u) => ({
       id: u.id,
       username: u.display_name || u.username,
       disabled: false
@@ -161,9 +162,10 @@ const fetchUsers = async () => {
 
 const fetchKbs = async () => {
   try {
-    const res = await fetchKnowledgeBases()
-    const data = res.data || []
-    kbList.value = data.map(kb => ({
+    const res = await fetchKnowledgeBases({ page: 1, page_size: 1000 })
+    const raw = res?.data
+    const list = Array.isArray(raw) ? raw : raw?.items || []
+    kbList.value = list.map((kb) => ({
       id: kb.id,
       name: kb.name,
       disabled: false

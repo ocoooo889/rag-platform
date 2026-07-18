@@ -7,6 +7,13 @@ import sqlite3
 
 def ensure_rag_schema(conn: sqlite3.Connection) -> None:
     """确保 ingest / chat 依赖的 chunks 字段与 conversations 表存在。"""
+    doc_rows = conn.execute("PRAGMA table_info(documents)").fetchall()
+    if doc_rows:
+        doc_names = {r[1] for r in doc_rows}
+        if "error_message" not in doc_names:
+            conn.execute("ALTER TABLE documents ADD COLUMN error_message TEXT")
+            conn.commit()
+
     rows = conn.execute("PRAGMA table_info(chunks)").fetchall()
     if rows:
         names = {r[1] for r in rows}

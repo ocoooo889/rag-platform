@@ -74,6 +74,7 @@ class Document(Base):
     file_size = Column(Integer)
     status = Column(String, default="pending") # pending, processing, completed, failed
     chunk_count = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     knowledge_base = relationship("KnowledgeBase", back_populates="documents")

@@ -10,24 +10,17 @@ export const MOCK_USERS = [
     username: 'admin',
     display_name: '管理员',
     role_id: 'r001',
+    role: 'admin',
     role_name: '管理员',
     status: '启用',
     created_at: '2026-07-15T09:00:00'
-  },
-  {
-    id: 'u002',
-    username: 'editor',
-    display_name: '编辑员',
-    role_id: 'r002',
-    role_name: '编辑员',
-    status: '启用',
-    created_at: '2026-07-15T09:10:00'
   },
   {
     id: 'u003',
     username: 'user',
     display_name: '普通用户',
     role_id: 'r003',
+    role: 'user',
     role_name: '普通用户',
     status: '启用',
     created_at: '2026-07-15T09:20:00'
@@ -37,23 +30,16 @@ export const MOCK_USERS = [
 export const MOCK_ROLES = [
   {
     id: 'r001',
-    name: '管理员',
+    name: 'admin',
     description: '系统管理员，拥有全部权限',
     permissions: ['kb:create', 'kb:delete', 'doc:upload', 'doc:delete', 'rag:test', 'chat:send'],
     created_at: '2026-07-15T09:00:00'
   },
   {
-    id: 'r002',
-    name: '编辑员',
-    description: '可管理知识库和文档',
-    permissions: ['kb:create', 'doc:upload', 'rag:test', 'chat:send'],
-    created_at: '2026-07-15T09:00:00'
-  },
-  {
     id: 'r003',
-    name: '普通用户',
-    description: '仅可对话与命中测试',
-    permissions: ['rag:test', 'chat:send'],
+    name: 'user',
+    description: '普通用户：授权范围内知识库/命中/对话',
+    permissions: ['kb:view', 'doc:view', 'rag:test', 'chat:send'],
     created_at: '2026-07-15T09:00:00'
   }
 ]

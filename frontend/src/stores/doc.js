@@ -1,10 +1,10 @@
 /**
  * 文档 Pinia Store
- * 当前库文档、上传进度、文档状态
+ * 当前库文档、上传进度、文档状态轮询
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { fetchDocuments, uploadDocument, deleteDocument } from '@/api/doc'
+import { fetchDocuments, uploadDocument, deleteDocument, batchDeleteDocuments } from '@/api/doc'
 
 export const useDocStore = defineStore('doc', () => {
   const list = ref([])
@@ -16,21 +16,41 @@ export const useDocStore = defineStore('doc', () => {
   const page = ref(1)
   const pageSize = ref(10)
 
-  /** 清空当前文档列表（切换到空知识库时） */
+  let pollingTimer = null
+
+  function stopPolling() {
+    if (pollingTimer) {
+      clearInterval(pollingTimer)
+      pollingTimer = null
+    }
+  }
+
+  function startPolling(kbId) {
+    stopPolling()
+    if (!kbId) return
+    pollingTimer = setInterval(async () => {
+      await loadList(kbId, { silent: true })
+      const allDone = list.value.every(
+        (d) => d.status === 'completed' || d.status === 'failed'
+      )
+      if (allDone) stopPolling()
+    }, 3000)
+  }
+
   function clearList() {
+    stopPolling()
     list.value = []
     total.value = 0
     currentKbId.value = null
   }
 
-  /** 按知识库隔离加载文档 */
   async function loadList(kbId, extra = {}) {
     if (!kbId) {
       clearList()
       return []
     }
     currentKbId.value = kbId
-    loading.value = true
+    if (!extra.silent) loading.value = true
     try {
       const res = await fetchDocuments({
         kb_id: kbId,
@@ -39,19 +59,23 @@ export const useDocStore = defineStore('doc', () => {
         ...extra
       })
       const raw = res.data
-      // api/doc 已归一为 { items, total }；仍兜底数组 / list
       list.value = Array.isArray(raw) ? raw : raw?.items || raw?.list || []
       total.value = Array.isArray(raw) ? raw.length : raw?.total || list.value.length
+
+      const hasPending = list.value.some(
+        (d) => d.status === 'pending' || d.status === 'processing'
+      )
+      if (hasPending) {
+        if (!pollingTimer) startPolling(kbId)
+      } else if (!extra.silent) {
+        stopPolling()
+      }
       return list.value
     } finally {
-      loading.value = false
+      if (!extra.silent) loading.value = false
     }
   }
 
-  /**
-   * 上传文档并回写进度
-   * @param {FormData} formData
-   */
   async function upload(formData) {
     uploading.value = true
     uploadProgress.value = 0
@@ -60,9 +84,9 @@ export const useDocStore = defineStore('doc', () => {
         if (!evt.total) return
         uploadProgress.value = Math.round((evt.loaded / evt.total) * 100)
       })
-      // 上传完成后刷新当前库文档列表
       if (currentKbId.value) {
         await loadList(currentKbId.value)
+        startPolling(currentKbId.value)
       }
       return res.data
     } finally {
@@ -74,6 +98,18 @@ export const useDocStore = defineStore('doc', () => {
     loading.value = true
     try {
       await deleteDocument(id)
+      if (currentKbId.value) {
+        await loadList(currentKbId.value)
+      }
+    } finally {
+      loading.value = false
+    }
+  }
+
+  async function removeBatch(ids) {
+    loading.value = true
+    try {
+      await batchDeleteDocuments(ids)
       if (currentKbId.value) {
         await loadList(currentKbId.value)
       }
@@ -99,6 +135,9 @@ export const useDocStore = defineStore('doc', () => {
     loadList,
     upload,
     remove,
-    resetUploadProgress
+    removeBatch,
+    resetUploadProgress,
+    startPolling,
+    stopPolling
   }
 })

@@ -7,6 +7,7 @@ import UserManage from '@/views/UserManage.vue'
 import UserGroupManage from '@/views/UserGroupManage.vue'
 import ModelManage from '@/views/ModelManage.vue'
 import BrandingConfig from '@/views/BrandingConfig.vue'
+import { resolveRoleCode } from '@/utils/role'
 
 const routes = [
   { path: '/login', name: 'Login', component: Login },
@@ -20,61 +21,61 @@ const routes = [
         path: 'dashboard',
         name: 'Dashboard',
         component: Dashboard,
-        meta: { roles: ['管理员', '编辑员'] }
+        meta: { roles: ['admin'] }
       },
       {
         path: 'roles',
         name: 'Roles',
         component: RoleManage,
-        meta: { roles: ['管理员'] }
+        meta: { roles: ['admin'] }
       },
       {
         path: 'users',
         name: 'Users',
         component: UserManage,
-        meta: { roles: ['管理员'] }
+        meta: { roles: ['admin'] }
       },
       {
         path: 'user-groups',
         name: 'UserGroups',
         component: UserGroupManage,
-        meta: { roles: ['管理员'] }
+        meta: { roles: ['admin'] }
       },
       {
         path: 'models',
         name: 'Models',
         component: ModelManage,
-        meta: { roles: ['管理员'] }
+        meta: { roles: ['admin'] }
       },
       {
         path: 'branding',
         name: 'Branding',
         component: BrandingConfig,
-        meta: { roles: ['管理员'] }
+        meta: { roles: ['admin'] }
       },
       {
         path: 'knowledge-bases',
         name: 'KnowledgeBases',
         component: () => import('@/views/KbManage.vue'),
-        meta: { roles: ['管理员', '编辑员'] }
+        meta: { roles: ['admin', 'user'] }
       },
       {
         path: 'documents',
         name: 'Documents',
         component: () => import('@/views/DocManage.vue'),
-        meta: { roles: ['管理员', '编辑员'] }
+        meta: { roles: ['admin', 'user'] }
       },
       {
         path: 'hit-test',
         name: 'HitTest',
         component: () => import('@/views/HitTest.vue'),
-        meta: { roles: ['管理员', '编辑员'] }
+        meta: { roles: ['admin', 'user'] }
       },
       {
         path: 'chat',
         name: 'ChatDialog',
         component: () => import('@/views/ChatDialog.vue'),
-        meta: { roles: ['管理员', '编辑员', '普通用户'] }
+        meta: { roles: ['admin', 'user'] }
       }
     ]
   },
@@ -101,9 +102,8 @@ function getUserInfo() {
 }
 
 function redirectByRole() {
-  const roleName = getUserInfo()?.role_name
-  if (roleName === '普通用户') return '/chat'
-  if (roleName === '编辑员') return '/knowledge-bases'
+  const role = resolveRoleCode(getUserInfo())
+  if (role === 'user') return '/chat'
   return '/dashboard'
 }
 
@@ -125,9 +125,9 @@ router.beforeEach((to, from, next) => {
   }
 
   if (to.meta.roles) {
-    const userRole = getUserInfo()?.role_name
+    const userRole = resolveRoleCode(getUserInfo())
     if (!userRole || !to.meta.roles.includes(userRole)) {
-      next('/chat')
+      next(redirectByRole())
       return
     }
   }

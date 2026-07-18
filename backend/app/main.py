@@ -1,5 +1,5 @@
 """
-FastAPI 入口（3号先注册 rag/chat；4号后续挂 CRUD 路由）
+FastAPI 入口
 启动：在 backend 目录执行
   uvicorn app.main:app --reload --port 8001
 """
@@ -8,19 +8,31 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app import config
 from app.api import (
-    chat, rag, auth, users, roles, kb, docs, models, user_groups, branding, dashboard
+    chat,
+    rag,
+    auth,
+    users,
+    roles,
+    kb,
+    docs,
+    models,
+    user_groups,
+    branding,
+    dashboard,
 )
+from app.utils.exceptions import BusinessException
 from app.utils.logger import logger, request_id_var, action_var
 
 app = FastAPI(title="智能 RAG 平台 API", version="1.0.0")
 
-# 开发期放行 Vite 默认 5173，以及多前端并行常用的 5174（LUO-F05）
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -34,32 +46,51 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(BusinessException)
+async def business_exception_handler(request: Request, exc: BusinessException):
+    return JSONResponse(
+        status_code=exc.http_status,
+        content={"code": exc.code, "msg": exc.msg, "data": None},
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    msg = exc.detail if isinstance(exc.detail, str) else "请求错误"
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"code": exc.status_code, "msg": msg, "data": None},
+    )
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     req_id = str(uuid.uuid4())
     request_id_var.set(req_id)
     action_var.set(f"{request.method} {request.url.path}")
-    
+
     start_time = time.time()
     response = await call_next(request)
     duration_ms = (time.time() - start_time) * 1000
-    
+
     logger.info(
         f"{request.method} {request.url.path} - {response.status_code}",
-        extra={
-            "duration_ms": round(duration_ms, 2),
-            "request_id": req_id
-        }
+        extra={"duration_ms": round(duration_ms, 2), "request_id": req_id},
     )
     return response
 
-# 挂载 Prometheus 监控
+
 Instrumentator().instrument(app).expose(app)
+
+# 白标与上传静态资源（相对 backend 工作目录）
+_uploads_root = Path("uploads").resolve()
+_uploads_root.mkdir(parents=True, exist_ok=True)
+(_uploads_root / "branding").mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_uploads_root)), name="uploads")
 
 app.include_router(rag.router, prefix="/api/rag")
 app.include_router(chat.router, prefix="/api/chat")
-
-# B 路由自带 /api 前缀，此处不再二次挂 prefix（避免双路径）
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(roles.router)
@@ -74,7 +105,6 @@ app.include_router(dashboard.router)
 @app.on_event("startup")
 async def startup():
     Path(config.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
-    # 与 ORM 对齐的建表 + 种子（替代旧版不一致的纯 SQL init_db）
     try:
         from app.db.seed import init_schema_and_seed
 

@@ -199,38 +199,61 @@ onMounted(() => {
 
 <style scoped>
 .kb-manage {
-  padding: 16px;
+  padding: 4px 0;
 }
 
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
 }
 
 .page-header h2 {
   margin: 0;
+  font-size: 24px;
   color: var(--text-color-primary);
 }
 
 .kb-card {
-  margin-bottom: 16px;
-  padding: 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
+  position: relative;
+  min-height: 178px;
+  margin-bottom: 18px;
+  padding: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-card);
   background: var(--bg-color-card);
   cursor: pointer;
-  transition: border-color 0.2s;
+  box-shadow: var(--shadow-card);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kb-card::after {
+  position: absolute;
+  right: -32px;
+  top: -32px;
+  width: 96px;
+  height: 96px;
+  content: '';
+  background: radial-gradient(circle, rgba(74, 122, 255, 0.16), rgba(74, 122, 255, 0));
+  pointer-events: none;
 }
 
 .kb-card:hover {
-  border-color: var(--color-primary);
+  transform: translateY(-3px);
+  border-color: var(--border-color-primary);
+  box-shadow: var(--shadow-card-hover);
 }
 
 .kb-card--active {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 1px var(--color-primary) inset;
+  box-shadow: 0 0 0 1px rgba(74, 122, 255, 0.16) inset, var(--shadow-card-hover);
 }
 
 .kb-card__title {
@@ -238,13 +261,14 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-color-primary);
 }
 
 .kb-card__desc {
   min-height: 40px;
-  margin: 10px 0;
+  margin: 14px 0;
   color: var(--text-color-regular);
   line-height: 1.5;
 }
@@ -252,14 +276,18 @@ onMounted(() => {
 .kb-card__meta {
   display: flex;
   justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
   font-size: 12px;
   color: var(--text-color-secondary);
+  background: #f8fbff;
+  border-radius: var(--radius-base);
 }
 
 .kb-card__actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 12px;
 }
 </style>

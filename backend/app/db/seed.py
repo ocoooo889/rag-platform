@@ -25,17 +25,31 @@ def init_schema_and_seed() -> None:
 
     Base.metadata.create_all(bind=sync_engine)
 
+    # 存量库补列（create_all 不会 ALTER）
+    try:
+        import sqlite3
+        from pathlib import Path
+        from app import config
+        from app.db.schema_compat import ensure_rag_schema
+
+        db_path = Path(__file__).resolve().parents[3] / config.LOCAL_DB_NAME
+        if db_path.exists():
+            conn = sqlite3.connect(str(db_path))
+            try:
+                ensure_rag_schema(conn)
+            finally:
+                conn.close()
+    except Exception as e:
+        logger.warning(f"schema_compat 跳过: {e}")
+
     db = SessionLocal()
     try:
-        admin_role = db.query(Role).filter(Role.name == "admin").first()
-        if not admin_role:
-            admin_role = Role(name="admin", permissions=["*"])
-            db.add(admin_role)
+        # 保底两级角色（英文码）；不新增「编辑员」
+        existing_roles = {r.name for r in db.query(Role).all()}
+        if "admin" not in existing_roles:
+            db.add(Role(name="admin", permissions=["*"]))
             db.commit()
-            db.refresh(admin_role)
-
-        user_role = db.query(Role).filter(Role.name == "user").first()
-        if not user_role:
+        if "user" not in existing_roles:
             db.add(
                 Role(
                     name="user",
@@ -43,6 +57,10 @@ def init_schema_and_seed() -> None:
                 )
             )
             db.commit()
+
+        admin_role = db.query(Role).filter(Role.name == "admin").first()
+        if not admin_role:
+            raise RuntimeError("admin 角色初始化失败")
 
         admin_user = db.query(User).filter(User.username == "admin").first()
         if not admin_user:
