@@ -1,8 +1,8 @@
 /**
  * 智能对话 Pinia Store（前端 B）
- * - P0：kb 范围 + SSE 流式（POST /api/chat/stream）
- * - [LUO-F03] 无会话 CRUD 时：load/create/messages/delete 失败则内存列表兜底，不阻断 stream
- * - session_id 可由后端 start 事件回传；resetState 登出清空
+ * - 左侧：每条用户提问对应一条历史
+ * - 对话区：累积展示全部历史问答
+ * - [LUO-F03] 无会话 CRUD 时本地兜底，不阻断 stream
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
@@ -17,6 +17,7 @@ import {
   isChatSessionApiEnabled
 } from '@/api/chat'
 import { MOCK_OPEN } from '@/mock/flag'
+import { mockMessagesBySession } from '@/mock/data'
 
 /** [LUO-F03] Mock 或显式开启会话 API 时才请求服务端历史 */
 function useRemoteSessions() {
@@ -34,7 +35,7 @@ export const useChatStore = defineStore('chat', () => {
   const streaming = ref(false)
   const loading = ref(false)
   const selectedKbId = ref(null)
-  /** 无后端历史接口时，按 session 缓存消息 */
+  /** 每条左侧历史对应一轮 [user, assistant] */
   const messageCache = ref({})
   let sseController = null
 
@@ -44,9 +45,45 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = false
   }
 
-  function cacheCurrentMessages() {
-    if (!currentSessionId.value) return
-    messageCache.value[String(currentSessionId.value)] = [...messages.value]
+  /** 兼容 Mock references / 后端 sources */
+  function normalizeMessages(list) {
+    return (Array.isArray(list) ? list : []).map((m) => ({
+      role: m.role || 'assistant',
+      content: m.content || '',
+      error: m.error || '',
+      sources: Array.isArray(m.sources)
+        ? m.sources
+        : Array.isArray(m.references)
+          ? m.references
+          : []
+    }))
+  }
+
+  function cacheTurn(turnId, userMsg, aiMsg) {
+    if (!turnId) return
+    const sid = String(turnId)
+    const pair = [userMsg, aiMsg]
+    messageCache.value[sid] = pair
+    if (MOCK_OPEN()) {
+      mockMessagesBySession[sid] = pair
+    }
+  }
+
+  /** 按左侧历史顺序拼出完整对话（旧→新） */
+  function rebuildAllHistory() {
+    const all = []
+    const ordered = [...sessions.value].reverse()
+    for (const s of ordered) {
+      const sid = String(s.session_id)
+      let cached = messageCache.value[sid]
+      if ((!cached || !cached.length) && MOCK_OPEN()) {
+        cached = mockMessagesBySession[sid]
+      }
+      if (cached?.length) {
+        all.push(...normalizeMessages(cached))
+      }
+    }
+    messages.value = all
   }
 
   function upsertSession(sessionId, title) {
@@ -55,6 +92,10 @@ export const useChatStore = defineStore('chat', () => {
     if (exists) {
       if (title) exists.title = title
       exists.updated_at = new Date().toISOString()
+      sessions.value = [
+        exists,
+        ...sessions.value.filter((s) => String(s.session_id) !== sid)
+      ]
       return
     }
     sessions.value.unshift({
@@ -65,16 +106,60 @@ export const useChatStore = defineStore('chat', () => {
     })
   }
 
+  async function ensureTurnSession(title) {
+    if (useRemoteSessions()) {
+      try {
+        const res = await createChatSession({
+          kb_id: selectedKbId.value,
+          title
+        })
+        const sessionId = String(res.data?.session_id || res.data?.id || '')
+        if (sessionId) {
+          upsertSession(sessionId, title)
+          return sessionId
+        }
+      } catch (e) {
+        // 回落本地
+      }
+    }
+    const tempId = localId()
+    upsertSession(tempId, title)
+    return tempId
+  }
+
   async function loadSessions() {
     loading.value = true
     try {
-      // [LUO-F03] 关 Mock 默认本地列表，不请求缺失的 sessions API
       if (!useRemoteSessions()) {
         return sessions.value
       }
       const res = await fetchChatSessions({ kb_id: selectedKbId.value })
       const data = res.data || {}
-      sessions.value = data.items || data.list || []
+      const remote = data.items || data.list || []
+      const remoteIds = new Set(remote.map((s) => String(s.session_id)))
+      const localOnly = sessions.value.filter(
+        (s) => !remoteIds.has(String(s.session_id))
+      )
+      sessions.value = [...localOnly, ...remote]
+
+      // 预取每条历史的消息，便于拼完整对话
+      for (const s of remote) {
+        const sid = String(s.session_id)
+        if (messageCache.value[sid]?.length) continue
+        try {
+          const msgRes = await fetchChatMessages(sid)
+          const msgData = msgRes.data || {}
+          const list = normalizeMessages(
+            msgData.items || msgData.list || msgData.messages || []
+          )
+          if (list.length) {
+            messageCache.value[sid] = list
+            if (MOCK_OPEN()) mockMessagesBySession[sid] = list
+          }
+        } catch (e) {
+          // 忽略单条失败
+        }
+      }
       return sessions.value
     } catch (e) {
       return sessions.value
@@ -83,57 +168,37 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function createSession(payload = {}) {
-    loading.value = true
-    try {
-      cacheCurrentMessages()
-      if (useRemoteSessions()) {
-        try {
-          const res = await createChatSession({
-            kb_id: selectedKbId.value,
-            ...payload
-          })
-          const sessionId = String(res.data?.session_id || res.data?.id || '')
-          if (sessionId) {
-            upsertSession(sessionId, '新会话')
-            await switchSession(sessionId)
-            return sessionId
-          }
-        } catch (e) {
-          // 回落本地占位
-        }
-      }
-      abortCurrentStream()
-      const tempId = localId()
-      upsertSession(tempId, '新会话')
-      currentSessionId.value = tempId
-      messages.value = []
-      messageCache.value[tempId] = []
-      return tempId
-    } finally {
-      loading.value = false
-    }
+  /** 开启新对话：清空主区，保留左侧历史列表 */
+  async function createSession() {
+    abortCurrentStream()
+    messages.value = []
+    currentSessionId.value = null
+    return null
   }
 
+  /** 点击左侧：选中该项，主区展示全部历史对话 */
   async function switchSession(sessionId) {
     abortCurrentStream()
-    cacheCurrentMessages()
     const sid = String(sessionId)
     currentSessionId.value = sid
     loading.value = true
     try {
-      if (useRemoteSessions()) {
+      if (!messageCache.value[sid]?.length && useRemoteSessions()) {
         try {
           const res = await fetchChatMessages(sid)
           const data = res.data || {}
-          messages.value = data.items || data.list || data.messages || []
-          messageCache.value[sid] = [...messages.value]
-          return
+          const list = normalizeMessages(
+            data.items || data.list || data.messages || []
+          )
+          if (list.length) {
+            messageCache.value[sid] = list
+            if (MOCK_OPEN()) mockMessagesBySession[sid] = list
+          }
         } catch (e) {
-          // 走内存缓存
+          // ignore
         }
       }
-      messages.value = [...(messageCache.value[sid] || [])]
+      rebuildAllHistory()
     } finally {
       loading.value = false
     }
@@ -152,50 +217,52 @@ export const useChatStore = defineStore('chat', () => {
       }
       sessions.value = sessions.value.filter((s) => String(s.session_id) !== sid)
       delete messageCache.value[sid]
+      if (MOCK_OPEN()) delete mockMessagesBySession[sid]
+
       if (currentSessionId.value === sid) {
-        abortCurrentStream()
-        currentSessionId.value = null
-        messages.value = []
+        currentSessionId.value = sessions.value[0]
+          ? String(sessions.value[0].session_id)
+          : null
       }
+      rebuildAllHistory()
     } finally {
       loading.value = false
     }
   }
 
   /**
-   * 发送问题并接收 SSE 流式回复
-   * 入参对齐契约：kb_id + query + session_id
+   * 发送问题：
+   * - 左侧新增一条历史（标题=问题）
+   * - 对话区追加本轮问答，保留已有历史
    */
   async function sendQuestion(question) {
     if (!selectedKbId.value) return
     const text = (question || '').trim()
     if (!text) return
 
-    // 无会话时自动建本地会话，session_id 可在 start 事件被后端替换
-    if (!currentSessionId.value) {
-      await createSession()
-    }
-
     abortCurrentStream()
 
-    messages.value.push({ role: 'user', content: text })
+    const title = text.slice(0, 20) || '新会话'
+    const turnId = await ensureTurnSession(title)
+    currentSessionId.value = turnId
+
+    const userMsg = { role: 'user', content: text }
     const aiMessage = { role: 'assistant', content: '', sources: [], error: '' }
-    messages.value.push(aiMessage)
-    cacheCurrentMessages()
+    messages.value.push(userMsg, aiMessage)
+    cacheTurn(turnId, userMsg, aiMessage)
 
     streaming.value = true
     sseController = createSSEController()
 
-    // 本地临时 id 不传给后端，由 SSE start 回填真实 session_id
-    const isLocalTemp = String(currentSessionId.value || '').startsWith('local-')
+    const isLocalTemp = String(turnId).startsWith('local-')
     const payload = {
       kb_id: selectedKbId.value,
       query: text,
       search_type: 'hybrid',
       top_n: 3
     }
-    if (currentSessionId.value && !isLocalTemp) {
-      payload.session_id = String(currentSessionId.value)
+    if (!isLocalTemp) {
+      payload.session_id = String(turnId)
     }
 
     await streamChat(payload, {
@@ -205,15 +272,19 @@ export const useChatStore = defineStore('chat', () => {
           const oldId = String(currentSessionId.value || '')
           const newId = String(event.session_id)
           if (oldId !== newId) {
-            const cached = messageCache.value[oldId] || messages.value
-            messageCache.value[newId] = [...cached]
+            const pair = messageCache.value[oldId] || [userMsg, aiMessage]
+            messageCache.value[newId] = pair
             delete messageCache.value[oldId]
+            if (MOCK_OPEN()) {
+              mockMessagesBySession[newId] = pair
+              delete mockMessagesBySession[oldId]
+            }
             const row = sessions.value.find((s) => String(s.session_id) === oldId)
             if (row) {
               row.session_id = newId
-              row.title = text.slice(0, 20) || row.title
+              row.title = title
             } else {
-              upsertSession(newId, text.slice(0, 20))
+              upsertSession(newId, title)
             }
             currentSessionId.value = newId
           }
@@ -223,7 +294,7 @@ export const useChatStore = defineStore('chat', () => {
         if (event.content) {
           aiMessage.content += event.content
         }
-        cacheCurrentMessages()
+        cacheTurn(currentSessionId.value, userMsg, aiMessage)
       },
       onDone: (event) => {
         if (event?.sources?.length) {
@@ -233,10 +304,10 @@ export const useChatStore = defineStore('chat', () => {
           aiMessage.content += event.content
         }
         if (!aiMessage.content) {
-          aiMessage.content = '当前知识库暂无相关内容，请更换问题或补充文档后重试。'
+          aiMessage.content =
+            '当前知识库暂无相关内容，请更换问题或补充文档后重试。'
         }
-        upsertSession(currentSessionId.value, text.slice(0, 20))
-        cacheCurrentMessages()
+        cacheTurn(currentSessionId.value, userMsg, aiMessage)
         streaming.value = false
         sseController = null
       },
@@ -252,7 +323,7 @@ export const useChatStore = defineStore('chat', () => {
         } else if (!aiMessage.content) {
           aiMessage.error = msg || '回答生成失败，请稍后重试'
         }
-        cacheCurrentMessages()
+        cacheTurn(currentSessionId.value, userMsg, aiMessage)
         streaming.value = false
         sseController = null
       }
@@ -283,6 +354,7 @@ export const useChatStore = defineStore('chat', () => {
     removeSession,
     sendQuestion,
     abortCurrentStream,
-    resetState
+    resetState,
+    rebuildAllHistory
   }
 })

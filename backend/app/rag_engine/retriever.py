@@ -2,16 +2,37 @@
 
 from __future__ import annotations
 
+import logging
+
 from rank_bm25 import BM25Okapi
 
 from app import config
 from app.rag_engine.embedder import query_similar
 from app.utils.llm_client import EmbeddingServiceError
 
+logger = logging.getLogger(__name__)
+
+# jieba 可选：未安装时回退按字切分，保证检索仍可用
+_jieba = None
+try:
+    import jieba  # type: ignore
+
+    _jieba = jieba
+except Exception as e:  # noqa: BLE001 — 缺依赖时降级即可
+    logger.warning("jieba 未可用，BM25 回退按字切分: %s", e)
+
 
 def _tokenize(text: str) -> list[str]:
-    return [c for c in text if not c.isspace()]
-
+    """中文优先 jieba 分词；失败或空结果时回退按字切分"""
+    raw = text or ""
+    if _jieba is not None:
+        try:
+            tokens = [t.strip() for t in _jieba.lcut(raw) if t and not t.isspace()]
+            if tokens:
+                return tokens
+        except Exception as e:  # noqa: BLE001
+            logger.warning("jieba 分词失败，回退按字: %s", e)
+    return [c for c in raw if not c.isspace()]
 
 def _bm25_search(
     query: str,
@@ -84,46 +105,53 @@ async def retrieve(
         except EmbeddingServiceError:
             return _bm25_search(query, texts, ids, source_docs, doc_ids)[:top_n]
 
-    # hybrid
+    # hybrid：向量 / BM25 各取候选集并集再融合，避免对全库 chunk 初始化打分表
     try:
-        vector_hits = await query_similar(query, top_n * 2, where=where)
+        cand_n = max(top_n * max(config.HYBRID_CANDIDATE_MUL, 1), top_n)
+        vector_hits = await query_similar(query, cand_n, where=where)
     except EmbeddingServiceError:
         return _bm25_search(query, texts, ids, source_docs, doc_ids)[:top_n]
 
-    keyword_hits = _bm25_search(query, texts, ids, source_docs, doc_ids)
+    keyword_hits = _bm25_search(query, texts, ids, source_docs, doc_ids)[:cand_n]
+    local = {cid: i for i, cid in enumerate(ids)}
 
     combined: dict[str, dict] = {}
-    for i, cid in enumerate(ids):
-        combined[cid] = {
-            "chunk_id": cid,
-            "content": texts[i],
-            "score": 0.0,
-            "source_doc": source_docs[i],
-            "doc_id": doc_ids[i],
-            "_v": 0.0,
-            "_k": 0.0,
-        }
 
-    for h in vector_hits:
-        cid = h["chunk_id"]
+    def _ensure(cid: str, *, content: str = "", source_doc: str = "", doc_id_val: str = "") -> dict:
         if cid not in combined:
+            i = local.get(cid)
             combined[cid] = {
                 "chunk_id": cid,
-                "content": h.get("content", ""),
+                "content": texts[i] if i is not None else content,
                 "score": 0.0,
-                "source_doc": h.get("source_doc", ""),
-                "doc_id": h.get("doc_id", "") or (doc_id or ""),
+                "source_doc": (source_docs[i] if i is not None else "") or source_doc,
+                "doc_id": (doc_ids[i] if i is not None else "") or doc_id_val or (doc_id or ""),
                 "_v": 0.0,
                 "_k": 0.0,
             }
-        combined[cid]["_v"] = float(h.get("score") or 0.0)
+        return combined[cid]
+
+    for h in vector_hits:
+        cid = h["chunk_id"]
+        item = _ensure(
+            cid,
+            content=h.get("content", ""),
+            source_doc=h.get("source_doc", ""),
+            doc_id_val=h.get("doc_id", "") or (doc_id or ""),
+        )
+        item["_v"] = float(h.get("score") or 0.0)
         if h.get("content"):
-            combined[cid]["content"] = h["content"]
+            item["content"] = h["content"]
 
     for h in keyword_hits:
         cid = h["chunk_id"]
-        if cid in combined:
-            combined[cid]["_k"] = float(h.get("score") or 0.0)
+        item = _ensure(
+            cid,
+            content=h.get("content", ""),
+            source_doc=h.get("source_doc", ""),
+            doc_id_val=h.get("doc_id", "") or (doc_id or ""),
+        )
+        item["_k"] = float(h.get("score") or 0.0)
 
     for item in combined.values():
         item["score"] = round(

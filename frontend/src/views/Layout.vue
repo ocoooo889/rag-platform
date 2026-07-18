@@ -2,6 +2,7 @@
   <el-container class="layout-container">
     <el-aside width="220px" class="aside">
       <div class="logo">
+
         <img
           v-if="brandingStore.brandLogoUrl && !logoBroken"
           :src="brandingStore.brandLogoUrl"
@@ -13,6 +14,14 @@
         <div class="logo-text">
           <span class="logo-title">{{ brandingStore.brandName }}</span>
           <span class="logo-subtitle">{{ brandingStore.brandName }}管理后台</span>
+
+        <div class="logo-icon" :style="{ backgroundColor: brandingStore.brandThemeColor }">
+          <img v-if="brandingStore.brandLogoUrl && brandingStore.brandLogoUrl !== '/uploads/branding/logo.png'" :src="brandingStore.brandLogoUrl" alt="Logo" />
+        </div>
+        <div class="logo-text">
+          <span class="logo-title">{{ brandingStore.brandName }}</span>
+          <span class="logo-subtitle">RAG管理后台</span>
+
         </div>
       </div>
       <el-menu :default-active="activeMenu" class="menu" router>
@@ -36,10 +45,11 @@
           <el-icon><Monitor /></el-icon>
           <span>大模型管理</span>
         </el-menu-item>
-        <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
+        <!-- 品牌配置页面暂不显示，后续需要时取消注释 -->
+        <!-- <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
           <el-icon><Setting /></el-icon>
           <span>品牌配置</span>
-        </el-menu-item>
+        </el-menu-item> -->
         <el-menu-item v-if="canSeeMenu('/knowledge-bases')" index="/knowledge-bases">
           <el-icon><Folder /></el-icon>
           <span>知识库管理</span>
@@ -62,8 +72,12 @@
     <el-container>
       <el-header class="header">
         <div class="header-left">
+
           <span class="header-title">{{ brandingStore.brandName }}管理后台</span>
           <span class="header-subtitle">企业知识库检索与智能问答系统</span>
+
+          <span>{{ brandingStore.brandName }}</span>
+
         </div>
         <div class="header-right">
           <span class="user-chip">{{ displayRole }}</span>
@@ -79,11 +93,18 @@
 </template>
 
 <script setup>
+
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useBrandingStore } from '@/stores/branding'
 import { isAdminRole, resolveRoleCode, roleCodeToLabel } from '@/utils/role'
+
+import { computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { useUserStore } from '@/stores/user'
+import { useBrandingStore } from '@/stores/branding'
+
 import {
   HomeFilled,
   UserFilled,
@@ -99,7 +120,14 @@ import {
 const router = useRouter()
 const userStore = useUserStore()
 const brandingStore = useBrandingStore()
+
 const logoBroken = ref(false)
+
+
+onMounted(() => {
+  brandingStore.fetchBranding()
+})
+
 
 const activeMenu = computed(() => router.currentRoute.value.path)
 const displayRole = computed(() => {
@@ -195,6 +223,7 @@ const handleLogout = () => {
   background: #fff;
 }
 .logo-icon {
+
   position: relative;
   width: 38px;
   height: 38px;
@@ -218,6 +247,21 @@ const handleLogout = () => {
 }
 .logo-icon::after {
   top: 21px;
+
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  margin-right: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.logo-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+
 }
 .logo-text {
   display: flex;

@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator
 
 from app import config
 from app.rag_engine.generator import generate_answer, generate_answer_stream
+from app.rag_engine.query_rewrite import rewrite_query_for_retrieve
 from app.rag_engine.retriever import retrieve
 from app.utils.langfuse_tracer import flush, safe_end, start_trace
 
@@ -113,12 +114,37 @@ class RAGPipeline:
             request_id=request_id,
         )
 
-        # 阶段 1：检索
-        retrieval_span = trace.span(name="retrieval", input={"query": query})
+        # 阶段 0：多轮 Query Rewrite（仅影响检索；生成仍用用户原问）
+        retrieve_query = query
+        rewrite_span = trace.span(
+            name="query_rewrite",
+            input={"query": query, "has_history": bool((chat_history or "").strip())},
+        )
+        t_rw = time.perf_counter()
+        try:
+            retrieve_query = await rewrite_query_for_retrieve(query, chat_history)
+        except Exception as e:
+            logger.warning("Query Rewrite 外层异常，使用原句检索: %s", e)
+            retrieve_query = query
+        rewrite_ms = round((time.perf_counter() - t_rw) * 1000, 2)
+        safe_end(
+            rewrite_span,
+            output={
+                "retrieve_query": retrieve_query,
+                "rewritten": retrieve_query != query,
+                "elapsed_ms": rewrite_ms,
+            },
+        )
+
+        # 阶段 1：检索（使用改写后的问句）
+        retrieval_span = trace.span(
+            name="retrieval",
+            input={"query": retrieve_query, "user_query": query},
+        )
         t0 = time.perf_counter()
         try:
             hits = await retrieve(
-                query,
+                retrieve_query,
                 texts,
                 ids,
                 search_type,
@@ -137,14 +163,20 @@ class RAGPipeline:
                 "hits_count": len(hits),
                 "scores": [h.get("score") for h in hits[:5]],
                 "elapsed_ms": retrieve_ms,
+                "retrieve_query": retrieve_query,
             },
         )
 
-        # 阶段 2：LLM 生成
+        # 阶段 2：LLM 生成（始终回答用户原始 query）
         generation = trace.generation(
             name="llm_response",
             model=config.LLM_MODEL,
-            input={"query": query, "context": hits, "chat_history": chat_history or "（无历史）"},
+            input={
+                "query": query,
+                "retrieve_query": retrieve_query,
+                "context": hits,
+                "chat_history": chat_history or "（无历史）",
+            },
         )
 
         if stream:

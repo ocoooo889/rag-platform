@@ -33,6 +33,7 @@ export default defineConfig(({ mode }) => {
       }
     },
     server: {
+      host: '127.0.0.1',
       port: devPort,
       // 允许 CLI：npm run dev -- --port 5174
       strictPort: false,
