@@ -7,6 +7,20 @@ import sqlite3
 
 def ensure_rag_schema(conn: sqlite3.Connection) -> None:
     """确保 ingest / chat 依赖的 chunks 字段与 conversations 表存在。"""
+    user_rows = conn.execute("PRAGMA table_info(users)").fetchall()
+    if user_rows:
+        user_names = {r[1] for r in user_rows}
+        if "avatar_url" not in user_names:
+            conn.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT")
+            conn.commit()
+
+    doc_rows = conn.execute("PRAGMA table_info(documents)").fetchall()
+    if doc_rows:
+        doc_names = {r[1] for r in doc_rows}
+        if "error_message" not in doc_names:
+            conn.execute("ALTER TABLE documents ADD COLUMN error_message TEXT")
+            conn.commit()
+
     rows = conn.execute("PRAGMA table_info(chunks)").fetchall()
     if rows:
         names = {r[1] for r in rows}
@@ -36,6 +50,25 @@ def ensure_rag_schema(conn: sqlite3.Connection) -> None:
             CREATE INDEX IF NOT EXISTS idx_conv_session_id ON conversations(session_id);
             CREATE INDEX IF NOT EXISTS idx_conv_session_created
                 ON conversations(session_id, created_at);
+            """
+        )
+        conn.commit()
+
+    # 会话偏好：自定义标题 / 置顶（与 conversations 解耦）
+    has_prefs = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='chat_session_prefs'"
+    ).fetchone()
+    if not has_prefs:
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS chat_session_prefs (
+                session_id  TEXT PRIMARY KEY,
+                title       TEXT,
+                pinned      INTEGER NOT NULL DEFAULT 0,
+                updated_at  TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_chat_session_prefs_pinned
+                ON chat_session_prefs(pinned);
             """
         )
         conn.commit()

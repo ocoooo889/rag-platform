@@ -43,20 +43,20 @@ def seed_kb_and_doc(md_path: Path) -> tuple[str, str]:
     cur = conn.cursor()
     cur.execute(
         """
-        INSERT OR REPLACE INTO knowledge_bases (id, name, description, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO knowledge_bases (id, name, description, created_at)
+        VALUES (?, ?, ?, ?)
         """,
-        (kb_id, "演示知识库", "3号自测用", "u001", _now()),
+        (kb_id, "演示知识库", "3号自测用", _now()),
     )
     cur.execute(
         """
         INSERT OR REPLACE INTO documents
-        (id, kb_id, filename, file_type, file_size, file_path, status, chunk_count, uploaded_by, uploaded_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, kb_id, filename, file_type, file_size, status, chunk_count, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             doc_id, kb_id, md_path.name, "md", md_path.stat().st_size,
-            str(md_path), "pending", 0, "u001", _now(),
+            "pending", 0, _now(),
         ),
     )
     conn.commit()
@@ -86,6 +86,8 @@ async def main():
         print(f"[2] 入库成功，切片数={n}")
     except Exception as e:
         print(f"[2] 入库失败: {e}")
+        import traceback
+        traceback.print_exc()
         print("    若提示 Chroma/Embedding：请先启动 chroma，并在 .env 填真实 OPENAI_API_KEY")
         return
 

@@ -1,0 +1,72 @@
+{
+  "description": "加压 8 问 — 测同义、跨段、指代、不存在（验收后调优用）",
+  "cases": [
+    {
+      "id": "S01",
+      "doc_key": "attendance",
+      "query": "带薪休假天数怎么算？",
+      "keywords": ["年假", "5", "10", "15", "天"],
+      "search_types": ["keyword", "hybrid"],
+      "note": "同义改写，不直接说「年假」"
+    },
+    {
+      "id": "S02",
+      "doc_key": "attendance",
+      "query": "年假能留到明年用吗？",
+      "keywords": ["12月31", "结转", "不得", "使用完毕"],
+      "search_types": ["hybrid"],
+      "note": "边界/否定问法"
+    },
+    {
+      "id": "S03",
+      "doc_key": "travel",
+      "query": "普通员工住酒店一晚最多报多少？",
+      "keywords": ["500", "住宿", "普通"],
+      "search_types": ["hybrid"],
+      "note": "口语化，不直接说北京"
+    },
+    {
+      "id": "S04",
+      "doc_key": "rag_arch",
+      "query": "向量搜不到的时候系统会怎么办？",
+      "keywords": ["降级", "BM25", "关键词", "全文"],
+      "search_types": ["hybrid"],
+      "note": "同义问 Q10"
+    },
+    {
+      "id": "S05",
+      "doc_key": "attendance",
+      "query": "公司有没有关于生育假的说明？",
+      "keywords": [],
+      "search_types": ["hybrid"],
+      "note": "文档可能无此内容；期望 hits 空或无关，勿胡编",
+      "expect_empty_or_irrelevant": true
+    },
+    {
+      "id": "S06",
+      "doc_key": "attendance",
+      "query": "那怎么申请？",
+      "keywords": ["申请", "审批", "年假"],
+      "search_types": ["hybrid"],
+      "note": "需多轮：先问 Q01 再问本句；脚本单轮可能 FAIL，留作 step1 改写验证",
+      "multi_turn": true,
+      "prior_query": "公司年假有几天？"
+    },
+    {
+      "id": "S07",
+      "doc_key": "travel",
+      "query": "总监去北京住宿上限是多少？",
+      "keywords": ["1000", "总监", "住宿"],
+      "search_types": ["hybrid"],
+      "note": "精确职级+城市"
+    },
+    {
+      "id": "S08",
+      "doc_key": "rag_arch",
+      "query": "切片大小和重叠是多少？",
+      "keywords": ["500", "50", "chunk", "重叠"],
+      "search_types": ["keyword", "hybrid"],
+      "note": "架构文档数值检索"
+    }
+  ]
+}

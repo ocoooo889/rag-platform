@@ -47,8 +47,18 @@ LLM_MAX_RETRIES = 1
 # ============================================================
 HYBRID_ALPHA = 0.7  # 向量权重 0.7
 BM25_WEIGHT = 0.3   # 全文权重 0.3（= 1 - HYBRID_ALPHA）
+# hybrid 融合候选倍数：向量与 BM25 各取 top_n * 该值，再并集融合（默认 5）
+HYBRID_CANDIDATE_MUL = int(os.getenv("HYBRID_CANDIDATE_MUL", "5"))
 DEFAULT_TOP_N = 3
 MAX_TOP_N = 10
+
+# 多轮对话：检索前是否做 Query Rewrite（失败自动回退原句）
+ENABLE_QUERY_REWRITE = os.getenv("ENABLE_QUERY_REWRITE", "true").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
 
 # ============================================================
 # 环境隔离 · 个人标识
@@ -73,16 +83,33 @@ CHROMA_COLLECTION_NAME = f"rag_chunks_{CHROMA_COLLECTION_SUFFIX}"
 # ============================================================
 # LLM / Embedding API（支持从系统环境变量 DASHSCOPE_API_KEY 回退）
 # ============================================================
-OPENAI_API_KEY = (
+def _clean_secret(value: str | None) -> str:
+    """去掉首尾空白与成对引号，避免 .env 写成 KEY=\"xxx\" 导致鉴权失败。"""
+    text = (value or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1].strip()
+    return text
+
+
+OPENAI_API_KEY = _clean_secret(
     os.getenv("OPENAI_API_KEY")
     or os.getenv("DASHSCOPE_API_KEY")
     or os.getenv("LLM_API_KEY")
     or ""
 )
 _default_base = "https://api.openai.com/v1"
-if (os.getenv("DASHSCOPE_API_KEY") or "").strip() and not os.getenv("OPENAI_BASE_URL"):
+_has_dashscope = bool(_clean_secret(os.getenv("DASHSCOPE_API_KEY"))) or (
+    "dashscope" in (os.getenv("OPENAI_BASE_URL") or "").lower()
+)
+if _has_dashscope and not os.getenv("OPENAI_BASE_URL"):
     _default_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", _default_base)
+# 百炼兼容模式下若未显式指定，默认百炼模型（避免落到 gpt-4o-mini）
+if "dashscope" in (OPENAI_BASE_URL or "").lower():
+    if not os.getenv("EMBEDDING_MODEL"):
+        EMBEDDING_MODEL = "text-embedding-v4"
+    if not os.getenv("LLM_MODEL"):
+        LLM_MODEL = "qwen-plus"
 
 # ============================================================
 # JWT 鉴权

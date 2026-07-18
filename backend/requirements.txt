@@ -10,8 +10,12 @@ httpx>=0.25.0
 openai>=1.6.0
 chromadb>=0.4.22
 rank-bm25>=0.2.2
+jieba>=0.42.1
 langchain-text-splitters>=0.0.1
 pyjwt>=2.8.0
 passlib[bcrypt]>=1.7.4
 # --- V2：Langfuse LLM 可观测（后端 A）---
 langfuse>=2.0.0,<3.0.0
+# --- 监控与日志 ---
+prometheus-fastapi-instrumentator>=6.1.0
+loguru>=0.7.2

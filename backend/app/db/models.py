@@ -17,6 +17,7 @@ class User(Base):
     username = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     display_name = Column(String)
+    avatar_url = Column(String, nullable=True)  # 用户自定义头像
     role_id = Column(Integer, ForeignKey("roles.id"))
     status = Column(String, default="启用") # 启用 / 已停用
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -65,6 +66,16 @@ class KbGroupAccess(Base):
     
     __table_args__ = (UniqueConstraint("kb_id", "group_id", name="uq_kb_group"),)
 
+class UserKbAccess(Base):
+    """用户直接授权可访问的知识库（与用户组授权并存）"""
+    __tablename__ = "user_kb_access"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kb_id = Column(String(50), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (UniqueConstraint("user_id", "kb_id", name="uq_user_kb"),)
+
 class Document(Base):
     __tablename__ = "documents"
     id = Column(String(50), primary_key=True, index=True)
@@ -74,20 +85,37 @@ class Document(Base):
     file_size = Column(Integer)
     status = Column(String, default="pending") # pending, processing, completed, failed
     chunk_count = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     knowledge_base = relationship("KnowledgeBase", back_populates="documents")
     chunks = relationship("Chunk", back_populates="document", cascade="all, delete-orphan")
 
 class Chunk(Base):
+    """分片元数据（与契约 / ingest 字段对齐）"""
     __tablename__ = "chunks"
     id = Column(String(50), primary_key=True, index=True)
     doc_id = Column(String(50), ForeignKey("documents.id", ondelete="CASCADE"))
-    kb_id = Column(String(50), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=True)
-    content = Column(Text)
-    chroma_id = Column(String, index=True)
-    
+    kb_id = Column(String(50), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False)
+    chunk_index = Column(Integer, nullable=False, default=0)
+    content = Column(Text, nullable=False)
+    chroma_id = Column(String, nullable=False, unique=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
     document = relationship("Document", back_populates="chunks")
+
+
+class Conversation(Base):
+    """对话历史（3号 chat 写入）"""
+    __tablename__ = "conversations"
+    id = Column(String(50), primary_key=True, index=True)
+    session_id = Column(String(100), nullable=False, index=True)
+    kb_id = Column(String(50), ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=True)
+    role = Column(String(20), nullable=False)
+    content = Column(Text, nullable=False)
+    references_json = Column("references", Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
 class LLMConfig(Base):
     __tablename__ = "model_configs"

@@ -1,18 +1,24 @@
 """
 文档入库：切片 → 向量化 → 写 SQLite chunks + Chroma
-供 4号上传后调用，也可自测脚本直接调用
+Embedding 不可用时降级：仍写 SQLite 切片，检索侧走关键词（BM25）。
 """
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
 from app import config
 from app.rag_engine.embedder import delete_from_chroma, embed_and_store
-from app.rag_engine.splitter import split_file, split_text
+from app.rag_engine.splitter import split_file
 from app.utils.ids import new_id
+from app.utils.llm_client import EmbeddingServiceError
+
+logger = logging.getLogger(__name__)
+
+VECTOR_DEGRADED_MSG = "向量模型暂不可用，已切换关键词检索"
 
 
 def _db_path() -> str:
@@ -24,6 +30,18 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def _friendly_error(exc: Exception) -> str:
+    text = str(exc) or exc.__class__.__name__
+    low = text.lower()
+    if "invalid_api_key" in low or "incorrect api key" in low or "401" in low:
+        return "向量化失败：API Key 无效，请检查 .env 中的 OPENAI_API_KEY / DASHSCOPE_API_KEY"
+    if isinstance(exc, EmbeddingServiceError) or VECTOR_DEGRADED_MSG in text:
+        return VECTOR_DEGRADED_MSG
+    if "embedding" in low or "embed" in low:
+        return f"向量化失败：{text[:200]}"
+    return f"文档处理失败：{text[:200]}"
+
+
 async def ingest_document(
     kb_id: str,
     doc_id: str,
@@ -32,16 +50,25 @@ async def ingest_document(
 ) -> int:
     """
     对已存在于 documents 表中的文档做切片入库。
-    返回切片数量。
+    Embedding 失败时降级为仅 SQLite 切片（关键词检索可用），status=completed。
+    切片本身失败时才标记 failed。
     """
     path = Path(file_path)
     if not path.exists():
-        raise FileNotFoundError(f"文件不存在: {file_path}")
+        _mark_failed(doc_id, f"文件不存在: {file_path}")
+        return 0
 
     filename = filename or path.name
-    texts = split_file(str(path))
+    try:
+        texts = split_file(str(path))
+    except Exception as e:
+        _mark_failed(doc_id, _friendly_error(e))
+        logger.exception("切片失败 doc_id=%s", doc_id)
+        return 0
+
     if not texts:
-        raise ValueError("切片结果为空，请检查文档内容")
+        _mark_failed(doc_id, "切片结果为空，请检查文档内容")
+        return 0
 
     conn = sqlite3.connect(_db_path())
     cur = conn.cursor()
@@ -50,27 +77,27 @@ async def ingest_document(
 
         ensure_rag_schema(conn)
         cur.execute(
-            "UPDATE documents SET status=?, chunk_count=? WHERE id=?",
-            ("processing", 0, doc_id),
+            "UPDATE documents SET status=?, chunk_count=?, error_message=? WHERE id=?",
+            ("processing", 0, None, doc_id),
         )
         conn.commit()
 
-        # 清掉旧分片（重新入库场景）
         old = cur.execute(
             "SELECT chroma_id FROM chunks WHERE doc_id=?", (doc_id,)
         ).fetchall()
         if old:
-            await delete_from_chroma([r[0] for r in old])
+            try:
+                await delete_from_chroma([r[0] for r in old])
+            except Exception as e:
+                logger.warning("清理旧向量忽略: %s", e)
             cur.execute("DELETE FROM chunks WHERE doc_id=?", (doc_id,))
             conn.commit()
 
-        chunk_ids = []
         chroma_ids = []
         metadatas = []
         rows = []
         for i, content in enumerate(texts):
             cid = new_id("c")
-            chunk_ids.append(cid)
             chroma_ids.append(cid)
             metadatas.append({
                 "doc_id": str(doc_id),
@@ -79,7 +106,16 @@ async def ingest_document(
             })
             rows.append((cid, doc_id, kb_id, i, content, cid, _now()))
 
-        await embed_and_store(texts, chroma_ids, metadatas=metadatas)
+        warn_msg = None
+        try:
+            await embed_and_store(texts, chroma_ids, metadatas=metadatas)
+        except EmbeddingServiceError as e:
+            warn_msg = VECTOR_DEGRADED_MSG
+            logger.warning("Embedding 不可用，降级仅写切片 doc_id=%s: %s", doc_id, e)
+        except Exception as e:
+            # Chroma / 网络等异常：同样降级写本地切片，保证文档可用
+            warn_msg = _friendly_error(e) if "invalid_api_key" in str(e).lower() else VECTOR_DEGRADED_MSG
+            logger.warning("向量写入失败，降级仅写切片 doc_id=%s: %s", doc_id, e)
 
         cur.executemany(
             """
@@ -89,18 +125,38 @@ async def ingest_document(
             rows,
         )
         cur.execute(
-            "UPDATE documents SET status=?, chunk_count=? WHERE id=?",
-            ("completed", len(texts), doc_id),
+            "UPDATE documents SET status=?, chunk_count=?, error_message=? WHERE id=?",
+            ("completed", len(texts), warn_msg, doc_id),
         )
         conn.commit()
         return len(texts)
-    except Exception:
-        cur.execute(
-            "UPDATE documents SET status=? WHERE id=?",
-            ("failed", doc_id),
+    except Exception as e:
+        msg = _friendly_error(e)
+        try:
+            cur.execute(
+                "UPDATE documents SET status=?, error_message=? WHERE id=?",
+                ("failed", msg, doc_id),
+            )
+            conn.commit()
+        except Exception:
+            logger.exception("写入失败状态异常 doc_id=%s", doc_id)
+        logger.exception("入库失败 doc_id=%s: %s", doc_id, msg)
+        return 0
+    finally:
+        conn.close()
+
+
+def _mark_failed(doc_id: str, message: str) -> None:
+    conn = sqlite3.connect(_db_path())
+    try:
+        from app.db.schema_compat import ensure_rag_schema
+
+        ensure_rag_schema(conn)
+        conn.execute(
+            "UPDATE documents SET status=?, error_message=? WHERE id=?",
+            ("failed", message, doc_id),
         )
         conn.commit()
-        raise
     finally:
         conn.close()
 
@@ -112,8 +168,6 @@ async def ingest_text_for_dev(
     filename: str = "dev.md",
 ) -> int:
     """开发自测：不经过上传，直接对文本切片入库（需 documents 行已存在）"""
-    texts = split_text(text)
-    # 写临时文件再走统一逻辑更简单：直接内联
     from tempfile import NamedTemporaryFile
 
     with NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:

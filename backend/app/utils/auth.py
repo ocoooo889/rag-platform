@@ -4,14 +4,14 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 import bcrypt
 
 from app.db.database import get_db
 from app.db.models import User
 
 # JWT 配置项，从环境变量读取，带兜底值
-SECRET_KEY = os.getenv("SECRET_KEY", "your_secret_key_here")
+SECRET_KEY = os.getenv("JWT_SECRET", "rag-platform-secret-key-change-in-production")
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
@@ -54,7 +54,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     except jwt.PyJWTError:
         raise credentials_exception
     
-    user = db.query(User).filter(User.username == username).first()
+    user = (
+        db.query(User)
+        .options(joinedload(User.role))
+        .filter(User.username == username)
+        .first()
+    )
     if user is None:
         raise credentials_exception
     if user.status != "启用":

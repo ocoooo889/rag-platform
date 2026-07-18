@@ -4,7 +4,10 @@ import Login from '@/views/Login.vue'
 import Dashboard from '@/views/Dashboard.vue'
 import RoleManage from '@/views/RoleManage.vue'
 import UserManage from '@/views/UserManage.vue'
+import UserGroupManage from '@/views/UserGroupManage.vue'
 import ModelManage from '@/views/ModelManage.vue'
+import BrandingConfig from '@/views/BrandingConfig.vue'
+import { resolveRoleCode } from '@/utils/role'
 
 const routes = [
   { path: '/login', name: 'Login', component: Login },
@@ -14,37 +17,102 @@ const routes = [
     component: Layout,
     redirect: '/dashboard',
     children: [
-      { path: 'dashboard', name: 'Dashboard', component: Dashboard, meta: { roles: ['管理员', '编辑员'] } },
-      { path: 'roles', name: 'Roles', component: RoleManage, meta: { roles: ['管理员'] } },
-      { path: 'users', name: 'Users', component: UserManage, meta: { roles: ['管理员'] } },
-      { path: 'models', name: 'Models', component: ModelManage, meta: { roles: ['管理员'] } },
-      { path: 'knowledge-bases', name: 'KnowledgeBases', component: () => import('@/views/KbManage.vue'), meta: { roles: ['管理员', '编辑员'] } },
-      { path: 'hit-test', name: 'HitTest', component: () => import('@/views/HitTest.vue'), meta: { roles: ['管理员', '编辑员'] } },
-      { path: 'chat', name: 'Chat', component: () => import('@/views/ChatDialog.vue'), meta: { roles: ['管理员', '编辑员', '普通用户'] } },
-    ],
+      {
+        path: 'dashboard',
+        name: 'Dashboard',
+        component: Dashboard,
+        meta: { roles: ['admin'] }
+      },
+      {
+        path: 'roles',
+        name: 'Roles',
+        component: RoleManage,
+        meta: { roles: ['admin'] }
+      },
+      {
+        path: 'users',
+        name: 'Users',
+        component: UserManage,
+        meta: { roles: ['admin'] }
+      },
+      {
+        path: 'user-groups',
+        name: 'UserGroups',
+        component: UserGroupManage,
+        meta: { roles: ['admin'] }
+      },
+      {
+        path: 'models',
+        name: 'Models',
+        component: ModelManage,
+        meta: { roles: ['admin'] }
+      },
+      {
+        path: 'branding',
+        name: 'Branding',
+        component: BrandingConfig,
+        meta: { roles: ['admin'] }
+      },
+      {
+        path: 'knowledge-bases',
+        name: 'KnowledgeBases',
+        component: () => import('@/views/KbManage.vue'),
+        meta: { roles: ['admin', 'user'] }
+      },
+      {
+        path: 'documents',
+        name: 'Documents',
+        component: () => import('@/views/DocManage.vue'),
+        meta: { roles: ['admin', 'user'] }
+      },
+      {
+        path: 'hit-test',
+        name: 'HitTest',
+        component: () => import('@/views/HitTest.vue'),
+        meta: { roles: ['admin', 'user'] }
+      },
+      {
+        path: 'chat',
+        name: 'ChatDialog',
+        component: () => import('@/views/ChatDialog.vue'),
+        meta: { roles: ['admin', 'user'] }
+      }
+    ]
   },
+  { path: '/kb', redirect: '/knowledge-bases' },
+  { path: '/doc', redirect: '/documents' }
 ]
 
 const router = createRouter({
   history: createWebHistory(),
-  routes,
+  routes
 })
 
+function getToken() {
+  return localStorage.getItem('token') || localStorage.getItem('rag_token')
+}
+
+function getUserInfo() {
+  const raw = localStorage.getItem('userInfo') || localStorage.getItem('rag_user')
+  try {
+    return raw ? JSON.parse(raw) : null
+  } catch (e) {
+    return null
+  }
+}
+
+function redirectByRole() {
+  const role = resolveRoleCode(getUserInfo())
+  if (role === 'user') return '/chat'
+  return '/dashboard'
+}
+
 router.beforeEach((to, from, next) => {
-  const token = localStorage.getItem('token')
+  const token = getToken()
 
   if (to.path === '/login') {
     if (token) {
-      const userInfoStr = localStorage.getItem('userInfo')
-      const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null
-      const roleName = userInfo?.role_name
-      let redirectPath = '/dashboard'
-      if (roleName === '普通用户') {
-        redirectPath = '/chat'
-      } else if (roleName === '编辑员') {
-        redirectPath = '/knowledge-bases'
-      }
-      next(redirectPath)
+      next(redirectByRole())
       return
     }
     next()
@@ -57,11 +125,9 @@ router.beforeEach((to, from, next) => {
   }
 
   if (to.meta.roles) {
-    const userInfoStr = localStorage.getItem('userInfo')
-    const userInfo = userInfoStr ? JSON.parse(userInfoStr) : null
-    const userRole = userInfo?.role_name
+    const userRole = resolveRoleCode(getUserInfo())
     if (!userRole || !to.meta.roles.includes(userRole)) {
-      next('/chat')
+      next(redirectByRole())
       return
     }
   }

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing import Optional, List
 
 # 角色相关
@@ -41,12 +41,14 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: str
+    kb_ids: Optional[List[str]] = None  # 可直接授权访问的知识库
 
 class UserUpdate(BaseModel):
     display_name: Optional[str] = None
     status: Optional[str] = None
     role_id: Optional[int] = None
     group_ids: Optional[List[int]] = None # V2 支持更新所属用户组
+    kb_ids: Optional[List[str]] = None  # 用户直接授权的知识库（全量覆盖）
 
 # 知识库相关
 class KnowledgeBaseBase(BaseModel):
@@ -67,6 +69,7 @@ class LLMConfigBase(BaseModel):
     api_base_url: str
     dimension: Optional[int] = None
     is_active: bool = True
+    model_config = ConfigDict(protected_namespaces=())
 
 class LLMConfigCreate(LLMConfigBase):
     pass
@@ -77,3 +80,4 @@ class LLMConfigUpdate(BaseModel):
     api_base_url: Optional[str] = None
     dimension: Optional[int] = None
     is_active: Optional[bool] = None
+    model_config = ConfigDict(protected_namespaces=())

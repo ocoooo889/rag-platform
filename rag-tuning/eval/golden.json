@@ -1,0 +1,75 @@
+{
+  "description": "黄金 10 问 — 来自 demo-materials/标准测试问题集.md",
+  "cases": [
+    {
+      "id": "Q01",
+      "doc_key": "attendance",
+      "query": "公司年假有几天？",
+      "keywords": ["5", "10", "15", "年假", "天"],
+      "search_types": ["keyword", "vector", "hybrid"]
+    },
+    {
+      "id": "Q02",
+      "doc_key": "attendance",
+      "query": "怎么申请年假？",
+      "keywords": ["申请", "审批", "工作日", "上级"],
+      "search_types": ["hybrid"]
+    },
+    {
+      "id": "Q03",
+      "doc_key": "attendance",
+      "query": "迟到会有什么处罚？",
+      "keywords": ["迟到", "警告", "事假", "60"],
+      "search_types": ["keyword", "vector"]
+    },
+    {
+      "id": "Q04",
+      "doc_key": "attendance",
+      "query": "事假和年假有什么区别？",
+      "keywords": ["事假", "年假", "薪", "工资"],
+      "search_types": ["hybrid"]
+    },
+    {
+      "id": "Q05",
+      "doc_key": "travel",
+      "query": "去北京出差，住宿标准是多少？",
+      "keywords": ["500", "700", "1000", "住宿", "一线"],
+      "search_types": ["vector", "hybrid"]
+    },
+    {
+      "id": "Q06",
+      "doc_key": "travel",
+      "query": "出差坐飞机有什么规定？",
+      "keywords": ["经济舱", "公务舱", "800", "飞机"],
+      "search_types": ["keyword"]
+    },
+    {
+      "id": "Q07",
+      "doc_key": "travel",
+      "query": "报销需要哪些材料？",
+      "keywords": ["发票", "行程单", "报销", "材料"],
+      "search_types": ["hybrid"]
+    },
+    {
+      "id": "Q08",
+      "doc_key": "rag_arch",
+      "query": "系统支持哪几种检索方式？",
+      "keywords": ["向量", "BM25", "混合", "检索"],
+      "search_types": ["keyword"]
+    },
+    {
+      "id": "Q09",
+      "doc_key": "rag_arch",
+      "query": "混合检索的融合公式是什么？",
+      "keywords": ["0.7", "alpha", "vector", "bm25", "融合"],
+      "search_types": ["vector", "hybrid"]
+    },
+    {
+      "id": "Q10",
+      "doc_key": "rag_arch",
+      "query": "Embedding API 失效了怎么办？",
+      "keywords": ["降级", "BM25", "全文", "关键词"],
+      "search_types": ["hybrid"]
+    }
+  ]
+}

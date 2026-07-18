@@ -1,9 +1,10 @@
 <template>
-  <div class="model-manage">
+  <div class="model-manage page-shell">
     <div class="page-header">
       <h2>大模型管理</h2>
       <el-button type="primary" @click="openAddDialog">新增模型配置</el-button>
     </div>
+    <div class="page-body">
     <el-table :data="modelList" border>
       <el-table-column prop="id" label="ID" width="60" />
       <el-table-column prop="model_type" label="模型类型" :formatter="formatType" />
@@ -19,8 +20,8 @@
       </el-table-column>
       <el-table-column label="操作">
         <template #default="scope">
-          <el-button type="text" @click="openEditDialog(scope.row)">编辑</el-button>
-          <el-button type="text" danger @click="handleDelete(scope.row)">删除</el-button>
+          <el-button text @click="openEditDialog(scope.row)">编辑</el-button>
+          <el-button text type="danger" @click="handleDelete(scope.row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -40,7 +41,23 @@
           <el-input v-model="form.api_base_url" placeholder="请输入API地址" />
         </el-form-item>
         <el-form-item prop="dimension" label="向量维度">
-          <el-input-number v-model="form.dimension" :min="0" placeholder="向量维度" />
+          <div class="dimension-field">
+            <el-select
+              v-model="form.dimension"
+              class="dimension-select"
+              placeholder="请选择标准维度"
+              style="width: 200px"
+              popper-class="dimension-select-dropdown"
+            >
+              <el-option
+                v-for="dim in DIMENSION_OPTIONS"
+                :key="dim"
+                :label="String(dim)"
+                :value="dim"
+              />
+            </el-select>
+            <span class="dimension-hint">数值越高能承载的语义细节越多。</span>
+          </div>
         </el-form-item>
         <el-form-item prop="is_active" label="状态">
           <el-switch v-model="form.is_active" />
@@ -51,6 +68,7 @@
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+    </div>
   </div>
 </template>
 
@@ -64,12 +82,15 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const modelList = ref([])
 
+/** 向量维度仅允许标准档位，禁止随意填数 */
+const DIMENSION_OPTIONS = [384, 768, 1024, 1536]
+
 const form = reactive({
   id: null,
   model_type: '',
   model_name: '',
   api_base_url: '',
-  dimension: 0,
+  dimension: null,
   is_active: true,
 })
 
@@ -77,6 +98,7 @@ const rules = {
   model_type: [{ required: true, message: '请选择模型类型', trigger: 'change' }],
   model_name: [{ required: true, message: '请输入模型名称', trigger: 'blur' }],
   api_base_url: [{ required: true, message: '请输入API地址', trigger: 'blur' }],
+  dimension: [{ required: true, message: '请选择向量维度', trigger: 'change' }],
 }
 
 const formatType = (row) => {
@@ -98,7 +120,7 @@ const openAddDialog = () => {
   form.model_type = ''
   form.model_name = ''
   form.api_base_url = ''
-  form.dimension = 0
+  form.dimension = null
   form.is_active = true
   dialogVisible.value = true
 }
@@ -109,7 +131,8 @@ const openEditDialog = (row) => {
   form.model_type = row.model_type
   form.model_name = row.model_name
   form.api_base_url = row.api_base_url
-  form.dimension = row.dimension
+  const dim = Number(row.dimension)
+  form.dimension = DIMENSION_OPTIONS.includes(dim) ? dim : null
   form.is_active = row.is_active
   dialogVisible.value = true
 }
@@ -151,15 +174,38 @@ onMounted(() => {
 
 <style scoped>
 .model-manage {
-  padding: 10px 0;
+  /* page-shell 由 admin.css 统一 */
 }
-.page-header {
+
+.dimension-field {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
-.page-header h2 {
-  margin: 0;
+
+.dimension-hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--admin-text-muted, rgba(200, 205, 220, 0.58));
+}
+
+.dimension-select :deep(.el-select__wrapper) {
+  justify-content: center;
+}
+
+.dimension-select :deep(.el-select__selection),
+.dimension-select :deep(.el-select__placeholder),
+.dimension-select :deep(.el-select__selected-item) {
+  text-align: center;
+  justify-content: center;
+}
+</style>
+
+<!-- 下拉层 teleport 到 body，需非 scoped -->
+<style>
+.dimension-select-dropdown .el-select-dropdown__item {
+  text-align: center;
+  justify-content: center;
 }
 </style>
