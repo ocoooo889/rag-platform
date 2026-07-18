@@ -1,0 +1,25 @@
+/* 仅登录页引用：中英文字体（Noto 覆盖中文，避免回退宋体） */
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap');
+
+/* 流动点阵粒子效果变量 */
+:root {
+  /* 纯黑深色基底 */
+  --login-bg: #0a0a0c;
+  --login-surface: rgba(18, 18, 22, 0.85);
+  --login-border: rgba(255, 255, 255, 0.06);
+  --login-glow: rgba(180, 180, 185, 0.15);
+
+  /* 文字灰度（明度统一偏低，不抢前景） */
+  --login-text: rgba(245, 245, 247, 0.92);
+  --login-text-muted: rgba(200, 200, 205, 0.55);
+  --login-text-dim: rgba(160, 160, 165, 0.35);
+  --login-nav-hover: rgba(220, 220, 225, 0.85);
+
+  /*
+   * 登录页全局统一无衬线：
+   * Noto Sans SC（中文）+ DM Sans（英文）
+   */
+  --login-font-sans: 'DM Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --login-font-serif: 'DM Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --login-font-display: var(--login-font-sans);
+}
