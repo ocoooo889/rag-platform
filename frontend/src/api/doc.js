@@ -34,6 +34,7 @@ function normalizeDocRow(d = {}) {
     file_size: Number(d.file_size || 0),
     chunk_count: Number(d.chunk_count || 0),
     status: normalizeDocStatus(d.status),
+    error_message: d.error_message || d.error || '',
     created_at: created,
     uploaded_at: d.uploaded_at || created
   }
@@ -117,13 +118,11 @@ export async function uploadDocument(formData, onUploadProgress) {
   if (!kbId) {
     return Promise.reject({ code: 400, msg: '缺少 kb_id' })
   }
+  // 勿手动设置 Content-Type，否则缺少 boundary 会导致上传失败
   const res = await request.post(
     `/api/knowledge-bases/${kbId}/documents/upload`,
     formData,
-    {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress
-    }
+    { onUploadProgress }
   )
   const row = normalizeDocRow(res.data || {})
   return { ...res, data: { ...row, doc_id: row.id } }
@@ -144,4 +143,29 @@ export async function deleteDocument(id) {
     return mockResolve(null)
   }
   return request.delete(`/api/documents/${id}`)
+}
+
+/** 批量删除文档 */
+export async function batchDeleteDocuments(ids = []) {
+  const list = (ids || []).map((id) => String(id)).filter(Boolean)
+  if (!list.length) {
+    return Promise.reject({ code: 400, msg: '请选择要删除的文档' })
+  }
+  if (MOCK_OPEN()) {
+    let deleted = 0
+    for (const id of list) {
+      const idx = mockDocList.findIndex((d) => String(d.id) === String(id))
+      if (idx === -1) continue
+      const [removed] = mockDocList.splice(idx, 1)
+      deleted += 1
+      const kb = mockKbList.find((k) => String(k.id) === String(removed.kb_id))
+      if (kb) {
+        const n = Math.max(0, (kb.document_count || kb.doc_count || 0) - 1)
+        kb.document_count = n
+        kb.doc_count = n
+      }
+    }
+    return mockResolve({ deleted })
+  }
+  return request.post('/api/documents/batch-delete', { ids: list })
 }

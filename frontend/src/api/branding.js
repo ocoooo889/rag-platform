@@ -1,4 +1,5 @@
 import request from '@/utils/request'
+import { isMockOpen } from '@/mock/flag'
 
 const mockBranding = {
   brand_name: 'RAG 智能知识平台',
@@ -25,6 +26,10 @@ function unwrap(res) {
 }
 
 export const getBrandingApi = async () => {
+
+  if (isMockOpen()) {
+    return { ...mockBranding }
+
   try {
     const res = await request.get('/api/system/branding', { cache: 'no-cache' })
     const data = unwrap(res)
@@ -38,10 +43,24 @@ export const getBrandingApi = async () => {
   } catch (error) {
     console.error('getBrandingApi error:', error)
     return mockBranding
+
   }
+  return unwrap(await request.get('/api/system/branding'))
 }
 
 export const updateBrandingApi = async (data) => {
+
+  if (isMockOpen()) {
+    Object.assign(mockBranding, data)
+    return { ...mockBranding }
+  }
+  const formData = new FormData()
+  for (const key in data) {
+    if (data[key] !== null && data[key] !== undefined) {
+      formData.append(key, data[key])
+    }
+  }
+
   try {
     let formData = data
     if (!(data instanceof FormData)) {
@@ -72,4 +91,5 @@ export const updateBrandingApi = async (data) => {
     }
     throw error
   }
+
 }

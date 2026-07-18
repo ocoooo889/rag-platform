@@ -83,16 +83,30 @@ CHROMA_COLLECTION_NAME = f"rag_chunks_{CHROMA_COLLECTION_SUFFIX}"
 # ============================================================
 # LLM / Embedding API（支持从系统环境变量 DASHSCOPE_API_KEY 回退）
 # ============================================================
-OPENAI_API_KEY = (
+def _clean_secret(value: str | None) -> str:
+    """去掉首尾空白与成对引号，避免 .env 写成 KEY=\"xxx\" 导致鉴权失败。"""
+    text = (value or "").strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1].strip()
+    return text
+
+
+OPENAI_API_KEY = _clean_secret(
     os.getenv("OPENAI_API_KEY")
     or os.getenv("DASHSCOPE_API_KEY")
     or os.getenv("LLM_API_KEY")
     or ""
 )
 _default_base = "https://api.openai.com/v1"
-if (os.getenv("DASHSCOPE_API_KEY") or "").strip() and not os.getenv("OPENAI_BASE_URL"):
+_has_dashscope = bool(_clean_secret(os.getenv("DASHSCOPE_API_KEY"))) or (
+    "dashscope" in (os.getenv("OPENAI_BASE_URL") or "").lower()
+)
+if _has_dashscope and not os.getenv("OPENAI_BASE_URL"):
     _default_base = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", _default_base)
+# 百炼兼容模式下若未显式指定，默认 text-embedding-v4
+if "dashscope" in (OPENAI_BASE_URL or "").lower() and not os.getenv("EMBEDDING_MODEL"):
+    EMBEDDING_MODEL = "text-embedding-v4"
 
 # ============================================================
 # JWT 鉴权

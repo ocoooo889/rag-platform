@@ -1,5 +1,39 @@
 <template>
   <div class="doc-manage" v-loading="docStore.loading" element-loading-text="加载中...">
+
+    <div class="page-header">
+      <h2>文档管理</h2>
+      <el-tag v-if="envLabel" type="info" size="small">{{ envLabel }}</el-tag>
+    </div>
+
+    <div class="filter-bar">
+      <el-select
+        v-model="selectedKbId"
+        placeholder="请选择知识库"
+        clearable
+        style="width: 280px"
+        @change="onKbChange"
+      >
+        <el-option
+          v-for="kb in kbStore.list"
+          :key="kb.id"
+          :label="kb.name"
+          :value="kb.id"
+        />
+      </el-select>
+      <el-button
+        v-if="selectedKbId"
+        type="danger"
+        plain
+        :disabled="!selectedRows.length"
+        @click="openBatchDelete"
+      >
+        批量删除{{ selectedRows.length ? `（${selectedRows.length}）` : '' }}
+      </el-button>
+    </div>
+
+    <div v-if="hasKb" class="upload-area">
+
     <EmptyState v-if="!hasKb" type="kb" tip="暂无知识库，请先在知识库管理中新建" />
 
     <template v-else>
@@ -174,6 +208,7 @@
       class="upload-dialog"
       @closed="onUploadDialogClosed"
     >
+
       <FileUploader
         v-if="uploadVisible"
         :kb-id="selectedKbId"
@@ -184,6 +219,74 @@
         @fail="onUploadFail"
         @cancel="uploadVisible = false"
       />
+
+      <p v-if="!selectedKbId" class="hint">请先选择知识库后再上传文档</p>
+    </div>
+
+    <EmptyState v-if="!hasKb" type="kb" tip="暂无知识库，请先在知识库管理中新建" />
+
+    <template v-else>
+      <EmptyState v-if="!docStore.list.length && !docStore.loading && selectedKbId" type="doc" />
+
+      <AppTable
+        v-else-if="selectedKbId"
+        ref="tableRef"
+        selectable
+        :data="docStore.list"
+        :loading="docStore.loading"
+        @selection-change="onSelectionChange"
+      >
+        <el-table-column label="文件名" min-width="160">
+          <template #default="{ row }">
+            {{ row.filename || row.file_name || row.id }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="file_type" label="文件类型" width="100" />
+        <el-table-column label="文件大小" width="120">
+          <template #default="{ row }">
+            {{ formatFileSize(row.file_size) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="chunk_count" label="分片数量" width="100" />
+        <el-table-column label="上传时间" width="180">
+          <template #default="{ row }">
+            {{ formatDate(row.uploaded_at || row.created_at, 'datetime') }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" min-width="200">
+          <template #default="{ row }">
+            <el-tag :class="statusClass(row.status)" size="small">
+              {{ statusLabel(row.status) }}
+            </el-tag>
+            <div
+              v-if="row.error_message"
+              :class="row.status === 'failed' ? 'fail-reason' : 'warn-reason'"
+            >
+              {{ row.error_message }}
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="环境" width="140">
+          <template #default="{ row }">
+            <el-tag type="info" size="small">{{ row.env_label || row.env || envTag }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="100" fixed="right">
+          <template #default="{ row }">
+            <AppButton type="danger" text="删除" link @click="openDelete(row)" />
+          </template>
+        </el-table-column>
+      </AppTable>
+
+      <AppPagination
+        v-if="selectedKbId"
+        :total="docStore.total"
+        v-model:page="docStore.page"
+        v-model:page-size="docStore.pageSize"
+        @change="reloadDocs"
+      />
+    </template>
+
     </el-dialog>
 
     <!-- 查看详情弹窗（仅元数据，无命中测试） -->
@@ -217,17 +320,25 @@
       </dl>
     </el-dialog>
 
+
     <ConfirmDialog
       v-model="deleteVisible"
       :title="batchMode ? '批量删除文档' : '删除文档'"
       :message="deleteMessage"
+
+      :loading="deleting"
+
       :loading="deleting || batchDeleting"
+
       @confirm="confirmDelete"
     />
   </div>
 </template>
 
 <script setup>
+
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
@@ -237,6 +348,7 @@ import {
   Search,
   WarningFilled
 } from '@element-plus/icons-vue'
+
 import { useKbStore } from '@/stores/kb'
 import { useDocStore } from '@/stores/doc'
 import { formatFileSize, formatDate } from '@/utils/format'
@@ -259,9 +371,15 @@ const previewDoc = ref(null)
 const deleteVisible = ref(false)
 const deleting = ref(false)
 const deletingId = ref(null)
+
+const batchMode = ref(false)
+const selectedRows = ref([])
+const tableRef = ref(null)
+
 const selectedIds = ref([])
 const batchMode = ref(false)
 const batchDeleting = ref(false)
+
 
 const hasKb = computed(() => kbStore.list.length > 0)
 
@@ -302,6 +420,21 @@ watch(filteredList, () => {
   const valid = new Set(filteredIds.value)
   selectedIds.value = selectedIds.value.filter((id) => valid.has(id))
 })
+
+
+const deleteMessage = computed(() => {
+  if (batchMode.value) {
+    return `确认删除选中的 ${selectedRows.value.length} 个文档？删除后向量数据不可恢复。`
+  }
+  return '确认删除该文档？删除后向量数据不可恢复。'
+})
+
+function statusLabel(status) {
+  return getDocStatusLabel(status)
+}
+
+function statusClass(status) {
+  return `doc-status doc-status--${getDocStatusClassSuffix(status)}`
 
 const stats = computed(() => {
   const rows = docStore.list || []
@@ -359,6 +492,11 @@ function onUploadDialogClosed() {
 function openPreview(row) {
   previewDoc.value = row
   previewVisible.value = true
+
+}
+
+function onSelectionChange(rows) {
+  selectedRows.value = rows || []
 }
 
 async function loadKb() {
@@ -378,6 +516,8 @@ async function loadKb() {
 }
 
 async function reloadDocs() {
+  selectedRows.value = []
+  tableRef.value?.clearSelection?.()
   if (!selectedKbId.value) {
     docStore.clearList()
     return
@@ -405,6 +545,7 @@ async function onUploadSuccess() {
 
 function onUploadFail() {
   uploadProgress.value = 0
+  reloadDocs()
 }
 
 function toggleSelect(id, checked) {
@@ -432,7 +573,11 @@ function openDelete(row) {
 }
 
 function openBatchDelete() {
+
+  if (!selectedRows.value.length) {
+
   if (!selectedIds.value.length) {
+
     ElMessage.warning('请先勾选要删除的文档')
     return
   }
@@ -446,6 +591,19 @@ async function confirmDelete() {
   batchDeleting.value = batchMode.value
   try {
     if (batchMode.value) {
+
+      const ids = selectedRows.value.map((r) => r.id)
+      await docStore.removeBatch(ids)
+      ElMessage.success(`成功删除 ${ids.length} 个文档`)
+      selectedRows.value = []
+      tableRef.value?.clearSelection?.()
+    } else {
+      if (!deletingId.value) return
+      await docStore.remove(deletingId.value)
+      ElMessage.success('删除成功')
+    }
+    deleteVisible.value = false
+
       const ids = [...selectedIds.value]
       const result = await docStore.removeBatch(ids)
       selectedIds.value = []
@@ -470,11 +628,14 @@ async function confirmDelete() {
         docStore.page = 1
       }
     }
+
   } catch (e) {
     // 全局 axios 处理
   } finally {
     deleting.value = false
+
     batchDeleting.value = false
+
     batchMode.value = false
     deletingId.value = null
   }
@@ -483,26 +644,50 @@ async function confirmDelete() {
 onMounted(() => {
   loadKb()
 })
+
+onUnmounted(() => {
+  docStore.stopPolling()
+})
 </script>
 
 <style scoped>
 .doc-manage {
+
+  padding: 4px 0;
+
   min-height: 100%;
   padding: 8px 4px 24px;
   background: var(--bg-color-page);
+
 }
 
 .doc-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
+
+  margin-bottom: 18px;
+  padding: 20px 22px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+
   gap: 16px;
   margin-bottom: 16px;
   flex-wrap: wrap;
+
 }
 
 .doc-top__title {
   margin: 0;
+
+  font-size: 24px;
+  color: var(--text-color-primary);
+}
+
+.filter-bar {
+
   font-size: 20px;
   font-weight: 600;
   color: var(--text-color-primary);
@@ -520,10 +705,29 @@ onMounted(() => {
 }
 
 .doc-filters {
+
   display: flex;
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
+
+  padding: 16px;
+  background: var(--bg-color-card);
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+.upload-area {
+  margin-bottom: 20px;
+  padding: 18px;
+  background:
+    linear-gradient(135deg, rgba(74, 122, 255, 0.07) 0%, rgba(255, 255, 255, 0.96) 46%),
+    var(--bg-color-card);
+  border: 1px dashed var(--border-color-primary);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+
   flex-wrap: wrap;
 }
 
@@ -538,6 +742,7 @@ onMounted(() => {
 
 .doc-filters__search :deep(.el-input__wrapper) {
   border-radius: 18px;
+
 }
 
 .hint {
@@ -630,8 +835,18 @@ onMounted(() => {
   border-bottom: none;
 }
 
+
+:deep(.app-table),
+:deep(.el-table) {
+  box-shadow: var(--shadow-card);
+}
+
+.doc-status {
+  border: none;
+
 .list-row:hover {
   background: var(--bg-color-page);
+
 }
 
 .col-name {
@@ -743,5 +958,23 @@ onMounted(() => {
   .col-action {
     justify-content: flex-start;
   }
+}
+
+.fail-reason {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--status-failed-text);
+  max-width: 280px;
+  word-break: break-all;
+}
+
+.warn-reason {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--status-pending-text, #b88230);
+  max-width: 280px;
+  word-break: break-all;
 }
 </style>

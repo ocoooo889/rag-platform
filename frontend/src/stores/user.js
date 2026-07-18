@@ -1,12 +1,12 @@
 /**
  * 用户 Pinia Store
- * - 兼容前端 A 登录页 setToken / setUserInfo
- * - 登出 / 切账号时调用 chatStore.resetState，防止跨账号污染
  */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import request from '@/utils/request'
+import { fetchMeApi } from '@/api/auth'
 import { useChatStore } from '@/stores/chat'
+import { roleCodeToLabel, resolveRoleCode } from '@/utils/role'
 
 const TOKEN_KEY = 'rag_token'
 const USER_KEY = 'rag_user'
@@ -22,15 +22,26 @@ function readCachedUser() {
   }
 }
 
+function normalizeUser(nextUser) {
+  if (!nextUser) return null
+  const role = resolveRoleCode(nextUser)
+  return {
+    ...nextUser,
+    role,
+    role_name: nextUser.role_name || roleCodeToLabel(role)
+  }
+}
+
 export const useUserStore = defineStore('user', () => {
   const token = ref(localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY) || '')
-  const userInfo = ref(readCachedUser())
+  const userInfo = ref(normalizeUser(readCachedUser()))
 
   const isLoggedIn = computed(() => !!token.value)
+  const roleCode = computed(() => resolveRoleCode(userInfo.value))
 
   function setSession(nextToken, nextUser = null) {
     token.value = nextToken || ''
-    userInfo.value = nextUser
+    userInfo.value = normalizeUser(nextUser)
 
     if (nextToken) {
       localStorage.setItem(TOKEN_KEY, nextToken)
@@ -40,9 +51,9 @@ export const useUserStore = defineStore('user', () => {
       localStorage.removeItem(LEGACY_TOKEN_KEY)
     }
 
-    if (nextUser) {
-      localStorage.setItem(USER_KEY, JSON.stringify(nextUser))
-      localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(nextUser))
+    if (userInfo.value) {
+      localStorage.setItem(USER_KEY, JSON.stringify(userInfo.value))
+      localStorage.setItem(LEGACY_USER_KEY, JSON.stringify(userInfo.value))
     } else {
       localStorage.removeItem(USER_KEY)
       localStorage.removeItem(LEGACY_USER_KEY)
@@ -60,6 +71,19 @@ export const useUserStore = defineStore('user', () => {
   function clearAccountScopedState() {
     const chatStore = useChatStore()
     chatStore.resetState()
+  }
+
+  async function ensureUserInfo() {
+    if (!token.value) return null
+    if (userInfo.value?.role) return userInfo.value
+    try {
+      const me = await fetchMeApi()
+      if (me) setUserInfo(me)
+      return userInfo.value
+    } catch (e) {
+      console.error('fetch /api/auth/me failed', e)
+      return userInfo.value
+    }
   }
 
   async function login(credentials) {
@@ -86,10 +110,12 @@ export const useUserStore = defineStore('user', () => {
   return {
     token,
     userInfo,
+    roleCode,
     isLoggedIn,
     setSession,
     setToken,
     setUserInfo,
+    ensureUserInfo,
     login,
     logout,
     clearAccountScopedState

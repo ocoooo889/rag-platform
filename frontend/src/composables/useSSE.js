@@ -318,7 +318,10 @@ export async function runSSE(options = {}) {
       signal: activeSignal
     })
   } catch (error) {
-    if (error?.name === 'AbortError') return controller
+    if (error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') {
+      handlers.onDone && handlers.onDone({ content: '', type: 'done', aborted: true })
+      return controller
+    }
     handlers.onError && handlers.onError(error)
   }
 

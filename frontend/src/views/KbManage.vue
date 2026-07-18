@@ -261,6 +261,9 @@ onMounted(() => {
 
 <style scoped>
 .kb-manage {
+
+  padding: 4px 0;
+
   min-height: 100%;
   padding: 8px 4px 24px;
   background: var(--bg-color-page);
@@ -283,11 +286,37 @@ onMounted(() => {
 .kb-toolbar__search :deep(.el-input__wrapper) {
   border-radius: 20px;
   box-shadow: 0 0 0 1px var(--border-color) inset;
+
 }
 
 .kb-toolbar__filters {
   display: flex;
   align-items: center;
+
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding: 20px 22px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+}
+
+.page-header h2 {
+  margin: 0;
+  font-size: 24px;
+  color: var(--text-color-primary);
+}
+
+.kb-card {
+  position: relative;
+  min-height: 178px;
+  margin-bottom: 18px;
+  padding: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border-color-light);
+  border-radius: var(--radius-card);
+
   gap: 20px;
   flex-wrap: wrap;
 }
@@ -350,28 +379,60 @@ onMounted(() => {
   align-items: center;
   gap: 16px;
   padding: 16px 20px;
+
   background: var(--bg-color-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
   cursor: pointer;
+
+  box-shadow: var(--shadow-card);
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.kb-card::after {
+  position: absolute;
+  right: -32px;
+  top: -32px;
+  width: 96px;
+  height: 96px;
+  content: '';
+  background: radial-gradient(circle, rgba(74, 122, 255, 0.16), rgba(74, 122, 255, 0));
+  pointer-events: none;
+}
+
+.kb-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-color-primary);
+  box-shadow: var(--shadow-card-hover);
+
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .kb-row:hover {
   border-color: #c6e2ff;
   box-shadow: 0 4px 12px rgba(64, 158, 255, 0.08);
+
 }
 
 .kb-row--active {
   border-color: var(--color-primary);
+
+  box-shadow: 0 0 0 1px rgba(74, 122, 255, 0.16) inset, var(--shadow-card-hover);
+
   box-shadow: 0 0 0 1px rgba(64, 158, 255, 0.2);
+
 }
 
 .kb-row__icon {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 16px;
+
   justify-content: center;
   width: 44px;
   height: 44px;
@@ -387,19 +448,38 @@ onMounted(() => {
 
 .kb-row__title {
   font-size: 15px;
+
   font-weight: 600;
   color: var(--text-color-primary);
   margin-bottom: 4px;
 }
 
+
+.kb-card__desc {
+  min-height: 40px;
+  margin: 14px 0;
+  color: var(--text-color-regular);
+
 .kb-row__desc {
   font-size: 13px;
   color: var(--text-color-secondary);
+
   line-height: 1.5;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+
+.kb-card__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-color-secondary);
+  background: #f8fbff;
+  border-radius: var(--radius-base);
 
 .kb-row__status {
   flex-shrink: 0;
@@ -412,6 +492,7 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   font-size: 13px;
+
 }
 
 .status-badge--ready {
@@ -427,6 +508,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+
+  margin-top: 12px;
+
 }
 
 .action-btn :deep(.el-button) {
@@ -436,5 +520,6 @@ onMounted(() => {
 
 .kb-pagination {
   margin-top: 8px;
+
 }
 </style>

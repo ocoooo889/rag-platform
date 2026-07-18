@@ -45,11 +45,9 @@ export async function createChatSession(data = {}) {
     mockMessagesBySession[sessionId] = []
     return mockResolve({ session_id: sessionId })
   }
-  // [LUO-F03] 关 Mock 默认不打不存在的 session 接口
-  if (!isChatSessionApiEnabled()) {
-    return rejectSessionApiUnavailable()
-  }
-  return request.post('/api/chat/session', data, { silent: true })
+  // 后端无独立创建端点：本地生成 session_id，首条 send/stream 时落库
+  const localId = `local-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+  return Promise.resolve({ data: { session_id: localId, localOnly: true } })
 }
 
 /** 获取会话列表 */

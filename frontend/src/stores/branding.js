@@ -8,7 +8,7 @@ const DEFAULTS = {
   brand_name: 'RAG 智能知识平台',
   brand_logo_url: '/uploads/branding/logo.png',
   brand_favicon_url: '/uploads/branding/favicon.ico',
-  brand_theme_color: '#409EFF',
+  brand_theme_color: '#4A7AFF',
   brand_login_title: '企业知识，智能问答',
   brand_footer_text: 'Powered by RAG Platform'
 }

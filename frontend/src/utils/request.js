@@ -58,6 +58,14 @@ function getToken() {
   return ''
 }
 
+function isOnLoginPage() {
+  try {
+    return typeof window !== 'undefined' && window.location?.pathname === '/login'
+  } catch (e) {
+    return false
+  }
+}
+
 const request = axios.create({
   baseURL: API_BASE_URL,
   timeout: 60000
@@ -109,7 +117,7 @@ request.interceptors.response.use(
     }
     const msg = ERROR_MESSAGES[res.code] || res.message || res.msg || '请求失败'
     if (!silent) ElMessage.error(msg)
-    if (res.code === 401) {
+    if (res.code === 401 && !silent && !isOnLoginPage()) {
       window.location.href = '/login'
     }
     return Promise.reject(res)
@@ -127,7 +135,7 @@ request.interceptors.response.use(
       error.message ||
       '网络异常，请稍后重试'
     if (!silent) ElMessage.error(msg)
-    if (code === 401 || error?.response?.status === 401) {
+    if ((code === 401 || error?.response?.status === 401) && !silent && !isOnLoginPage()) {
       window.location.href = '/login'
     }
     return Promise.reject(error)

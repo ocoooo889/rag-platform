@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 import bcrypt
 
 from app.db.database import get_db
@@ -54,7 +54,12 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     except jwt.PyJWTError:
         raise credentials_exception
     
-    user = db.query(User).filter(User.username == username).first()
+    user = (
+        db.query(User)
+        .options(joinedload(User.role))
+        .filter(User.username == username)
+        .first()
+    )
     if user is None:
         raise credentials_exception
     if user.status != "启用":
