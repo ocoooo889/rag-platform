@@ -127,6 +127,7 @@ import FileUploader from '@/components/FileUploader.vue'
 
 const kbStore = useKbStore()
 const docStore = useDocStore()
+const envTag = getEnvTag()
 
 const selectedKbId = ref(null)
 const uploading = ref(false)
