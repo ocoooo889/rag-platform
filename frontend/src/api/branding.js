@@ -17,6 +17,17 @@ function unwrap(res) {
   return res
 }
 
+function toFormData(data) {
+  if (data instanceof FormData) return data
+  const formData = new FormData()
+  if (!data || typeof data !== 'object') return formData
+  for (const [key, value] of Object.entries(data)) {
+    if (value === null || value === undefined) continue
+    formData.append(key, value)
+  }
+  return formData
+}
+
 export const getBrandingApi = async () => {
   if (isMockOpen()) {
     return { ...mockBranding }
@@ -26,14 +37,16 @@ export const getBrandingApi = async () => {
 
 export const updateBrandingApi = async (data) => {
   if (isMockOpen()) {
-    Object.assign(mockBranding, data)
+    if (data instanceof FormData) {
+      for (const [key, value] of data.entries()) {
+        if (typeof value === 'string') mockBranding[key] = value
+      }
+    } else {
+      Object.assign(mockBranding, data)
+    }
     return { ...mockBranding }
   }
-  const formData = new FormData()
-  for (const key in data) {
-    if (data[key] !== null && data[key] !== undefined) {
-      formData.append(key, data[key])
-    }
-  }
-  return unwrap(await request.put('/api/system/branding', formData))
+  // 已是 FormData 时直接提交，避免 for...in 丢字段导致后端 422
+  // 勿手动设 Content-Type，交给浏览器带 boundary
+  return unwrap(await request.put('/api/system/branding', toFormData(data)))
 }
