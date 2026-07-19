@@ -31,7 +31,10 @@ export const useDocStore = defineStore('doc', () => {
     pollingTimer = setInterval(async () => {
       await loadList(kbId, { silent: true })
       const allDone = list.value.every(
-        (d) => d.status === 'completed' || d.status === 'failed'
+        (d) =>
+          d.status === 'completed' ||
+          d.status === 'degraded' ||
+          d.status === 'failed'
       )
       if (allDone) stopPolling()
     }, 3000)

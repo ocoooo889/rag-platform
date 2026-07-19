@@ -3,7 +3,10 @@
   <div class="retrieve-card">
     <div class="retrieve-card__header">
       <span class="rank">排名 #{{ rank }}</span>
-      <span class="score-text">{{ formatScorePercent(score) }}</span>
+      <div class="retrieve-card__right">
+        <el-tag v-if="methodLabel" size="small" type="info" effect="plain">{{ methodLabel }}</el-tag>
+        <span class="score-text">{{ formatScorePercent(score) }}</span>
+      </div>
     </div>
     <el-progress
       :percentage="scorePercent"
@@ -23,16 +26,30 @@
 import { computed } from 'vue'
 import { getScoreColor, formatScorePercent } from '@/utils/score'
 
+const METHOD_LABEL = {
+  vector: '向量',
+  bm25: '关键词',
+  keyword: '关键词',
+  hybrid: '混合'
+}
+
 const props = defineProps({
   rank: { type: Number, required: true },
   score: { type: Number, default: 0 },
   content: { type: String, default: '' },
   sourceDoc: { type: String, default: '' },
-  chunkId: { type: String, default: '' }
+  chunkId: { type: String, default: '' },
+  method: { type: String, default: '' }
 })
 
-const scorePercent = computed(() => Math.round(Math.max(0, Math.min(1, Number(props.score) || 0)) * 100))
+const scorePercent = computed(() =>
+  Math.round(Math.max(0, Math.min(1, Number(props.score) || 0)) * 100)
+)
 const scoreColor = computed(() => getScoreColor(props.score))
+const methodLabel = computed(() => {
+  const m = String(props.method || '').toLowerCase()
+  return METHOD_LABEL[m] || ''
+})
 </script>
 
 <style scoped>
@@ -47,9 +64,16 @@ const scoreColor = computed(() => getScoreColor(props.score))
 .retrieve-card__header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   margin-bottom: 8px;
   font-weight: 600;
   color: var(--text-color-primary);
+}
+
+.retrieve-card__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .content {

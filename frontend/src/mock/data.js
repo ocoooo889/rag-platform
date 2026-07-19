@@ -52,9 +52,9 @@ export const mockKbList = [
     id: 'kb001',
     name: '公司制度知识库',
     description: '存放公司内部制度文档',
-    doc_count: 4,
-    document_count: 4,
-    chunk_count: 60,
+    doc_count: 5,
+    document_count: 5,
+    chunk_count: 68,
     created_at: '2026-07-15T09:00:00'
   },
   {
@@ -78,8 +78,10 @@ export const mockDocList = [
     file_size: 15230,
     chunk_count: 30,
     status: DOC_STATUS.COMPLETED,
+    error_message: '',
     uploaded_at: '2026-07-15T09:05:00',
-    created_at: '2026-07-15T09:05:00'
+    created_at: '2026-07-15T09:05:00',
+    updated_at: '2026-07-15T09:06:00'
   },
   {
     id: 'doc002',
@@ -89,8 +91,10 @@ export const mockDocList = [
     file_size: 8200,
     chunk_count: 18,
     status: DOC_STATUS.COMPLETED,
+    error_message: '',
     uploaded_at: '2026-07-15T09:20:00',
-    created_at: '2026-07-15T09:20:00'
+    created_at: '2026-07-15T09:20:00',
+    updated_at: '2026-07-15T09:21:00'
   },
   {
     id: 'doc003',
@@ -98,10 +102,25 @@ export const mockDocList = [
     filename: '待处理制度草稿.md',
     file_type: 'md',
     file_size: 4100,
-    chunk_count: 0,
+    chunk_count: 12,
     status: DOC_STATUS.PROCESSING,
+    error_message: '向量化中 4/12',
     uploaded_at: '2026-07-16T08:00:00',
-    created_at: '2026-07-16T08:00:00'
+    created_at: '2026-07-16T08:00:00',
+    updated_at: '2026-07-16T08:01:00'
+  },
+  {
+    id: 'doc006',
+    kb_id: 'kb001',
+    filename: '降级样例-仅关键词.md',
+    file_type: 'md',
+    file_size: 6400,
+    chunk_count: 8,
+    status: DOC_STATUS.DEGRADED,
+    error_message: '向量模型暂不可用，已切换关键词检索',
+    uploaded_at: '2026-07-16T10:00:00',
+    created_at: '2026-07-16T10:00:00',
+    updated_at: '2026-07-16T10:02:00'
   },
   {
     id: 'doc005',
@@ -111,8 +130,10 @@ export const mockDocList = [
     file_size: 2100,
     chunk_count: 0,
     status: DOC_STATUS.FAILED,
+    error_message: '切片结果为空，请检查文档内容',
     uploaded_at: '2026-07-16T09:00:00',
-    created_at: '2026-07-16T09:00:00'
+    created_at: '2026-07-16T09:00:00',
+    updated_at: '2026-07-16T09:00:30'
   },
   {
     id: 'doc004',
@@ -122,8 +143,10 @@ export const mockDocList = [
     file_size: 5600,
     chunk_count: 12,
     status: DOC_STATUS.COMPLETED,
+    error_message: '',
     uploaded_at: '2026-07-15T11:00:00',
-    created_at: '2026-07-15T11:00:00'
+    created_at: '2026-07-15T11:00:00',
+    updated_at: '2026-07-15T11:01:00'
   }
 ]
 
@@ -134,35 +157,48 @@ export const MOCK_HITS_POOL = [
     content: '根据公司规定，工作满一年的员工可享受 5 天年假；满三年可享受 10 天年假。',
     score: 0.86,
     source_doc: '公司考勤制度.md',
-    doc_id: 'doc001'
+    doc_id: 'doc001',
+    method: 'vector'
   },
   {
     chunk_id: 'c002',
     content: '年假应在当年 12 月 31 日前使用完毕，逾期未休视为自动放弃。',
     score: 0.72,
     source_doc: '公司考勤制度.md',
-    doc_id: 'doc001'
+    doc_id: 'doc001',
+    method: 'vector'
   },
   {
     chunk_id: 'c003',
     content: '报销需在费用发生后 30 日内提交，并附发票与审批单。',
     score: 0.81,
     source_doc: '报销流程说明.md',
-    doc_id: 'doc002'
+    doc_id: 'doc002',
+    method: 'vector'
   },
   {
     chunk_id: 'c004',
     content: '差旅住宿标准：一线城市每日不超过 500 元，其他城市不超过 350 元。',
     score: 0.68,
     source_doc: '报销流程说明.md',
-    doc_id: 'doc002'
+    doc_id: 'doc002',
+    method: 'vector'
   },
   {
     chunk_id: 'c005',
     content: '产品支持在线工单与电话热线，工作日 9:00-18:00 响应。',
     score: 0.77,
     source_doc: '产品FAQ.txt',
-    doc_id: 'doc004'
+    doc_id: 'doc004',
+    method: 'vector'
+  },
+  {
+    chunk_id: 'c006',
+    content: '降级样例：本分片仅写入本地 BM25，无向量。关键词「降级」「关键词检索」可命中。',
+    score: 0.74,
+    source_doc: '降级样例-仅关键词.md',
+    doc_id: 'doc006',
+    method: 'bm25'
   }
 ]
 
@@ -186,13 +222,19 @@ export const MOCK_MODELS = [
 
 export const MOCK_DASHBOARD_STATS = {
   kb_count: 2,
-  doc_count: 5,
+  doc_count: 6,
   user_count: 3,
   group_count: 2,
-  chunk_total: 128,
-  avg_chunks_per_kb: 64,
-  docs_by_status: { completed: 4, failed: 1, pending: 0, processing: 0 },
-  docs_by_file_type: { md: 3, txt: 1, txt: 1 },
+  chunk_total: 136,
+  avg_chunks_per_kb: 68,
+  docs_by_status: {
+    completed: 3,
+    degraded: 1,
+    failed: 1,
+    pending: 0,
+    processing: 1
+  },
+  docs_by_file_type: { md: 5, txt: 1 },
   today_new_docs: 1,
   failed_doc_count: 1,
   failed_docs: [
@@ -213,6 +255,7 @@ export const MOCK_DASHBOARD_STATS = {
   services: [
     { key: 'api', label: '后端 API', status: 'ok', detail: '正常响应' },
     { key: 'chroma', label: 'Chroma 向量服务', status: 'ok', detail: '127.0.0.1:8000' },
+    { key: 'embedding', label: 'Embedding 向量化', status: 'ok', detail: '正常 · Mock' },
     {
       key: 'bm25_cache',
       label: 'BM25 内存索引',
@@ -241,13 +284,15 @@ export const MOCK_SSE_REFERENCES = [
     chunk_id: 'c001',
     content: '根据公司规定，工作满一年的员工可享受 5 天年假...',
     score: 0.86,
-    source_doc: '公司考勤制度.md'
+    source_doc: '公司考勤制度.md',
+    method: 'vector'
   },
   {
     chunk_id: 'c002',
     content: '年假应在当年 12 月 31 日前使用完毕...',
     score: 0.72,
-    source_doc: '公司考勤制度.md'
+    source_doc: '公司考勤制度.md',
+    method: 'vector'
   }
 ]
 

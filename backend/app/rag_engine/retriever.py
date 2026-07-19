@@ -35,6 +35,7 @@ def _tokenize(text: str) -> list[str]:
             logger.warning("jieba 分词失败，回退按字: %s", e)
     return [c for c in raw if not c.isspace()]
 
+
 def _bm25_search(
     query: str,
     texts: list[str],
@@ -62,6 +63,7 @@ def _bm25_search(
             "score": round(norm, 4),
             "source_doc": source_docs[i] if i < len(source_docs) else "",
             "doc_id": doc_ids[i] if i < len(doc_ids) else "",
+            "method": "bm25",
         })
     results.sort(key=lambda x: x["score"], reverse=True)
     return results
@@ -70,6 +72,7 @@ def _bm25_search(
 def _mark_bm25_fallback(hits: list[dict]) -> list[dict]:
     for h in hits:
         h["retrieve_fallback"] = "bm25"
+        h["method"] = "bm25"
     return hits
 
 
@@ -84,9 +87,16 @@ async def retrieve(
     kb_id: str | None = None,
     source_docs: list[str] | None = None,
     doc_ids: list[str] | None = None,
+    purpose: str = "chat",
 ) -> list[dict]:
+    """
+    purpose:
+      - chat: 应用 CHAT_RETRIEVE_MODE + CHAT_VECTOR_TIMEOUT
+      - hittest: 不做 fast 短路，使用 HITTEST_VECTOR_TIMEOUT
+    """
     top_n = min(max(top_n or config.DEFAULT_TOP_N, 1), config.MAX_TOP_N)
     search_type = (search_type or "hybrid").strip().lower()
+    purpose = (purpose or "chat").strip().lower()
     source_docs = source_docs or [""] * len(texts)
     doc_ids = doc_ids or ([doc_id or ""] * len(texts))
 
@@ -120,10 +130,18 @@ async def retrieve(
         where = {"kb_id": str(kb_id)}
 
     if search_type == "vector":
-        # 流式首 token 优化：向量检索限时，超时立刻回退缓存 BM25（本地毫秒级）
-        timeout = float(getattr(config, "CHAT_VECTOR_TIMEOUT", 0) or 0)
         mode = str(getattr(config, "CHAT_RETRIEVE_MODE", "balanced") or "balanced").lower()
-        if mode == "fast":
+        if purpose == "hittest":
+            timeout = float(getattr(config, "HITTEST_VECTOR_TIMEOUT", 10) or 10)
+            # 命中测试始终真走向量，不受 chat fast 短路影响
+            apply_fast = False
+            wait_quality = False
+        else:
+            timeout = float(getattr(config, "CHAT_VECTOR_TIMEOUT", 0) or 0)
+            apply_fast = mode == "fast"
+            wait_quality = mode == "quality"
+
+        if apply_fast:
             # 主动走关键词优先，不算「向量失败降级」
             return _bm25_search(
                 query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
@@ -138,14 +156,15 @@ async def retrieve(
                     h["content"] = texts[i]
                     h["source_doc"] = source_docs[i] or h.get("source_doc", "")
                     h["doc_id"] = doc_ids[i] or h.get("doc_id", "")
+                h["method"] = "vector"
             return hits[:top_n]
 
         try:
-            if timeout > 0 and mode != "quality":
+            if timeout > 0 and not wait_quality:
                 return await asyncio.wait_for(_vector(), timeout=timeout)
             return await _vector()
         except asyncio.TimeoutError:
-            logger.info("向量检索超时 %.2fs，回退 BM25", timeout)
+            logger.info("向量检索超时 %.2fs（purpose=%s），回退 BM25", timeout, purpose)
             return _mark_bm25_fallback(
                 _bm25_search(
                     query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
@@ -158,7 +177,7 @@ async def retrieve(
                 )[:top_n]
             )
 
-    # hybrid：向量 / BM25 各取候选集并集再融合，避免对全库 chunk 初始化打分表
+    # hybrid：向量 / BM25 各取候选集并集再融合
     try:
         cand_n = max(top_n * max(config.HYBRID_CANDIDATE_MUL, 1), top_n)
         vector_hits = await query_similar(query, cand_n, where=where)
@@ -213,10 +232,17 @@ async def retrieve(
         item["_k"] = float(h.get("score") or 0.0)
 
     for item in combined.values():
+        v, k = float(item["_v"]), float(item["_k"])
         item["score"] = round(
-            config.HYBRID_ALPHA * item["_v"] + config.BM25_WEIGHT * item["_k"],
+            config.HYBRID_ALPHA * v + config.BM25_WEIGHT * k,
             4,
         )
+        if v > 0 and k > 0:
+            item["method"] = "hybrid"
+        elif v > 0:
+            item["method"] = "vector"
+        else:
+            item["method"] = "bm25"
         item.pop("_v", None)
         item.pop("_k", None)
 

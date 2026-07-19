@@ -18,12 +18,16 @@ from app.utils.ids import new_id
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
+# 同一 doc_id 防止重复触发 reprocess
+_reprocess_inflight: set[str] = set()
+
 
 class BatchDeleteRequest(BaseModel):
     ids: List[str] = Field(default_factory=list, min_length=1)
 
 
 def doc_to_dict(doc: Document):
+    updated = getattr(doc, "updated_at", None)
     return {
         "id": doc.id,
         "kb_id": doc.kb_id,
@@ -34,7 +38,20 @@ def doc_to_dict(doc: Document):
         "chunk_count": doc.chunk_count,
         "error_message": getattr(doc, "error_message", None) or "",
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
+        "updated_at": updated.isoformat() if updated else None,
     }
+
+
+def _resolve_upload_path(doc: Document) -> str | None:
+    """定位上传文件：优先 {id}_{filename}。"""
+    candidates = [
+        os.path.join(UPLOAD_DIR, f"{doc.id}_{doc.filename}"),
+        os.path.join(UPLOAD_DIR, doc.filename or ""),
+    ]
+    for path in candidates:
+        if path and os.path.exists(path):
+            return path
+    return None
 
 
 async def _purge_document(db: Session, db_doc: Document) -> None:
@@ -141,6 +158,73 @@ async def get_documents(
     await require_kb_access(kb_id, current_user, db)
     docs = db.query(Document).filter(Document.kb_id == kb_id).all()
     return ResponseModel(data=[doc_to_dict(d) for d in docs])
+
+
+@router.post("/documents/{doc_id}/reprocess", response_model=ResponseModel)
+async def reprocess_document(
+    doc_id: str,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """重新向量化：具备知识库访问权即可。processing / 进行中任务直接拒绝。"""
+    from datetime import datetime, timezone
+
+    db_doc = db.query(Document).filter(Document.id == doc_id).first()
+    if not db_doc:
+        return ResponseModel(code=404, msg="文档不存在")
+
+    await require_kb_access(db_doc.kb_id, current_user, db)
+
+    if db_doc.status == "processing" or doc_id in _reprocess_inflight:
+        return ResponseModel(
+            code=400,
+            msg="文档正在处理中，请稍后再试",
+            data={"doc_id": doc_id, "status": db_doc.status},
+        )
+
+    file_path = _resolve_upload_path(db_doc)
+    if not file_path:
+        return ResponseModel(code=404, msg="原始文件不存在，无法重新处理")
+
+    _reprocess_inflight.add(doc_id)
+    try:
+        # 清理旧向量与切片，重置为 pending
+        chroma_ids = [c.chroma_id for c in db_doc.chunks if c.chroma_id]
+        if chroma_ids:
+            try:
+                await delete_from_chroma(chroma_ids)
+            except Exception as e:
+                logger.warning("reprocess 清理 Chroma 忽略: %s", e)
+
+        for chunk in list(db_doc.chunks):
+            db.delete(chunk)
+
+        db_doc.status = "pending"
+        db_doc.chunk_count = 0
+        db_doc.error_message = None
+        if hasattr(db_doc, "updated_at"):
+            db_doc.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(db_doc)
+
+        async def _job():
+            try:
+                await ingest_document(
+                    kb_id=db_doc.kb_id,
+                    doc_id=db_doc.id,
+                    file_path=file_path,
+                    filename=db_doc.filename,
+                )
+            finally:
+                _reprocess_inflight.discard(doc_id)
+
+        background_tasks.add_task(_job)
+    except Exception:
+        _reprocess_inflight.discard(doc_id)
+        raise
+
+    return ResponseModel(msg="已开始重新处理", data=doc_to_dict(db_doc))
 
 
 @router.delete("/documents/{doc_id}", response_model=ResponseModel)

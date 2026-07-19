@@ -42,6 +42,8 @@
   --status-processing-bg: #edf4ff;
   --status-completed-text: #52c41a;
   --status-completed-bg: #f0f9eb;
+  --status-degraded-text: #e6a23c;
+  --status-degraded-bg: #fdf6ec;
   --status-failed-text: #f56c6c;
   --status-failed-bg: #fef0f0;
 

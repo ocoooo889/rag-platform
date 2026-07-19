@@ -18,7 +18,8 @@ const ERROR_MESSAGES = {
   5002: '大模型服务异常，请稍后重试',
   4001: '您尚未被分配到任何用户组，请联系管理员',
   4002: '文档正在处理中，请等待处理完成后再试',
-  4003: '系统品牌配置未初始化，使用默认值'
+  4003: '系统品牌配置未初始化，使用默认值',
+  4004: '该文档仅支持关键词/混合检索，请切换模式或重新向量化'
 }
 
 /** 去掉末尾斜杠，避免与 /api/... 拼接出现双斜杠 */
@@ -109,7 +110,7 @@ request.interceptors.response.use(
       if (!silent) ElMessage.warning(ERROR_MESSAGES[4003])
       return res
     }
-    if (res.code === 4001 || res.code === 4002) {
+    if (res.code === 4001 || res.code === 4002 || res.code === 4004) {
       if (!silent) {
         ElMessage.warning(res.message || res.msg || ERROR_MESSAGES[res.code])
       }

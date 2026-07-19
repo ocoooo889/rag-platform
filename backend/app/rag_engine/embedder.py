@@ -108,20 +108,59 @@ async def embed_and_store(
     texts: list[str],
     ids: list[str],
     metadatas: list[dict] | None = None,
+    progress_callback=None,
 ) -> None:
-    embeddings = await get_embeddings_batch(texts)
-    collection = _get_collection()
-    kwargs = {"embeddings": embeddings, "documents": texts, "ids": ids}
-    if metadatas:
-        kwargs["metadatas"] = metadatas
-    try:
-        collection.add(**kwargs)
-    except VectorStoreError:
-        raise
-    except Exception as e:
-        logger.warning("写入 Chroma 失败: %s", e)
-        raise VectorStoreError("向量库写入失败，已切换关键词检索") from e
-    logger.info("写入 Chroma %s 条，集合=%s", len(texts), config.CHROMA_COLLECTION_NAME)
+    """
+    向量化并写入 Chroma。
+    长文档：按 EMBEDDING_BATCH_SIZE 算向量，再按 CHROMA_WRITE_BATCH_SIZE 分批 add，
+    避免一次持有/写入全部向量导致超时或连接失败。
+    progress_callback(current, total) 可选，用于入库进度回写。
+    """
+    if not texts:
+        return
+    if len(texts) != len(ids):
+        raise ValueError("texts 与 ids 长度不一致")
+    if metadatas is not None and len(metadatas) != len(texts):
+        raise ValueError("metadatas 与 texts 长度不一致")
+
+    write_batch = max(1, int(getattr(config, "CHROMA_WRITE_BATCH_SIZE", 100) or 100))
+    # 按写入批次推进：每批内部再走 embedding batch
+    collection = None
+    stored = 0
+    total = len(texts)
+    if progress_callback:
+        try:
+            progress_callback(0, total)
+        except Exception:
+            pass
+    for start in range(0, total, write_batch):
+        end = min(start + write_batch, total)
+        part_texts = texts[start:end]
+        part_ids = ids[start:end]
+        part_meta = metadatas[start:end] if metadatas else None
+        embeddings = await get_embeddings_batch(part_texts)
+        if collection is None:
+            collection = _get_collection()
+        kwargs = {"embeddings": embeddings, "documents": part_texts, "ids": part_ids}
+        if part_meta:
+            kwargs["metadatas"] = part_meta
+        try:
+            collection.add(**kwargs)
+        except VectorStoreError:
+            raise
+        except Exception as e:
+            logger.warning("写入 Chroma 失败 @%s-%s: %s", start, end, e)
+            raise VectorStoreError("向量库写入失败，已切换关键词检索") from e
+        stored = end
+        if progress_callback:
+            try:
+                progress_callback(stored, total)
+            except Exception:
+                pass
+        if total > write_batch and (end == total or end % (write_batch * 5) == 0 or start == 0):
+            logger.info("Chroma 写入进度 %s/%s", stored, total)
+
+    logger.info("写入 Chroma %s 条，集合=%s", total, config.CHROMA_COLLECTION_NAME)
 
 
 async def query_similar(

@@ -98,6 +98,7 @@ cp .env.example .env
 | `OPENAI_API_KEY` | 必填真实 Key |
 | `CHROMA_HOST` | **固定 `127.0.0.1`**（与下方 chroma 启动参数一致） |
 | `CHROMA_PORT` | `8000` |
+| `CHAT_RETRIEVE_MODE` | 建议 `balanced`（真向量；默认已是）。`fast` 会让对话跳过向量直接 BM25 |
 
 ### 为什么以前会报「Chroma 未启动」
 

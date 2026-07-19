@@ -60,7 +60,8 @@ export const useHitTestStore = defineStore('hitTest', () => {
       content: item.content || '',
       source_doc: item.source_doc || '',
       chunk_id: String(item.chunk_id || ''),
-      doc_id: item.doc_id
+      doc_id: item.doc_id,
+      method: item.method || item.retrieve_fallback || ''
     }))
   }
 

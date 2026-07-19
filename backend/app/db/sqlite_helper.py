@@ -40,7 +40,7 @@ def get_document(doc_id: str):
 
 
 def count_docs_by_kb(kb_id: str) -> tuple[int, int]:
-    """返回 (文档总数, 非 completed 数量)，供对话侧 4002 准入判断"""
+    """返回 (文档总数, 未就绪数量)。completed/degraded 视为可对话；pending/processing/failed 为未就绪。"""
     with get_conn() as conn:
         total = conn.execute(
             "SELECT COUNT(1) AS c FROM documents WHERE kb_id=?", (kb_id,)
@@ -48,7 +48,7 @@ def count_docs_by_kb(kb_id: str) -> tuple[int, int]:
         pending = conn.execute(
             """
             SELECT COUNT(1) AS c FROM documents
-            WHERE kb_id=? AND status != 'completed'
+            WHERE kb_id=? AND status IN ('pending', 'processing', 'failed')
             """,
             (kb_id,),
         ).fetchone()["c"]
@@ -73,7 +73,7 @@ def load_chunks_by_kb(kb_id: str) -> list[sqlite3.Row]:
             SELECT c.id, c.content, c.chroma_id, c.doc_id, c.kb_id, d.filename
             FROM chunks c
             JOIN documents d ON c.doc_id = d.id
-            WHERE c.kb_id=? AND d.status='completed'
+            WHERE c.kb_id=? AND d.status IN ('completed', 'degraded')
             ORDER BY c.doc_id, c.chunk_index
             """,
             (kb_id,),

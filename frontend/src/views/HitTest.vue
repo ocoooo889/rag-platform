@@ -122,9 +122,15 @@
             :key="tab.name"
             :label="tab.label"
             :name="tab.name"
-            :disabled="hitStore.loading"
+            :disabled="hitStore.loading || (tab.name === 'vector' && !vectorModeAllowed)"
           >
-            <div class="mode-tip">{{ tab.tip }}</div>
+            <div class="mode-tip">
+              {{
+                tab.name === 'vector' && !vectorModeAllowed
+                  ? '所选文档含「仅关键词」状态，请改用关键词/混合检索，或先重新向量化。'
+                  : tab.tip
+              }}
+            </div>
           </el-tab-pane>
         </el-tabs>
 
@@ -155,6 +161,7 @@
             :content="item.content"
             :source-doc="item.source_doc"
             :chunk-id="item.chunk_id"
+            :method="item.method"
           />
         </div>
       </section>
@@ -164,13 +171,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useKbStore } from '@/stores/kb'
 import { useDocStore } from '@/stores/doc'
 import { useHitTestStore } from '@/stores/hitTest'
 import { exportCSV } from '@/utils/exportCSV'
 import {
+  canUseVectorSearch,
   getDocStatusLabel,
   getDocStatusTagType,
   isDocSelectable
@@ -208,13 +216,31 @@ const pageError = ref('')
 const hasKb = computed(() => kbStore.list.length > 0)
 const readyDocs = computed(() => docOptions.value.filter((d) => isDocSelectable(d.status)))
 
-/** 输入无内容、加载中、未选 completed 文档 → 按钮置灰 */
+const selectedDocs = computed(() =>
+  readyDocs.value.filter((d) => hitStore.docIds.some((id) => String(id) === String(d.id)))
+)
+
+/** 所选文档全部 completed 才允许纯向量 */
+const vectorModeAllowed = computed(() => {
+  if (!selectedDocs.value.length) return true
+  return selectedDocs.value.every((d) => canUseVectorSearch(d.status))
+})
+
+watch(vectorModeAllowed, (ok) => {
+  if (!ok && hitStore.searchType === 'vector') {
+    hitStore.setMode('keyword')
+    ElMessage.warning('所选文档仅支持关键词/混合检索，已自动切换')
+  }
+})
+
+/** 输入无内容、加载中、未选可测文档 → 按钮置灰 */
 const canRun = computed(() => {
   if (bootLoading.value || hitStore.loading) return false
   if (!hasKb.value || !hitStore.kbId) return false
   if (!readyDocs.value.length) return false
   if (!hitStore.docIds.length) return false
   if (!hitStore.query.trim()) return false
+  if (hitStore.searchType === 'vector' && !vectorModeAllowed.value) return false
   return true
 })
 
@@ -226,9 +252,12 @@ const runDisabledTip = computed(() => {
   if (hitStore.loading) return '检索进行中'
   if (!hasKb.value) return '暂无可用知识库'
   if (!hitStore.kbId) return '请先选择知识库'
-  if (!readyDocs.value.length) return '暂无已完成文档（仅 status=completed 可测）'
-  if (!hitStore.docIds.length) return '请选择至少一篇已完成文档'
+  if (!readyDocs.value.length) return '暂无可用文档（completed / degraded 可测）'
+  if (!hitStore.docIds.length) return '请选择至少一篇可用文档'
   if (!hitStore.query.trim()) return '请输入测试问题'
+  if (hitStore.searchType === 'vector' && !vectorModeAllowed.value) {
+    return '所选文档含「仅关键词」状态，请切换检索模式'
+  }
   return '运行命中测试'
 })
 
@@ -308,6 +337,7 @@ function onExport() {
     hitStore.results.map((item) => ({
       rank: item.rank,
       score: item.score,
+      method: item.method || '',
       content: item.content,
       source_doc: item.source_doc,
       chunk_id: item.chunk_id
@@ -315,6 +345,7 @@ function onExport() {
     [
       { key: 'rank', label: '排名' },
       { key: 'score', label: '相似度' },
+      { key: 'method', label: '检索方式' },
       { key: 'content', label: '分片内容' },
       { key: 'source_doc', label: '来源文档' },
       { key: 'chunk_id', label: '分片 ID' }

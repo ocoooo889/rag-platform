@@ -110,6 +110,60 @@ app.include_router(branding.router)
 app.include_router(dashboard.router)
 
 
+def _reset_stale_processing_docs(max_age_minutes: int | None = None) -> int:
+    """启动时把卡住的 processing 文档重置为 failed（按 updated_at，回退 created_at）。"""
+    import sqlite3
+    from datetime import datetime, timedelta, timezone
+
+    from app.db.schema_compat import ensure_rag_schema
+
+    minutes = int(
+        max_age_minutes
+        if max_age_minutes is not None
+        else getattr(config, "STALE_PROCESSING_MINUTES", 30) or 30
+    )
+    db_path = Path(__file__).resolve().parents[2] / config.LOCAL_DB_NAME
+    if not db_path.exists():
+        return 0
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    cutoff_s = cutoff.strftime("%Y-%m-%dT%H:%M:%S")
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    try:
+        ensure_rag_schema(conn)
+        rows = conn.execute(
+            "SELECT id, updated_at, created_at FROM documents WHERE status='processing'"
+        ).fetchall()
+        reset_ids = []
+        for row in rows:
+            ref = row["updated_at"] or row["created_at"]
+            if not ref:
+                reset_ids.append(row["id"])
+                continue
+            ref_s = str(ref).replace(" ", "T")[:19]
+            if ref_s < cutoff_s:
+                reset_ids.append(row["id"])
+        if not reset_ids:
+            return 0
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        for doc_id in reset_ids:
+            conn.execute(
+                """
+                UPDATE documents
+                SET status='failed',
+                    error_message=?,
+                    updated_at=?
+                WHERE id=?
+                """,
+                ("处理超时已自动标记失败，请重新向量化", now, doc_id),
+            )
+        conn.commit()
+        return len(reset_ids)
+    finally:
+        conn.close()
+
+
 @app.on_event("startup")
 async def startup():
     Path(config.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
@@ -117,6 +171,9 @@ async def startup():
         from app.db.seed import init_schema_and_seed
 
         init_schema_and_seed()
+        n = _reset_stale_processing_docs()
+        if n:
+            logger.warning("启动扫描：已重置 %s 条卡住的 processing 文档", n)
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}")
         raise

@@ -276,6 +276,7 @@ function exportChatReport() {
 
 const STATUS_META = {
   completed: { label: '已完成', color: '#52C41A' },
+  degraded: { label: '仅关键词', color: '#E6A23C' },
   processing: { label: '处理中', color: '#4A7AFF' },
   pending: { label: '待处理', color: '#FAAD14' },
   failed: { label: '失败', color: '#F56C6C' },

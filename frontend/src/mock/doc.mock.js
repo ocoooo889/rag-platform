@@ -1,5 +1,6 @@
 /**
- * 文档 Mock（vite-plugin-mock）
+ * 文档 Mock（vite-plugin-mock，遗留路径）
+ * 主 Mock 以 mock/data.js + api/doc.js 的 MOCK_OPEN() 为准
  * 按 kb_id 隔离返回，携带 env 字段
  */
 const ENV_NAME_MAP = {
@@ -17,7 +18,9 @@ let docStore = [
     file_size: 24576,
     chunk_count: 10,
     status: 'completed',
+    error_message: '',
     created_at: '2026-07-15T10:00:00',
+    updated_at: '2026-07-15T10:01:00',
     env: 'dev'
   },
   {
@@ -28,7 +31,9 @@ let docStore = [
     file_size: 8192,
     chunk_count: 8,
     status: 'completed',
+    error_message: '',
     created_at: '2026-07-15T11:20:00',
+    updated_at: '2026-07-15T11:21:00',
     env: 'dev'
   },
   {
@@ -39,7 +44,22 @@ let docStore = [
     file_size: 16384,
     chunk_count: 8,
     status: 'processing',
+    error_message: '向量化中 3/8',
     created_at: '2026-07-16T09:00:00',
+    updated_at: '2026-07-16T09:01:00',
+    env: 'dev'
+  },
+  {
+    id: 202,
+    kb_id: 2,
+    file_name: '降级样例-仅关键词.md',
+    file_type: 'md',
+    file_size: 6400,
+    chunk_count: 8,
+    status: 'degraded',
+    error_message: '向量模型暂不可用，已切换关键词检索',
+    created_at: '2026-07-16T10:00:00',
+    updated_at: '2026-07-16T10:02:00',
     env: 'dev'
   }
 ]
@@ -101,6 +121,7 @@ export default [
       const kbId = Number(kbMatch?.[1] || 1)
       const fileName = nameMatch?.[1] || 'upload.md'
       const ext = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : 'md'
+      const now = new Date().toISOString()
       const item = {
         id: seq++,
         kb_id: kbId,
@@ -109,7 +130,9 @@ export default [
         file_size: body.length,
         chunk_count: 0,
         status: 'pending',
-        created_at: new Date().toISOString(),
+        error_message: '',
+        created_at: now,
+        updated_at: now,
         env
       }
       docStore.unshift(item)

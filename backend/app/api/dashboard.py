@@ -73,6 +73,53 @@ def _probe_chroma() -> dict:
     }
 
 
+_EMBED_PROBE_CACHE: dict = {"ts": 0.0, "result": None}
+_EMBED_PROBE_TTL_SEC = 45.0
+
+
+async def _probe_embedding() -> dict:
+    """轻量探测 Embedding；结果缓存约 45s，避免 Dashboard 每次刷新都调付费接口。"""
+    import time
+
+    now = time.monotonic()
+    cached = _EMBED_PROBE_CACHE.get("result")
+    if cached is not None and (now - float(_EMBED_PROBE_CACHE.get("ts") or 0)) < _EMBED_PROBE_TTL_SEC:
+        return dict(cached)
+
+    from app.utils.llm_client import EmbeddingServiceError, get_embedding
+
+    t0 = time.monotonic()
+    try:
+        vec = await get_embedding("健康检查")
+        latency = round((time.monotonic() - t0) * 1000)
+        dim = len(vec) if vec else 0
+        result = {
+            "key": "embedding",
+            "label": "Embedding 向量化",
+            "status": "ok",
+            "detail": f"正常 · {latency}ms · dim={dim}",
+            "latency_ms": latency,
+        }
+    except EmbeddingServiceError as e:
+        result = {
+            "key": "embedding",
+            "label": "Embedding 向量化",
+            "status": "down",
+            "detail": str(e)[:160] or "Embedding 不可用",
+        }
+    except Exception as e:  # noqa: BLE001
+        result = {
+            "key": "embedding",
+            "label": "Embedding 向量化",
+            "status": "down",
+            "detail": str(e)[:160] or "Embedding 探测失败",
+        }
+
+    _EMBED_PROBE_CACHE["ts"] = now
+    _EMBED_PROBE_CACHE["result"] = result
+    return dict(result)
+
+
 def _probe_bm25_cache(kb_total: int) -> dict:
     try:
         from app.rag_engine.kb_index_cache import get_cached_kb_summary
@@ -193,6 +240,7 @@ async def get_dashboard_stats(
 
     avg_chunks_per_kb = round(chunk_total / kb_count, 2) if kb_count else 0.0
 
+    embedding_svc = await _probe_embedding()
     services = [
         {
             "key": "api",
@@ -201,6 +249,7 @@ async def get_dashboard_stats(
             "detail": "正常响应",
         },
         _probe_chroma(),
+        embedding_svc,
         _probe_bm25_cache(kb_count),
         {
             "key": "sqlite",
@@ -227,6 +276,15 @@ async def get_dashboard_stats(
                 "level": "warn",
                 "title": "Chroma 不可用",
                 "message": chroma.get("detail") or "向量检索将降级为关键词",
+            },
+        )
+    if embedding_svc.get("status") == "down":
+        alerts.insert(
+            0,
+            {
+                "level": "warn",
+                "title": "Embedding 不可用",
+                "message": embedding_svc.get("detail") or "文档入库将降级为仅关键词",
             },
         )
     if not alerts:

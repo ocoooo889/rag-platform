@@ -19,7 +19,11 @@ export function buildRetrieveMockData({ doc_id, search_type = 'hybrid', query = 
   }
 
   const doc = mockDocList.find((d) => String(d.id) === String(doc_id))
-  if (!doc || normalizeDocStatus(doc.status) !== DOC_STATUS.COMPLETED) {
+  const status = doc ? normalizeDocStatus(doc.status) : null
+  if (!doc || (status !== DOC_STATUS.COMPLETED && status !== DOC_STATUS.DEGRADED)) {
+    return null
+  }
+  if (status === DOC_STATUS.DEGRADED && searchType === 'vector') {
     return null
   }
 
@@ -29,7 +33,10 @@ export function buildRetrieveMockData({ doc_id, search_type = 'hybrid', query = 
       let score = h.score
       if (searchType === 'keyword') score = score * 0.92
       if (searchType === 'vector') score = Math.min(0.99, score * 1.02)
-      return { ...h, score: Number(score.toFixed(2)) }
+      const method =
+        h.method ||
+        (searchType === 'keyword' ? 'bm25' : searchType === 'hybrid' ? 'hybrid' : 'vector')
+      return { ...h, score: Number(score.toFixed(2)), method }
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, topN)
