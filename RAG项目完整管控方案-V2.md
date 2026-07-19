@@ -161,8 +161,9 @@ UPLOAD_DIR=./uploads/dev_你的姓名拼音
 OPENAI_API_KEY=sk-xxxxxxxx
 OPENAI_BASE_URL=https://api.openai.com/v1
 
-# ===== Chroma 服务地址（所有人统一）=====
-CHROMA_HOST=localhost
+# ===== Chroma 服务地址（须与启动参数一致）=====
+# chroma run --path ./chroma_data --host 127.0.0.1 --port 8000
+CHROMA_HOST=127.0.0.1
 CHROMA_PORT=8000
 
 # ===== 全局超时配置 =====
@@ -194,15 +195,15 @@ METRICS_PATH=/metrics
 ### 4.3 Chroma 服务模式启动（负责人准备）
 
 ```bash
-# 一键启动 Chroma HTTP 服务（所有人连接同一个服务端，但集合名隔离）
-chroma run --path ./chroma_data --port 8000
+# 一键启动 Chroma HTTP 服务（固定 IPv4，避免 Windows 只绑 ::1）
+chroma run --path ./chroma_data --host 127.0.0.1 --port 8000
 ```
 
 ```python
 # 后端统一连接方式
 import chromadb
 import os
-client = chromadb.HttpClient(host="localhost", port=8000)
+client = chromadb.HttpClient(host="127.0.0.1", port=8000)
 collection_name = f"rag_chunks_{os.getenv('CHROMA_COLLECTION_SUFFIX', 'default')}"
 collection = client.get_or_create_collection(name=collection_name)
 ```
@@ -669,7 +670,7 @@ scrape_configs:
   - job_name: 'rag-platform'
     scrape_interval: 15s
     static_configs:
-      - targets: ['localhost:8000']
+      - targets: ['127.0.0.1:8000']
 ```
 
 ### 8.4 Langfuse LLM 追踪
@@ -1451,7 +1452,7 @@ cd backend
 cp ../.env.example ../.env    # 然后填入你的 API Key + Langfuse Key
 # 确认 .env 中 ENV=dev-你的姓名拼音
 pip install -r requirements.txt
-# 确认 Chroma 服务已启动: curl http://localhost:8000/api/v1/heartbeat
+# 确认 Chroma 服务已启动: curl http://127.0.0.1:8000/api/v2/heartbeat
 # 确认 Langfuse SDK 可用: python -c "from langfuse import Langfuse; print('ok')"
 
 【你的专属文件清单】

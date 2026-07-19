@@ -81,6 +81,9 @@
   --admin-text-dim: rgba(160, 170, 190, 0.42);
   --admin-menu-active-bg: rgba(120, 160, 255, 0.1);
   --admin-menu-hover-bg: rgba(255, 255, 255, 0.05);
+  --admin-menu-active-text: #ffffff;
+  --admin-menu-hover-text: rgba(255, 255, 255, 0.92);
+  --admin-menu-active-icon: var(--el-color-primary);
   --admin-badge-bg: rgba(255, 255, 255, 0.06);
   --admin-badge-text: rgba(200, 205, 220, 0.65);
   --admin-radius: 14px;

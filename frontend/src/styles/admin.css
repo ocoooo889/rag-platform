@@ -1,6 +1,7 @@
 /**
- * 管理后台暗色主题
+ * 管理后台暗色主题（默认）
  * 由 Layout 在 html 上挂载 .admin-theme；离开后台时移除，不影响登录页。
+ * 日间模式见 admin-light.css（data-color-mode="light"），登录页不同步。
  * 策略：重映射语义 Token + Element Plus CSS 变量，业务页尽量只吃变量。
  */
 
@@ -606,6 +607,16 @@ html.admin-theme .el-overlay-dialog {
 html.admin-theme .el-overlay-dialog .el-dialog {
   margin: 0 !important;
   --el-dialog-margin-top: 0px;
+}
+
+/* 「修改信息」：强化毛玻璃，背景透出模糊 */
+html.admin-theme .el-dialog.profile-dialog {
+  background-color: rgba(10, 18, 36, 0.5) !important;
+  background-image: var(--admin-card-tint) !important;
+  border: 1px solid var(--glass-border) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(var(--glass-saturate)) !important;
+  backdrop-filter: blur(18px) saturate(var(--glass-saturate)) !important;
+  box-shadow: var(--glass-shadow) !important;
 }
 
 html.admin-theme .el-message-box__wrapper {
