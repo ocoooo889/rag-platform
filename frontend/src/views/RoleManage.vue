@@ -5,19 +5,25 @@
       <el-button type="primary" @click="openAddDialog">新增角色</el-button>
     </div>
     <div class="page-body">
-    <el-table :data="roleList" border>
-      <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column label="角色名称" min-width="140">
+    <el-table
+      v-equal-table
+      :data="roleList"
+      border
+      table-layout="fixed"
+      style="width: 100%"
+    >
+      <el-table-column prop="id" label="ID" align="center" class-name="col-id" show-overflow-tooltip />
+      <el-table-column label="角色名称" show-overflow-tooltip>
         <template #default="{ row }">
           {{ roleDisplayName(row) }}
         </template>
       </el-table-column>
-      <el-table-column label="权限" min-width="280">
+      <el-table-column label="权限" show-overflow-tooltip>
         <template #default="{ row }">
           {{ getPermissionLabel(row.permissions) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160">
+      <el-table-column label="操作">
         <template #default="{ row }">
           <el-button text @click="openEditDialog(row)">编辑</el-button>
           <el-button text type="danger" @click="handleDelete(row)">删除</el-button>

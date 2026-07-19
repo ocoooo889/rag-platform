@@ -223,7 +223,8 @@ html.admin-theme .modal-preview,
 html.admin-theme .composer-box,
 html.admin-theme .chat-dialog,
 html.admin-theme .stat-card,
-html.admin-theme .chart-card {
+html.admin-theme .chart-card,
+html.admin-theme .quick-action {
   --glass-glow: 0;
   --glow-x: 50%;
   --glow-y: 50%;
@@ -237,6 +238,16 @@ html.admin-theme .chart-card {
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
   box-shadow: var(--glass-shadow) !important;
   color: var(--admin-text);
+}
+
+/* 快捷操作小卡：保留更大圆角，不覆盖为全局 glass-radius */
+html.admin-theme .quick-action {
+  border-radius: 18px !important;
+}
+
+html.admin-theme .quick-action:active {
+  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.28) !important;
+  filter: brightness(0.92);
 }
 
 html.admin-theme .el-table,
@@ -815,18 +826,49 @@ html.admin-theme .app-table {
   /* 边框/阴影走上方统一玻璃 + --glass-glow，此处只补表格内部变量 */
   color: var(--admin-text);
   overflow: hidden;
+  /* 列宽均分钉死（用户组等内容自适应表用 .table-cols-auto 排除） */
+  width: 100%;
+  table-layout: fixed !important;
+}
+
+html.admin-theme .el-table.table-cols-auto,
+html.admin-theme .app-table.table-cols-auto {
+  table-layout: auto !important;
+}
+
+/* 行高随内容撑开：允许换行，取消单行截断 */
+html.admin-theme .el-table .cell {
+  white-space: normal !important;
+  word-break: break-word;
+  overflow: visible;
+  line-height: 1.5;
+  text-overflow: clip;
+}
+
+html.admin-theme .el-table td.el-table__cell,
+html.admin-theme .el-table th.el-table__cell {
+  height: auto !important;
+  vertical-align: middle;
+  border-bottom-color: var(--glass-divider);
+  background: transparent !important;
 }
 
 html.admin-theme .el-table th.el-table__cell {
   background: rgba(255, 255, 255, 0.04) !important;
   color: var(--admin-text-muted);
   font-weight: 600;
+  text-align: center !important;
 }
 
-html.admin-theme .el-table td.el-table__cell,
-html.admin-theme .el-table th.el-table__cell {
-  border-bottom-color: var(--glass-divider);
-  background: transparent !important;
+html.admin-theme .el-table th.el-table__cell .cell {
+  text-align: center !important;
+  justify-content: center;
+}
+
+/* 编号列（ID）内容居中 */
+html.admin-theme .el-table td.col-id .cell,
+html.admin-theme .el-table .el-table__body td.is-center .cell {
+  text-align: center !important;
 }
 
 /* 上下伪边框已在上方 opacity:0，避免盖住描边光斑 */

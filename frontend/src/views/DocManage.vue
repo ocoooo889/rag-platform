@@ -54,24 +54,24 @@
             :loading="docStore.loading"
             @selection-change="onSelectionChange"
           >
-            <el-table-column label="文件名" min-width="160">
+            <el-table-column label="文件名" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ row.filename || row.file_name || row.id }}
               </template>
             </el-table-column>
-            <el-table-column prop="file_type" label="文件类型" width="100" />
-            <el-table-column label="文件大小" width="120">
+            <el-table-column prop="file_type" label="文件类型" show-overflow-tooltip />
+            <el-table-column label="文件大小" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ formatFileSize(row.file_size) }}
               </template>
             </el-table-column>
-            <el-table-column prop="chunk_count" label="分片数量" width="100" />
-            <el-table-column label="上传时间" width="120">
+            <el-table-column prop="chunk_count" label="分片数量" show-overflow-tooltip />
+            <el-table-column label="上传时间" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ formatDate(row.uploaded_at || row.created_at, 'YYYY/MM/DD') }}
               </template>
             </el-table-column>
-            <el-table-column label="状态" min-width="200">
+            <el-table-column label="状态" show-overflow-tooltip>
               <template #default="{ row }">
                 <el-tag :class="statusClass(row.status)" size="small">
                   {{ statusLabel(row.status) }}
@@ -84,7 +84,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="100" fixed="right">
+            <el-table-column label="操作">
               <template #default="{ row }">
                 <el-button text type="danger" @click="openDelete(row)">删除</el-button>
               </template>

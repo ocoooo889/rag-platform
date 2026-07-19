@@ -12,12 +12,18 @@
         </template>
       </el-input>
     </div>
-    <el-table :data="userList" border>
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="username" label="账号" />
-      <el-table-column prop="display_name" label="用户名" />
-      <el-table-column prop="role_id" label="角色" :formatter="formatRole" />
-      <el-table-column label="授权知识库" min-width="160">
+    <el-table
+      v-equal-table
+      :data="userList"
+      border
+      table-layout="fixed"
+      style="width: 100%"
+    >
+      <el-table-column prop="id" label="ID" align="center" class-name="col-id" show-overflow-tooltip />
+      <el-table-column prop="username" label="账号" show-overflow-tooltip />
+      <el-table-column prop="display_name" label="用户名" show-overflow-tooltip />
+      <el-table-column prop="role_id" label="角色" :formatter="formatRole" show-overflow-tooltip />
+      <el-table-column label="授权知识库" show-overflow-tooltip>
         <template #default="scope">
           <span v-if="!(scope.row.kb_ids || []).length" class="kb-empty">未授权</span>
           <el-tag
@@ -40,7 +46,7 @@
           </el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="创建时间" width="120">
+      <el-table-column label="创建时间" show-overflow-tooltip>
         <template #default="scope">
           {{ formatDate(scope.row.created_at, 'YYYY/MM/DD') }}
         </template>

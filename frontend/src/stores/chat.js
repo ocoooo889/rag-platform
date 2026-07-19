@@ -133,6 +133,8 @@ export const useChatStore = defineStore('chat', () => {
   const selectedKbId = ref(null)
   /** 流式阶段提示：检索中 / 生成中 */
   const streamStatus = ref('')
+  /** 知识库后台预热中（不挡发送） */
+  const kbWarming = ref(false)
   /** session_id -> 消息数组（与当前展示共用同一引用） */
   const messageCache = ref({})
   let sseController = null
@@ -140,6 +142,8 @@ export const useChatStore = defineStore('chat', () => {
   let hydrated = false
   /** 流式 UI 节流定时器（abort 时也要清） */
   let streamUiTimer = null
+  /** 预热世代：切库时递增，忽略过期回调 */
+  let warmupGeneration = 0
 
   function clearStreamUiTimer() {
     if (streamUiTimer != null) {
@@ -444,11 +448,14 @@ export const useChatStore = defineStore('chat', () => {
 
   async function loadSessions() {
     hydrateFromLocal()
+    const keepCurrent = currentSessionId.value
+      ? String(currentSessionId.value)
+      : null
     loading.value = true
     try {
       if (!useRemoteSessions()) {
-        if (currentSessionId.value) {
-          bindMessagesToSession(currentSessionId.value)
+        if (keepCurrent) {
+          bindMessagesToSession(keepCurrent)
         } else if (sessions.value.length) {
           currentSessionId.value = String(sessions.value[0].session_id)
           bindMessagesToSession(currentSessionId.value)
@@ -463,27 +470,47 @@ export const useChatStore = defineStore('chat', () => {
       })
       const data = res.data || {}
       const remote = data.items || data.list || []
-      const remoteIds = new Set(remote.map((s) => String(s.session_id)))
 
-      // 保留本地独有会话（含尚未同步的 local-*）
-      const localOnly = sessions.value.filter(
-        (s) => !remoteIds.has(String(s.session_id))
-      )
-      setSessions([...localOnly, ...remote])
-
-      // 仅补全本地尚无缓存的远程会话消息（避免每次 N+1 全量拉取）
+      // 增量合并：按 session_id 合并，保留本地独有会话，避免整表覆盖闪烁
+      const byId = new Map()
+      for (const s of sessions.value) {
+        byId.set(String(s.session_id), { ...s })
+      }
       for (const s of remote) {
         const sid = String(s.session_id)
-        if (messageCache.value[sid]?.length) continue
+        const prev = byId.get(sid)
+        byId.set(sid, prev ? { ...prev, ...s, title: s.title || prev.title } : { ...s })
+      }
+      setSessions([...byId.values()])
+
+      // 已有当前会话则不跳转；仅在空闲时选默认
+      if (keepCurrent && byId.has(keepCurrent)) {
+        currentSessionId.value = keepCurrent
+        bindMessagesToSession(keepCurrent)
+      } else if (!currentSessionId.value && sessions.value.length) {
+        currentSessionId.value = String(sessions.value[0].session_id)
+        bindMessagesToSession(currentSessionId.value)
+      }
+
+      // 只补当前会话缺失消息；其余会话在 switchSession 时懒加载
+      const cur = currentSessionId.value ? String(currentSessionId.value) : null
+      if (
+        cur &&
+        !isLocalSessionId(cur) &&
+        !messageCache.value[cur]?.length
+      ) {
         try {
-          const msgRes = await fetchChatMessages(sid)
+          const msgRes = await fetchChatMessages(cur)
           const msgData = msgRes.data || {}
           const list = normalizeMessages(
             msgData.items || msgData.list || msgData.messages || []
           )
           if (list.length) {
-            messageCache.value[sid] = list
-            if (MOCK_OPEN()) mockMessagesBySession[sid] = list
+            messageCache.value[cur] = list
+            if (MOCK_OPEN()) mockMessagesBySession[cur] = list
+            if (String(currentSessionId.value) === cur) {
+              bindMessagesToSession(cur)
+            }
           }
         } catch {
           /* ignore */
@@ -720,16 +747,35 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = false
     loading.value = false
     selectedKbId.value = null
+    kbWarming.value = false
+    warmupGeneration += 1
     hydrated = false
   }
 
   async function warmupSelectedKb() {
     const kbId = selectedKbId.value
-    if (!kbId) return
+    if (!kbId) {
+      kbWarming.value = false
+      return
+    }
+    const gen = ++warmupGeneration
+    kbWarming.value = true
     try {
-      await warmupChat(kbId)
+      const res = await warmupChat(kbId)
+      const data = res?.data || res || {}
+      // 后端 accepted 即返回时，徽标再保留短暂窗口，避免闪一下就没
+      if (
+        gen === warmupGeneration &&
+        (data.accepted || data.status === 'warming')
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 2200))
+      }
     } catch {
       /* 预热失败不阻断对话 */
+    } finally {
+      if (gen === warmupGeneration) {
+        kbWarming.value = false
+      }
     }
   }
 
@@ -741,6 +787,7 @@ export const useChatStore = defineStore('chat', () => {
     loading,
     selectedKbId,
     streamStatus,
+    kbWarming,
     loadSessions,
     createSession,
     switchSession,
@@ -752,6 +799,7 @@ export const useChatStore = defineStore('chat', () => {
     resetState,
     hydrateFromLocal,
     persistNow,
-    warmupSelectedKb
+    warmupSelectedKb,
+    bindMessagesToSession
   }
 })

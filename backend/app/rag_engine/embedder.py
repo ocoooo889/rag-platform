@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import urllib.request
 
 import chromadb
 
@@ -20,10 +21,68 @@ class VectorStoreError(Exception):
         super().__init__(message)
 
 
+def _chroma_host_candidates() -> list[str]:
+    """Windows 上 localhost 常走 ::1，而 127.0.0.1 可能未监听，需双向回退。"""
+    primary = (config.CHROMA_HOST or "localhost").strip() or "localhost"
+    alts = ["localhost", "127.0.0.1"]
+    out: list[str] = []
+    for h in [primary, *alts]:
+        if h and h not in out:
+            out.append(h)
+    return out
+
+
+def probe_chroma_heartbeat(timeout: float = 2.5) -> tuple[bool, str, str]:
+    """
+    HTTP 探测 /api/v2/heartbeat。
+    返回 (ok, detail, resolved_host)。
+    """
+    port = config.CHROMA_PORT
+    last_err = "连接失败"
+    for host in _chroma_host_candidates():
+        url = f"http://{host}:{port}/api/v2/heartbeat"
+        try:
+            with urllib.request.urlopen(url, timeout=timeout) as resp:
+                if 200 <= resp.status < 300:
+                    return True, f"{host}:{port}", host
+        except Exception as e:  # noqa: BLE001
+            last_err = str(e)[:120] or "连接失败"
+    return False, last_err, config.CHROMA_HOST
+
+
+def get_chroma_client():
+    """获取可用的 HttpClient；优先 .env，失败则回退 localhost/127.0.0.1。"""
+    port = config.CHROMA_PORT
+    last_err: Exception | None = None
+    # 先用廉价 heartbeat 选定可达 host，再建 client（避免 chromadb 空 ValueError）
+    ok, detail, host = probe_chroma_heartbeat()
+    if ok:
+        try:
+            return chromadb.HttpClient(host=host, port=port)
+        except Exception as e:
+            last_err = e
+            logger.warning("Chroma HttpClient(%s) 失败: %s", host, e)
+
+    for host in _chroma_host_candidates():
+        try:
+            client = chromadb.HttpClient(host=host, port=port)
+            client.heartbeat()
+            return client
+        except Exception as e:
+            last_err = e
+            logger.warning("连接 Chroma 失败 %s:%s — %s", host, port, e)
+
+    raise VectorStoreError(
+        f"向量库（Chroma {config.CHROMA_HOST}:{port}）未启动或地址不通（{detail if not ok else last_err}），已切换关键词检索"
+    ) from last_err
+
+
 def _get_collection():
     try:
-        client = chromadb.HttpClient(host=config.CHROMA_HOST, port=config.CHROMA_PORT)
+        client = get_chroma_client()
         return client.get_or_create_collection(name=config.CHROMA_COLLECTION_NAME)
+    except VectorStoreError:
+        raise
     except Exception as e:
         logger.warning(
             "连接 Chroma 失败 %s:%s — %s",

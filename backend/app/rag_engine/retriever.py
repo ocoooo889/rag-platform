@@ -67,6 +67,12 @@ def _bm25_search(
     return results
 
 
+def _mark_bm25_fallback(hits: list[dict]) -> list[dict]:
+    for h in hits:
+        h["retrieve_fallback"] = "bm25"
+    return hits
+
+
 async def retrieve(
     query: str,
     texts: list[str],
@@ -118,6 +124,7 @@ async def retrieve(
         timeout = float(getattr(config, "CHAT_VECTOR_TIMEOUT", 0) or 0)
         mode = str(getattr(config, "CHAT_RETRIEVE_MODE", "balanced") or "balanced").lower()
         if mode == "fast":
+            # 主动走关键词优先，不算「向量失败降级」
             return _bm25_search(
                 query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
             )[:top_n]
@@ -139,22 +146,28 @@ async def retrieve(
             return await _vector()
         except asyncio.TimeoutError:
             logger.info("向量检索超时 %.2fs，回退 BM25", timeout)
-            return _bm25_search(
-                query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
-            )[:top_n]
+            return _mark_bm25_fallback(
+                _bm25_search(
+                    query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
+                )[:top_n]
+            )
         except (EmbeddingServiceError, VectorStoreError):
-            return _bm25_search(
-                query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
-            )[:top_n]
+            return _mark_bm25_fallback(
+                _bm25_search(
+                    query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
+                )[:top_n]
+            )
 
     # hybrid：向量 / BM25 各取候选集并集再融合，避免对全库 chunk 初始化打分表
     try:
         cand_n = max(top_n * max(config.HYBRID_CANDIDATE_MUL, 1), top_n)
         vector_hits = await query_similar(query, cand_n, where=where)
     except (EmbeddingServiceError, VectorStoreError):
-        return _bm25_search(
-            query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
-        )[:top_n]
+        return _mark_bm25_fallback(
+            _bm25_search(
+                query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
+            )[:top_n]
+        )
 
     keyword_hits = _bm25_search(
         query, texts, ids, source_docs, doc_ids, bm25=cached_bm25

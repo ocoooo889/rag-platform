@@ -55,6 +55,23 @@ def _fingerprint(rows) -> str:
     return f"{len(rows)}:{first}:{last}"
 
 
+def list_cached_kb_ids() -> list[str]:
+    with _lock:
+        return list(_cache.keys())
+
+
+def get_cached_kb_summary() -> list[dict]:
+    with _lock:
+        return [
+            {
+                "kb_id": key,
+                "chunks": len(entry.texts),
+                "fingerprint": entry.fingerprint,
+            }
+            for key, entry in _cache.items()
+        ]
+
+
 def invalidate_kb_index(kb_id: str | None = None) -> None:
     with _lock:
         if kb_id is None:
