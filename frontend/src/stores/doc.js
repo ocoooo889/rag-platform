@@ -42,6 +42,7 @@ export const useDocStore = defineStore('doc', () => {
     list.value = []
     total.value = 0
     currentKbId.value = null
+    loading.value = false
   }
 
   async function loadList(kbId, extra = {}) {

@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from pathlib import Path
 
 from app import config
 from app.utils.llm_client import LLMServiceError, chat_completion
 
 logger = logging.getLogger(__name__)
+
+# 明显指代/追问：才值得花一次 LLM 改写
+_REF_RE = re.compile(
+    r"(这|那|它|他|她|该|上述|刚才|前面|同上|继续|还有呢|为什么|怎么又|再详细)"
+)
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
 _PROMPT_PATH = _BACKEND_ROOT / "prompts" / "standalone_query.prompt"
@@ -63,18 +70,26 @@ async def rewrite_query_for_retrieve(query: str, chat_history: str = "") -> str:
     if not history or history in {"（无历史）", "(无历史)"}:
         return q
 
+    # 长句且无明显指代：大概率已是独立问句，跳过改写以缩短首 token
+    if len(q) >= 20 and not _REF_RE.search(q):
+        return q
+
     prompt = (
         _load_prompt()
         .replace("{{chat_history}}", history)
         .replace("{{query}}", q)
     )
     messages = [{"role": "user", "content": prompt}]
+    timeout = float(getattr(config, "QUERY_REWRITE_TIMEOUT", 1.2) or 1.2)
     try:
-        rewritten = await chat_completion(messages)
+        rewritten = await asyncio.wait_for(chat_completion(messages), timeout=timeout)
         out = _clean_rewritten(rewritten, q)
         if out != q:
             logger.info("Query Rewrite: %r -> %r", q[:80], out[:80])
         return out
+    except asyncio.TimeoutError:
+        logger.info("Query Rewrite 超时 %.1fs，回退原句", timeout)
+        return q
     except LLMServiceError as e:
         logger.warning("Query Rewrite 失败，回退原句: %s", e.message)
         return q

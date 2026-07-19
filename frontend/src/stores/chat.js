@@ -1,7 +1,7 @@
 /**
- * 智能对话 Pinia Store（前端 B）
- * - 会话列表：置顶 / 重命名 / 删除（真后端 PATCH/DELETE；local-* 本地兜底）
- * - [LUO-F03] 无会话 CRUD 时本地兜底，不阻断 stream
+ * 智能对话 Pinia Store
+ * - 多轮：同一会话复用 session_id，主区只展示当前会话
+ * - 历史：优先读写用户本地 localStorage，远程会话 API 作补充
  */
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
@@ -14,14 +14,17 @@ import {
   streamChat,
   closeSSE,
   createSSEController,
-  isChatSessionApiEnabled
+  isChatSessionApiEnabled,
+  warmupChat
 } from '@/api/chat'
 import { MOCK_OPEN } from '@/mock/flag'
 import { mockMessagesBySession } from '@/mock/data'
 
 const SESSION_META_KEY = 'rag-chat-session-meta'
+const HISTORY_KEY_PREFIX = 'rag-chat-history'
+const MAX_SESSIONS = 80
+const MAX_MESSAGES_PER_SESSION = 120
 
-/** [LUO-F03] Mock 或显式开启会话 API 时才请求服务端历史 */
 function useRemoteSessions() {
   return MOCK_OPEN() || isChatSessionApiEnabled()
 }
@@ -32,6 +35,24 @@ function isLocalSessionId(sessionId) {
 
 function localId() {
   return `local-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
+function msgId() {
+  return `m-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+}
+
+function currentUserScope() {
+  try {
+    const raw = localStorage.getItem('rag_user') || localStorage.getItem('userInfo')
+    const u = raw ? JSON.parse(raw) : null
+    return String(u?.id || u?.user_id || u?.username || 'guest')
+  } catch {
+    return 'guest'
+  }
+}
+
+function historyStorageKey() {
+  return `${HISTORY_KEY_PREFIX}:${currentUserScope()}`
 }
 
 function readSessionMeta() {
@@ -69,6 +90,40 @@ function clearLocalMeta(sessionId) {
   writeSessionMeta(meta)
 }
 
+function readLocalHistory() {
+  try {
+    const raw = localStorage.getItem(historyStorageKey())
+    const data = raw ? JSON.parse(raw) : null
+    if (!data || typeof data !== 'object') return null
+    return data
+  } catch {
+    return null
+  }
+}
+
+function writeLocalHistory(payload) {
+  try {
+    localStorage.setItem(historyStorageKey(), JSON.stringify(payload))
+  } catch (e) {
+    // 配额满时裁剪后再试
+    try {
+      const slim = {
+        ...payload,
+        sessions: (payload.sessions || []).slice(0, 40),
+        messagesBySession: {}
+      }
+      for (const s of slim.sessions) {
+        const sid = String(s.session_id)
+        const list = (payload.messagesBySession || {})[sid] || []
+        slim.messagesBySession[sid] = list.slice(-40)
+      }
+      localStorage.setItem(historyStorageKey(), JSON.stringify(slim))
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export const useChatStore = defineStore('chat', () => {
   const sessions = ref([])
   const currentSessionId = ref(null)
@@ -76,17 +131,39 @@ export const useChatStore = defineStore('chat', () => {
   const streaming = ref(false)
   const loading = ref(false)
   const selectedKbId = ref(null)
+  /** 流式阶段提示：检索中 / 生成中 */
+  const streamStatus = ref('')
+  /** session_id -> 消息数组（与当前展示共用同一引用） */
   const messageCache = ref({})
   let sseController = null
+  let persistTimer = null
+  let hydrated = false
+  /** 流式 UI 节流定时器（abort 时也要清） */
+  let streamUiTimer = null
+
+  function clearStreamUiTimer() {
+    if (streamUiTimer != null) {
+      clearInterval(streamUiTimer)
+      streamUiTimer = null
+    }
+  }
 
   function abortCurrentStream() {
+    const wasStreaming = streaming.value
     closeSSE(sseController)
     sseController = null
     streaming.value = false
+    streamStatus.value = ''
+    clearStreamUiTimer()
+    if (wasStreaming) {
+      // 停止生成时落盘已输出内容
+      persistNow()
+    }
   }
 
   function normalizeMessages(list) {
     return (Array.isArray(list) ? list : []).map((m) => ({
+      id: m.id || msgId(),
       role: m.role || 'assistant',
       content: m.content || '',
       error: m.error || '',
@@ -100,13 +177,14 @@ export const useChatStore = defineStore('chat', () => {
 
   function normalizeSession(s) {
     const sid = String(s.session_id)
-    const local = isLocalSessionId(sid) ? readSessionMeta()[sid] || {} : {}
+    const local = readSessionMeta()[sid] || {}
     return {
       ...s,
       session_id: sid,
       title: local.title || s.title || '未命名会话',
       pinned: local.pinned != null ? !!local.pinned : !!s.pinned,
-      updated_at: s.updated_at || new Date().toISOString()
+      updated_at: s.updated_at || new Date().toISOString(),
+      kb_id: s.kb_id ?? selectedKbId.value
     }
   }
 
@@ -119,54 +197,171 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   function setSessions(list) {
-    sessions.value = sortSessions((Array.isArray(list) ? list : []).map(normalizeSession))
+    const next = sortSessions((Array.isArray(list) ? list : []).map(normalizeSession))
+    sessions.value = next.slice(0, MAX_SESSIONS)
   }
 
-  function cacheTurn(turnId, userMsg, aiMsg) {
-    if (!turnId) return
-    const sid = String(turnId)
-    const pair = [userMsg, aiMsg]
-    messageCache.value[sid] = pair
-    if (MOCK_OPEN()) mockMessagesBySession[sid] = pair
-  }
+  function persistNow() {
+    const run = () => {
+      try {
+        const messagesBySession = {}
+        for (const s of sessions.value) {
+          const sid = String(s.session_id)
+          const list = messageCache.value[sid]
+          if (list?.length) {
+            messagesBySession[sid] = list.slice(-MAX_MESSAGES_PER_SESSION).map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content || '',
+              error: m.error || '',
+              sources: Array.isArray(m.sources) ? m.sources : []
+            }))
+          }
+        }
+        const cur = currentSessionId.value
+        if (cur && !messagesBySession[String(cur)] && messageCache.value[String(cur)]) {
+          messagesBySession[String(cur)] = messageCache.value[String(cur)]
+            .slice(-MAX_MESSAGES_PER_SESSION)
+            .map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content || '',
+              error: m.error || '',
+              sources: Array.isArray(m.sources) ? m.sources : []
+            }))
+        }
 
-  function rebuildAllHistory() {
-    const all = []
-    const ordered = [...sessions.value].reverse()
-    for (const s of ordered) {
-      const sid = String(s.session_id)
-      let cached = messageCache.value[sid]
-      if ((!cached || !cached.length) && MOCK_OPEN()) {
-        cached = mockMessagesBySession[sid]
+        writeLocalHistory({
+          version: 1,
+          updatedAt: new Date().toISOString(),
+          currentSessionId: currentSessionId.value,
+          selectedKbId: selectedKbId.value,
+          sessions: sessions.value.map((s) => ({
+            session_id: s.session_id,
+            title: s.title,
+            kb_id: s.kb_id,
+            pinned: !!s.pinned,
+            updated_at: s.updated_at
+          })),
+          messagesBySession
+        })
+      } catch {
+        /* ignore */
       }
-      if (cached?.length) all.push(...normalizeMessages(cached))
     }
-    messages.value = all
+    // 大 JSON 序列化放到空闲时段，避免卡住其它页面
+    if (typeof requestIdleCallback === 'function') {
+      requestIdleCallback(run, { timeout: 800 })
+    } else {
+      setTimeout(run, 0)
+    }
   }
 
-  function upsertSession(sessionId, title) {
+  function schedulePersist() {
+    if (persistTimer) clearTimeout(persistTimer)
+    persistTimer = setTimeout(() => {
+      persistTimer = null
+      persistNow()
+    }, 400)
+  }
+
+  function hydrateFromLocal() {
+    if (hydrated) return
+    hydrated = true
+    const data = readLocalHistory()
+    if (!data) return
+
+    if (data.selectedKbId != null && selectedKbId.value == null) {
+      selectedKbId.value = data.selectedKbId
+    }
+
+    const cache = {}
+    const bySession = data.messagesBySession || {}
+    for (const [sid, list] of Object.entries(bySession)) {
+      cache[sid] = normalizeMessages(list)
+    }
+    messageCache.value = cache
+
+    if (Array.isArray(data.sessions) && data.sessions.length) {
+      setSessions(data.sessions)
+    }
+
+    if (data.currentSessionId) {
+      currentSessionId.value = String(data.currentSessionId)
+    }
+  }
+
+  function bindMessagesToSession(sessionId) {
+    const sid = sessionId ? String(sessionId) : null
+    if (!sid) {
+      messages.value = []
+      return
+    }
+    if (!messageCache.value[sid]) {
+      messageCache.value[sid] = []
+    }
+    // 与 cache 共用引用，流式更新自动同步
+    messages.value = messageCache.value[sid]
+  }
+
+  function upsertSession(sessionId, title, extra = {}) {
     const sid = String(sessionId)
     const exists = sessions.value.find((s) => String(s.session_id) === sid)
     if (exists) {
-      if (title && isLocalSessionId(sid) && !readSessionMeta()[sid]?.title) {
-        exists.title = title
-      } else if (title && !exists.title) {
+      if (title && (!exists.title || exists.title === '新会话' || exists.title === '未命名会话')) {
         exists.title = title
       }
+      if (extra.kb_id != null) exists.kb_id = extra.kb_id
       exists.updated_at = new Date().toISOString()
       setSessions(sessions.value)
+      schedulePersist()
       return
     }
     setSessions([
       {
         session_id: sid,
         title: title || '新会话',
-        kb_id: selectedKbId.value,
+        kb_id: extra.kb_id ?? selectedKbId.value,
         updated_at: new Date().toISOString(),
         pinned: false
       },
       ...sessions.value
     ])
+    schedulePersist()
+  }
+
+  function remapSessionId(oldId, newId, title) {
+    const from = String(oldId)
+    const to = String(newId)
+    if (!from || !to || from === to) return
+
+    const list = messageCache.value[from] || messages.value || []
+    messageCache.value[to] = list
+    delete messageCache.value[from]
+    if (MOCK_OPEN()) {
+      mockMessagesBySession[to] = list
+      delete mockMessagesBySession[from]
+    }
+
+    const row = sessions.value.find((s) => String(s.session_id) === from)
+    if (row) {
+      const oldMeta = readSessionMeta()[from]
+      row.session_id = to
+      if (title && (!row.title || row.title === '新会话')) row.title = title
+      if (oldMeta) {
+        clearLocalMeta(from)
+        patchLocalMeta(to, oldMeta)
+      }
+    } else {
+      upsertSession(to, title)
+    }
+
+    if (String(currentSessionId.value) === from) {
+      currentSessionId.value = to
+    }
+    setSessions(sessions.value)
+    bindMessagesToSession(to)
+    schedulePersist()
   }
 
   async function togglePinSession(sessionId) {
@@ -178,6 +373,7 @@ export const useChatStore = defineStore('chat', () => {
     const prevPinned = !!row.pinned
     row.pinned = nextPinned
     setSessions(sessions.value)
+    schedulePersist()
 
     try {
       if (isLocalSessionId(sid) || !useRemoteSessions()) {
@@ -189,6 +385,7 @@ export const useChatStore = defineStore('chat', () => {
     } catch (e) {
       row.pinned = prevPinned
       setSessions(sessions.value)
+      schedulePersist()
       throw e
     }
   }
@@ -204,6 +401,7 @@ export const useChatStore = defineStore('chat', () => {
     const prevTitle = row.title
     row.title = nextTitle
     setSessions(sessions.value)
+    schedulePersist()
 
     try {
       if (isLocalSessionId(sid) || !useRemoteSessions()) {
@@ -215,11 +413,13 @@ export const useChatStore = defineStore('chat', () => {
     } catch (e) {
       row.title = prevTitle
       setSessions(sessions.value)
+      schedulePersist()
       throw e
     }
   }
 
-  async function ensureTurnSession(title) {
+  /** 新建空会话（开启新对话） */
+  async function ensureNewSession(title = '新会话') {
     if (useRemoteSessions()) {
       try {
         const res = await createChatSession({
@@ -228,25 +428,34 @@ export const useChatStore = defineStore('chat', () => {
         })
         const sessionId = String(res.data?.session_id || res.data?.id || '')
         if (sessionId) {
+          if (!messageCache.value[sessionId]) messageCache.value[sessionId] = []
           upsertSession(sessionId, title)
           return sessionId
         }
-      } catch (e) {
-        // 回落本地
+      } catch {
+        /* 回落本地 */
       }
     }
     const tempId = localId()
+    messageCache.value[tempId] = []
     upsertSession(tempId, title)
     return tempId
   }
 
   async function loadSessions() {
+    hydrateFromLocal()
     loading.value = true
     try {
       if (!useRemoteSessions()) {
-        setSessions(sessions.value)
+        if (currentSessionId.value) {
+          bindMessagesToSession(currentSessionId.value)
+        } else if (sessions.value.length) {
+          currentSessionId.value = String(sessions.value[0].session_id)
+          bindMessagesToSession(currentSessionId.value)
+        }
         return sessions.value
       }
+
       const res = await fetchChatSessions({
         kb_id: selectedKbId.value,
         page: 1,
@@ -255,11 +464,14 @@ export const useChatStore = defineStore('chat', () => {
       const data = res.data || {}
       const remote = data.items || data.list || []
       const remoteIds = new Set(remote.map((s) => String(s.session_id)))
+
+      // 保留本地独有会话（含尚未同步的 local-*）
       const localOnly = sessions.value.filter(
-        (s) => isLocalSessionId(s.session_id) && !remoteIds.has(String(s.session_id))
+        (s) => !remoteIds.has(String(s.session_id))
       )
       setSessions([...localOnly, ...remote])
 
+      // 仅补全本地尚无缓存的远程会话消息（避免每次 N+1 全量拉取）
       for (const s of remote) {
         const sid = String(s.session_id)
         if (messageCache.value[sid]?.length) continue
@@ -273,12 +485,14 @@ export const useChatStore = defineStore('chat', () => {
             messageCache.value[sid] = list
             if (MOCK_OPEN()) mockMessagesBySession[sid] = list
           }
-        } catch (e) {
+        } catch {
           /* ignore */
         }
       }
+
+      schedulePersist()
       return sessions.value
-    } catch (e) {
+    } catch {
       return sessions.value
     } finally {
       loading.value = false
@@ -287,9 +501,11 @@ export const useChatStore = defineStore('chat', () => {
 
   async function createSession() {
     abortCurrentStream()
-    messages.value = []
-    currentSessionId.value = null
-    return null
+    const sid = await ensureNewSession('新会话')
+    currentSessionId.value = sid
+    bindMessagesToSession(sid)
+    schedulePersist()
+    return sid
   }
 
   async function switchSession(sessionId) {
@@ -305,15 +521,15 @@ export const useChatStore = defineStore('chat', () => {
           const list = normalizeMessages(
             data.items || data.list || data.messages || []
           )
-          if (list.length) {
-            messageCache.value[sid] = list
-            if (MOCK_OPEN()) mockMessagesBySession[sid] = list
-          }
-        } catch (e) {
-          /* ignore */
+          messageCache.value[sid] = list
+          if (MOCK_OPEN()) mockMessagesBySession[sid] = list
+        } catch {
+          if (!messageCache.value[sid]) messageCache.value[sid] = []
         }
       }
-      rebuildAllHistory()
+      if (!messageCache.value[sid]) messageCache.value[sid] = []
+      bindMessagesToSession(sid)
+      schedulePersist()
     } finally {
       loading.value = false
     }
@@ -324,19 +540,23 @@ export const useChatStore = defineStore('chat', () => {
     loading.value = true
     try {
       if (!isLocalSessionId(sid) && useRemoteSessions()) {
-        await deleteChatSession(sid)
+        try {
+          await deleteChatSession(sid)
+        } catch {
+          /* 本地仍删除 */
+        }
       }
       sessions.value = sessions.value.filter((s) => String(s.session_id) !== sid)
       clearLocalMeta(sid)
       delete messageCache.value[sid]
       if (MOCK_OPEN()) delete mockMessagesBySession[sid]
 
-      if (currentSessionId.value === sid) {
-        currentSessionId.value = sessions.value[0]
-          ? String(sessions.value[0].session_id)
-          : null
+      if (String(currentSessionId.value) === sid) {
+        const next = sessions.value[0]
+        currentSessionId.value = next ? String(next.session_id) : null
+        bindMessagesToSession(currentSessionId.value)
       }
-      rebuildAllHistory()
+      persistNow()
     } finally {
       loading.value = false
     }
@@ -348,77 +568,119 @@ export const useChatStore = defineStore('chat', () => {
     if (!text) return
 
     abortCurrentStream()
+    // 不要在每次发送时 hydrate：大历史 JSON.parse 会卡死整站主线程
 
     const title = text.slice(0, 20) || '新会话'
-    const turnId = await ensureTurnSession(title)
-    currentSessionId.value = turnId
+    let sessionId = currentSessionId.value ? String(currentSessionId.value) : null
 
-    const userMsg = { role: 'user', content: text }
-    const aiMessage = { role: 'assistant', content: '', sources: [], error: '' }
+    // 无当前会话，或当前会话不属于列表时，才新建
+    if (!sessionId || !sessions.value.some((s) => String(s.session_id) === sessionId)) {
+      sessionId = await ensureNewSession(title)
+      currentSessionId.value = sessionId
+      bindMessagesToSession(sessionId)
+    } else {
+      upsertSession(sessionId, title)
+      bindMessagesToSession(sessionId)
+    }
+
+    const userMsg = { id: msgId(), role: 'user', content: text }
+    const aiMessage = {
+      id: msgId(),
+      role: 'assistant',
+      content: '',
+      sources: [],
+      error: ''
+    }
     messages.value.push(userMsg, aiMessage)
-    cacheTurn(turnId, userMsg, aiMessage)
+    if (MOCK_OPEN()) {
+      mockMessagesBySession[String(sessionId)] = messages.value
+    }
+    schedulePersist()
 
     streaming.value = true
     sseController = createSSEController()
 
-    const isLocalTemp = isLocalSessionId(turnId)
+    // 流式 UI 节流：原始文本先进缓冲，定时刷到 Vue，避免每 token 强制整段重渲染卡死主线程
+    let rawContent = ''
+    const flushUi = () => {
+      if (aiMessage.content !== rawContent) {
+        aiMessage.content = rawContent
+      }
+    }
+    const stopUiTimer = () => {
+      clearStreamUiTimer()
+      flushUi()
+    }
+
     const payload = {
       kb_id: selectedKbId.value,
       query: text,
-      search_type: 'hybrid',
-      top_n: 3
-    }
-    if (!isLocalTemp) {
-      payload.session_id = String(turnId)
+      search_type: 'vector',
+      top_n: 3,
+      // 始终带上会话 id，后端才能加载多轮上下文（含 local-*）
+      session_id: String(sessionId)
     }
 
     await streamChat(payload, {
       signal: sseController.signal,
       onStart: (event) => {
+        streamStatus.value = '正在检索知识库...'
         if (event?.session_id) {
-          const oldId = String(currentSessionId.value || '')
           const newId = String(event.session_id)
+          const oldId = String(currentSessionId.value || sessionId)
           if (oldId !== newId) {
-            const pair = messageCache.value[oldId] || [userMsg, aiMessage]
-            messageCache.value[newId] = pair
-            delete messageCache.value[oldId]
-            if (MOCK_OPEN()) {
-              mockMessagesBySession[newId] = pair
-              delete mockMessagesBySession[oldId]
-            }
-            const row = sessions.value.find((s) => String(s.session_id) === oldId)
-            if (row) {
-              const oldMeta = readSessionMeta()[oldId]
-              row.session_id = newId
-              if (!oldMeta?.title) row.title = title
-              if (oldMeta) {
-                clearLocalMeta(oldId)
-                patchLocalMeta(newId, oldMeta)
-              }
-            } else {
-              upsertSession(newId, title)
-            }
-            currentSessionId.value = newId
-            setSessions(sessions.value)
+            remapSessionId(oldId, newId, title)
+            sessionId = newId
           }
         }
       },
+      onStatus: (event) => {
+        if (event?.message) streamStatus.value = String(event.message)
+        else if (event?.stage === 'generate') streamStatus.value = '正在生成回答...'
+        else if (event?.stage === 'retrieve') streamStatus.value = '正在检索知识库...'
+      },
       onMessage: (event) => {
-        if (event.content) aiMessage.content += event.content
-        cacheTurn(currentSessionId.value, userMsg, aiMessage)
+        if (!event.content) return
+        rawContent += event.content
+        if (streamStatus.value) streamStatus.value = ''
+        // 首包立即上屏；之后 48ms 节流
+        if (streamUiTimer == null) {
+          flushUi()
+          streamUiTimer = setInterval(flushUi, 48)
+        }
       },
       onDone: (event) => {
+        if (event?.aborted) {
+          stopUiTimer()
+          streaming.value = false
+          streamStatus.value = ''
+          sseController = null
+          // 中断时仍落盘已生成内容，但不做重排序等重活
+          persistNow()
+          return
+        }
+        stopUiTimer()
         if (event?.sources?.length) aiMessage.sources = event.sources
-        if (event?.content) aiMessage.content += event.content
+        if (event?.content) {
+          rawContent += event.content
+          aiMessage.content = rawContent
+        }
         if (!aiMessage.content) {
           aiMessage.content =
             '当前知识库暂无相关内容，请更换问题或补充文档后重试。'
         }
-        cacheTurn(currentSessionId.value, userMsg, aiMessage)
+        const row = sessions.value.find(
+          (s) => String(s.session_id) === String(currentSessionId.value)
+        )
+        if (row) row.updated_at = new Date().toISOString()
+        setSessions(sessions.value)
         streaming.value = false
+        streamStatus.value = ''
         sseController = null
+        persistNow()
       },
       onError: (error) => {
+        stopUiTimer()
         const code = error?.code
         const msg = error?.message || error?.msg || ''
         if (code === 5002) {
@@ -430,15 +692,27 @@ export const useChatStore = defineStore('chat', () => {
         } else if (!aiMessage.content) {
           aiMessage.error = msg || '回答生成失败，请稍后重试'
         }
-        cacheTurn(currentSessionId.value, userMsg, aiMessage)
         streaming.value = false
+        streamStatus.value = ''
         sseController = null
+        persistNow()
       }
     })
+    stopUiTimer()
   }
 
   function resetState() {
     abortCurrentStream()
+    if (persistTimer) {
+      clearTimeout(persistTimer)
+      persistTimer = null
+    }
+    // 先落盘再清空内存，避免登出丢失未写入的对话
+    try {
+      persistNow()
+    } catch {
+      /* ignore */
+    }
     sessions.value = []
     currentSessionId.value = null
     messages.value = []
@@ -446,6 +720,17 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = false
     loading.value = false
     selectedKbId.value = null
+    hydrated = false
+  }
+
+  async function warmupSelectedKb() {
+    const kbId = selectedKbId.value
+    if (!kbId) return
+    try {
+      await warmupChat(kbId)
+    } catch {
+      /* 预热失败不阻断对话 */
+    }
   }
 
   return {
@@ -455,6 +740,7 @@ export const useChatStore = defineStore('chat', () => {
     streaming,
     loading,
     selectedKbId,
+    streamStatus,
     loadSessions,
     createSession,
     switchSession,
@@ -464,6 +750,8 @@ export const useChatStore = defineStore('chat', () => {
     sendQuestion,
     abortCurrentStream,
     resetState,
-    rebuildAllHistory
+    hydrateFromLocal,
+    persistNow,
+    warmupSelectedKb
   }
 })

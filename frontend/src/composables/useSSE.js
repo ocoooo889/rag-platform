@@ -131,9 +131,14 @@ async function runFetchSSE(options = {}) {
 
   const response = await fetch(url, {
     method,
-    headers,
+    headers: {
+      Accept: 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      ...headers
+    },
     body: method.toUpperCase() === 'GET' ? undefined : body,
-    signal
+    signal,
+    cache: 'no-store'
   })
 
   if (!response.ok) {
@@ -166,50 +171,108 @@ async function runFetchSSE(options = {}) {
   let buffer = ''
   let finished = false
 
+  const pushContent = (text) => {
+    if (!text) return
+    onMessage && onMessage({ type: 'chunk', content: text })
+  }
+
   const finish = (event) => {
     if (finished) return
     finished = true
     onDone && onDone(event || { type: 'done' })
   }
 
+  // MessageChannel 让出主线程：一批 SSE 解析时仍能响应侧栏点击/切页
+  let scheduleYield = (cb) => setTimeout(cb, 0)
+  try {
+    const ch = new MessageChannel()
+    let pending = null
+    ch.port1.onmessage = () => {
+      const fn = pending
+      pending = null
+      if (fn) fn()
+    }
+    scheduleYield = (cb) => {
+      pending = cb
+      ch.port2.postMessage(0)
+    }
+  } catch {
+    /* keep setTimeout fallback */
+  }
+
+  const yieldToMain = () => new Promise((resolve) => scheduleYield(resolve))
+
+  const handleDataLine = (raw) => {
+    if (!raw || raw === '[DONE]') {
+      finish()
+      return
+    }
+    try {
+      const event = JSON.parse(raw)
+      if (event.type === 'start') onStart && onStart(event)
+      else if (event.type === 'status') handlers.onStatus && handlers.onStatus(event)
+      else if (event.type === 'chunk') pushContent(event.content || '')
+      else if (event.type === 'done' || event.done === true) {
+        const sources = (event.references || event.sources || []).map((r) => ({
+          chunk_id: r.chunk_id,
+          content: r.content,
+          score: r.score,
+          source_doc: r.source_doc || ''
+        }))
+        finish({ ...event, sources })
+      } else if (event.content && !event.type) {
+        pushContent(event.content)
+      }
+    } catch (e) {
+      // 非 JSON 的 data 行忽略
+    }
+  }
+
+  let eventsSinceYield = 0
   while (true) {
+    if (signal?.aborted) break
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
-    const parts = buffer.split('\n\n')
-    buffer = parts.pop() || ''
 
-    for (const part of parts) {
+    buffer = buffer.replace(/\r\n/g, '\n')
+    let sep
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {
+      if (signal?.aborted) {
+        finished = true
+        break
+      }
+      const part = buffer.slice(0, sep)
+      buffer = buffer.slice(sep + 2)
       for (const line of part.split('\n')) {
         if (!line.startsWith('data:')) continue
-        const raw = line.slice(5).trim()
-        if (!raw || raw === '[DONE]') {
-          finish()
-          continue
-        }
-        try {
-          const event = JSON.parse(raw)
-          if (event.type === 'start') onStart && onStart(event)
-          else if (event.type === 'chunk') {
-            onMessage && onMessage({ content: event.content || '', ...event })
-          } else if (event.type === 'done' || event.done === true) {
-            const sources = (event.references || event.sources || []).map((r) => ({
-              chunk_id: r.chunk_id,
-              content: r.content,
-              score: r.score,
-              source_doc: r.source_doc || ''
-            }))
-            finish({ ...event, sources })
-          } else if (event.content && !event.type) {
-            onMessage && onMessage(event)
-          }
-        } catch (e) {
-          onMessage && onMessage({ content: raw })
+        const raw = line.startsWith('data: ') ? line.slice(6) : line.slice(5).trimStart()
+        handleDataLine(raw)
+        eventsSinceYield += 1
+        if (eventsSinceYield >= 2) {
+          eventsSinceYield = 0
+          await yieldToMain()
         }
       }
     }
+    if (signal?.aborted) break
   }
-  finish()
+
+  if (!signal?.aborted && buffer.trim()) {
+    for (const line of buffer.replace(/\r\n/g, '\n').split('\n')) {
+      if (!line.startsWith('data:')) continue
+      const raw = line.startsWith('data: ') ? line.slice(6) : line.slice(5).trimStart()
+      handleDataLine(raw)
+    }
+  }
+  if (signal?.aborted) {
+    if (!finished) {
+      finished = true
+      onDone && onDone({ type: 'done', aborted: true })
+    }
+  } else {
+    finish()
+  }
 }
 
 function runEventSourceSSE(options = {}) {

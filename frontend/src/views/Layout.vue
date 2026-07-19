@@ -6,6 +6,24 @@
         <h1 class="header-title" :title="displayBrandName">{{ displayBrandName }}</h1>
       </div>
       <div class="header-right">
+        <div
+          class="font-size-switch"
+          role="group"
+          aria-label="系统文字大小"
+          title="系统文字大小"
+        >
+          <button
+            v-for="opt in uiPrefs.options"
+            :key="opt.value"
+            type="button"
+            class="font-size-switch__btn"
+            :class="{ 'is-active': uiPrefs.fontSize === opt.value }"
+            :aria-pressed="uiPrefs.fontSize === opt.value"
+            @click="uiPrefs.setFontSize(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
         <span class="user-chip">{{ displayRole }}</span>
         <el-dropdown
           trigger="click"
@@ -123,20 +141,24 @@
             <span class="menu-label">系统概览</span>
             <span v-if="isAdminOnlyPath('/dashboard')" class="admin-badge">admin</span>
           </el-menu-item>
+          <el-menu-item v-if="canSeeMenu('/chat')" index="/chat">
+            <el-icon><ChatDotRound /></el-icon>
+            <span class="menu-label">智能对话</span>
+          </el-menu-item>
           <el-menu-item v-if="canSeeMenu('/roles')" index="/roles">
             <el-icon><UserFilled /></el-icon>
-            <span class="menu-label">角色管理</span>
+            <span class="menu-label">权限管理</span>
             <span v-if="isAdminOnlyPath('/roles')" class="admin-badge">admin</span>
-          </el-menu-item>
-          <el-menu-item v-if="canSeeMenu('/users')" index="/users">
-            <el-icon><User /></el-icon>
-            <span class="menu-label">用户管理</span>
-            <span v-if="isAdminOnlyPath('/users')" class="admin-badge">admin</span>
           </el-menu-item>
           <el-menu-item v-if="canSeeMenu('/user-groups')" index="/user-groups">
             <el-icon><UserFilled /></el-icon>
             <span class="menu-label">用户组管理</span>
             <span v-if="isAdminOnlyPath('/user-groups')" class="admin-badge">admin</span>
+          </el-menu-item>
+          <el-menu-item v-if="canSeeMenu('/users')" index="/users">
+            <el-icon><User /></el-icon>
+            <span class="menu-label">用户管理</span>
+            <span v-if="isAdminOnlyPath('/users')" class="admin-badge">admin</span>
           </el-menu-item>
           <el-menu-item v-if="canSeeMenu('/models')" index="/models">
             <el-icon><Monitor /></el-icon>
@@ -145,24 +167,22 @@
           </el-menu-item>
           <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
             <el-icon><Setting /></el-icon>
-            <span class="menu-label">品牌配置</span>
+            <span class="menu-label">自定义设置</span>
             <span v-if="isAdminOnlyPath('/branding')" class="admin-badge">admin</span>
           </el-menu-item>
           <el-menu-item v-if="canSeeMenu('/knowledge-bases')" index="/knowledge-bases">
             <el-icon><Folder /></el-icon>
             <span class="menu-label">知识库管理</span>
+            <span v-if="isAdminOnlyPath('/knowledge-bases')" class="admin-badge">admin</span>
           </el-menu-item>
           <el-menu-item v-if="canSeeMenu('/documents')" index="/documents">
             <el-icon><Document /></el-icon>
-            <span class="menu-label">文档管理</span>
+            <span class="menu-label">知识文档库</span>
+            <span v-if="isAdminOnlyPath('/documents')" class="admin-badge">admin</span>
           </el-menu-item>
           <el-menu-item v-if="canSeeMenu('/hit-test')" index="/hit-test">
             <el-icon><Search /></el-icon>
             <span class="menu-label">命中率测试</span>
-          </el-menu-item>
-          <el-menu-item v-if="canSeeMenu('/chat')" index="/chat">
-            <el-icon><ChatDotRound /></el-icon>
-            <span class="menu-label">智能对话</span>
           </el-menu-item>
         </el-menu>
         <div v-if="showSidebarStatus" class="aside-status">
@@ -203,6 +223,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useBrandingStore } from '@/stores/branding'
+import { useUiPrefsStore } from '@/stores/uiPrefs'
 import { isAdminRole, resolveRoleCode, roleCodeToLabel } from '@/utils/role'
 import {
   HomeFilled,
@@ -228,6 +249,7 @@ const PROVIDER_FOOTER = 'Powered by 六朵云 · RAG Platform'
 const router = useRouter()
 const userStore = useUserStore()
 const brandingStore = useBrandingStore()
+const uiPrefs = useUiPrefsStore()
 
 useGlassPointerGlow()
 
@@ -408,24 +430,26 @@ const displayRole = computed(() => {
 
 const menuVisibility = {
   '/dashboard': (role) => isAdminRole(role),
+  '/chat': () => true,
   '/roles': (role) => isAdminRole(role),
-  '/users': (role) => isAdminRole(role),
   '/user-groups': (role) => isAdminRole(role),
+  '/users': (role) => isAdminRole(role),
   '/models': (role) => isAdminRole(role),
   '/branding': (role) => isAdminRole(role),
-  '/knowledge-bases': () => true,
-  '/documents': () => true,
-  '/hit-test': () => true,
-  '/chat': () => true
+  '/knowledge-bases': (role) => isAdminRole(role),
+  '/documents': (role) => isAdminRole(role),
+  '/hit-test': () => true
 }
 
 const ADMIN_ONLY_PATHS = new Set([
   '/dashboard',
   '/roles',
-  '/users',
   '/user-groups',
+  '/users',
   '/models',
-  '/branding'
+  '/branding',
+  '/knowledge-bases',
+  '/documents'
 ])
 
 const canSeeMenu = (path) => {
@@ -444,6 +468,7 @@ brandingStore.applyBranding()
 
 onMounted(async () => {
   document.documentElement.classList.add('admin-theme')
+  uiPrefs.init()
   try {
     await userStore.ensureUserInfo()
   } catch (e) {
@@ -490,7 +515,8 @@ const handleLogout = () => {
 
 /* —— 统一磨砂：仅 Aside（页眉不要毛玻璃；深蓝黑 30% + blur） —— */
 .aside {
-  background: rgba(10, 18, 36, 0.3);
+  background-color: rgba(10, 18, 36, 0.3);
+  background-image: var(--admin-card-tint);
   border: 1px solid var(--glass-border);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
@@ -535,11 +561,11 @@ const handleLogout = () => {
   margin: 0;
   width: 100%;
   font-size: var(--admin-brand-font-size);
-  font-weight: 700;
+  font-weight: var(--admin-fw-bold, 700);
   letter-spacing: 0;
   line-height: var(--admin-header-height);
   height: var(--admin-header-height);
-  color: #ffffff;
+  color: var(--admin-text, #ffffff);
   overflow: visible;
   text-overflow: clip;
   white-space: nowrap;
@@ -553,9 +579,44 @@ const handleLogout = () => {
   height: 100%;
 }
 
+.font-size-switch {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-divider);
+}
+
+.font-size-switch__btn {
+  min-width: 28px;
+  height: 26px;
+  padding: 0 8px;
+  margin: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: var(--admin-fs-caption);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.font-size-switch__btn:hover {
+  color: rgba(255, 255, 255, 0.88);
+}
+
+.font-size-switch__btn.is-active {
+  background: color-mix(in srgb, var(--el-color-primary) 55%, transparent);
+  color: #fff;
+}
+
 .user-chip {
   padding: 5px 11px;
-  font-size: 12px;
+  font-size: var(--admin-fs-caption);
   color: rgba(255, 255, 255, 0.88);
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--glass-divider);
@@ -589,7 +650,7 @@ const handleLogout = () => {
   justify-content: center;
   width: 42px;
   height: 42px;
-  font-size: 16px;
+  font-size: var(--admin-fs-body-lg);
   font-weight: 700;
   color: #fff;
   background: var(--el-color-primary);
@@ -621,7 +682,7 @@ const handleLogout = () => {
 .profile-avatar-btn .user-avatar {
   width: 56px;
   height: 56px;
-  font-size: 22px;
+  font-size: var(--admin-fs-title);
 }
 
 .layout-body {
@@ -655,7 +716,7 @@ const handleLogout = () => {
   z-index: 1;
   flex-shrink: 0;
   padding: 16px 16px 10px;
-  font-size: 12px;
+  font-size: var(--admin-fs-caption);
   font-weight: 600;
   letter-spacing: 0.06em;
   color: var(--admin-text-muted);
@@ -721,7 +782,7 @@ const handleLogout = () => {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--admin-fs-caption);
   color: rgba(200, 210, 230, 0.78);
 }
 
@@ -858,13 +919,13 @@ const handleLogout = () => {
 }
 
 .user-menu-popper .user-menu-meta__name {
-  font-size: 14px;
+  font-size: var(--admin-fs-body);
   font-weight: 600;
   color: #fff;
 }
 
 .user-menu-popper .user-menu-meta__account {
-  font-size: 12px;
+  font-size: var(--admin-fs-caption);
   color: rgba(180, 190, 210, 0.55);
 }
 </style>

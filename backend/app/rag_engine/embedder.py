@@ -12,9 +12,28 @@ from app.utils.llm_client import get_embedding, get_embeddings_batch
 logger = logging.getLogger(__name__)
 
 
+class VectorStoreError(Exception):
+    """Chroma / 向量库不可用（与 Embedding API 失败区分）"""
+
+    def __init__(self, message: str = "向量库暂不可用，已切换关键词检索"):
+        self.message = message
+        super().__init__(message)
+
+
 def _get_collection():
-    client = chromadb.HttpClient(host=config.CHROMA_HOST, port=config.CHROMA_PORT)
-    return client.get_or_create_collection(name=config.CHROMA_COLLECTION_NAME)
+    try:
+        client = chromadb.HttpClient(host=config.CHROMA_HOST, port=config.CHROMA_PORT)
+        return client.get_or_create_collection(name=config.CHROMA_COLLECTION_NAME)
+    except Exception as e:
+        logger.warning(
+            "连接 Chroma 失败 %s:%s — %s",
+            config.CHROMA_HOST,
+            config.CHROMA_PORT,
+            e,
+        )
+        raise VectorStoreError(
+            f"向量库（Chroma {config.CHROMA_HOST}:{config.CHROMA_PORT}）未启动，已切换关键词检索"
+        ) from e
 
 
 def _distance_to_score(distance) -> float:
@@ -36,7 +55,13 @@ async def embed_and_store(
     kwargs = {"embeddings": embeddings, "documents": texts, "ids": ids}
     if metadatas:
         kwargs["metadatas"] = metadatas
-    collection.add(**kwargs)
+    try:
+        collection.add(**kwargs)
+    except VectorStoreError:
+        raise
+    except Exception as e:
+        logger.warning("写入 Chroma 失败: %s", e)
+        raise VectorStoreError("向量库写入失败，已切换关键词检索") from e
     logger.info("写入 Chroma %s 条，集合=%s", len(texts), config.CHROMA_COLLECTION_NAME)
 
 
@@ -48,7 +73,6 @@ async def query_similar(
     query_vec = await get_embedding(query)
     collection = _get_collection()
     n_results = max(top_n, 1)
-    # Chroma 要求 n_results 不超过集合大小时更稳，这里先按请求取
     kwargs = {
         "query_embeddings": [query_vec],
         "n_results": n_results,
@@ -57,7 +81,14 @@ async def query_similar(
     if where:
         kwargs["where"] = where
 
-    results = collection.query(**kwargs)
+    try:
+        results = collection.query(**kwargs)
+    except VectorStoreError:
+        raise
+    except Exception as e:
+        logger.warning("Chroma 查询失败: %s", e)
+        raise VectorStoreError("向量库查询失败，已切换关键词检索") from e
+
     hits = []
     if not results.get("ids") or not results["ids"][0]:
         return hits
@@ -82,5 +113,8 @@ async def query_similar(
 async def delete_from_chroma(ids: list[str]) -> None:
     if not ids:
         return
-    collection = _get_collection()
-    collection.delete(ids=ids)
+    try:
+        collection = _get_collection()
+        collection.delete(ids=ids)
+    except Exception as e:
+        logger.warning("Chroma 删除忽略: %s", e)

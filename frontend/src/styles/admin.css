@@ -70,11 +70,31 @@ html.admin-theme {
   --el-disabled-text-color: var(--admin-text-dim);
   --el-disabled-border-color: rgba(255, 255, 255, 0.08);
   --el-overlay-color-lighter: rgba(0, 0, 0, 0.45);
+  --admin-primary-soft: color-mix(in srgb, var(--el-color-primary) 18%, transparent);
   --el-color-primary-light-9: var(--admin-primary-soft);
   --el-color-success-light-9: var(--admin-success-soft);
   --el-color-warning-light-9: var(--admin-warning-soft);
   --el-color-danger-light-9: var(--admin-danger-soft);
   --el-color-info-light-9: var(--admin-fill);
+
+  /*
+   * 卡片双色晕染：主题色一角 + 补色对角，轻扫叠层。
+   * 想增强/减弱：调两层 mix 百分比（当前主色约 14%、补色约 11%）。
+   */
+  --admin-primary-complement: oklch(from var(--el-color-primary) l c calc(h + 180));
+  --admin-card-tint:
+    linear-gradient(
+      152deg,
+      color-mix(in srgb, var(--el-color-primary) 14%, transparent) 0%,
+      color-mix(in srgb, var(--el-color-primary) 6%, transparent) 38%,
+      transparent 70%
+    ),
+    linear-gradient(
+      332deg,
+      color-mix(in srgb, var(--admin-primary-complement) 11%, transparent) 0%,
+      color-mix(in srgb, var(--admin-primary-complement) 5%, transparent) 42%,
+      transparent 72%
+    );
 }
 
 html.admin-theme,
@@ -142,11 +162,11 @@ html.admin-theme #app {
 html.admin-theme .page-header h2,
 html.admin-theme .dashboard-header h2 {
   margin: 0 !important;
-  font-size: 22px !important;
-  font-weight: 600 !important;
+  font-size: var(--admin-fs-title) !important;
+  font-weight: var(--admin-fw-semibold) !important;
   letter-spacing: -0.02em;
-  line-height: 1.25;
-  color: #ffffff !important;
+  line-height: var(--admin-lh-tight);
+  color: var(--admin-text) !important;
 }
 
 /* 页壳：文档流布局，标题不 sticky 黑条（对齐可用截图） */
@@ -187,7 +207,7 @@ html.admin-theme .page-body {
 }
 
 /* —— 磨砂玻璃：边框 + blur（页眉除外；aside 单独处理圆角） —— */
-/* 非表格卡片：底色全透明；表格保留 glass-fill */
+/* 非表格卡片：深蓝黑底 + 主题色轻微渐变晕染；表格同理叠 tint */
 html.admin-theme .aside,
 html.admin-theme .kb-card,
 html.admin-theme .el-card,
@@ -208,8 +228,9 @@ html.admin-theme .chart-card {
   --glow-x: 50%;
   --glow-y: 50%;
   --glow-r: 120px;
-  background: rgba(10, 18, 36, 0.15) !important;
-  background-image: none !important;
+  background-color: rgba(10, 18, 36, 0.15) !important;
+  background-image: var(--admin-card-tint) !important;
+  background-repeat: no-repeat !important;
   border: 1px solid var(--glass-border) !important;
   border-radius: var(--glass-radius) !important;
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
@@ -224,8 +245,9 @@ html.admin-theme .app-table {
   --glow-x: 50%;
   --glow-y: 50%;
   --glow-r: 120px;
-  background: var(--glass-fill) !important;
-  background-image: none !important;
+  background-color: var(--glass-fill) !important;
+  background-image: var(--admin-card-tint) !important;
+  background-repeat: no-repeat !important;
   border: 1px solid var(--glass-border) !important;
   border-radius: var(--glass-radius) !important;
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
@@ -245,19 +267,20 @@ html.admin-theme .header {
   backdrop-filter: none !important;
 }
 
-/* 侧栏：左贴边直角，右侧 14px 圆角；深蓝黑 30% + blur */
+/* 侧栏：左贴边直角，右侧 14px 圆角；深蓝黑 30% + 主题晕染 */
 html.admin-theme .aside {
   border-radius: 0 14px 14px 0 !important;
   border-left: none !important;
-  background: rgba(10, 18, 36, 0.3) !important;
+  background-color: rgba(10, 18, 36, 0.3) !important;
+  background-image: var(--admin-card-tint) !important;
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
 }
 
-/* 对话输入框：深蓝黑 15% 底；圆角单独保留 */
+/* 对话输入框：深蓝黑 15% 底 + 主题晕染；圆角单独保留 */
 html.admin-theme .composer-box {
-  background: rgba(10, 18, 36, 0.15) !important;
-  background-image: none !important;
+  background-color: rgba(10, 18, 36, 0.15) !important;
+  background-image: var(--admin-card-tint) !important;
   border-radius: 28px !important;
 }
 
@@ -582,7 +605,8 @@ html.admin-theme .el-message-box__wrapper {
 
 html.admin-theme .el-message-box {
   --el-messagebox-title-color: var(--admin-text);
-  background: rgba(10, 18, 36, 0.15) !important;
+  background-color: rgba(10, 18, 36, 0.15) !important;
+  background-image: var(--admin-card-tint) !important;
   margin: 0 !important;
 }
 
@@ -634,8 +658,8 @@ html.admin-theme .el-form-item .el-button--primary:not(.is-text):not(.is-link) {
   min-height: 32px !important;
   padding: 0 16px !important;
   line-height: 1 !important;
-  font-size: 14px !important;
-  font-weight: 600 !important;
+  font-size: var(--admin-fs-body) !important;
+  font-weight: var(--admin-fw-semibold) !important;
   /* 静态外形 = 原「批量删除」不可选态 */
   background-color: var(--admin-btn-soft-bg) !important;
   background-image: none !important;
@@ -737,7 +761,7 @@ html.admin-theme .el-button--danger:not(.is-link):not(.is-text):not(.el-button--
   min-height: 32px !important;
   padding: 0 16px !important;
   line-height: 1 !important;
-  font-size: 14px !important;
+  font-size: var(--admin-fs-body) !important;
   background-color: var(--el-color-danger) !important;
   border-color: var(--el-color-danger) !important;
   color: #ffffff !important;
@@ -758,8 +782,8 @@ html.admin-theme .el-button--default:not(.is-text):not(.is-link):not(.el-button-
   min-height: 32px !important;
   padding: 0 16px !important;
   line-height: 1 !important;
-  font-size: 14px !important;
-  font-weight: 600 !important;
+  font-size: var(--admin-fs-body) !important;
+  font-weight: var(--admin-fw-semibold) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;

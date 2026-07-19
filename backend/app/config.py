@@ -59,6 +59,19 @@ ENABLE_QUERY_REWRITE = os.getenv("ENABLE_QUERY_REWRITE", "true").lower() not in 
     "no",
     "off",
 )
+# 流式对话默认不做 Query Rewrite（省一次 LLM，显著缩短首 token）；非流式仍可改写
+QUERY_REWRITE_ON_STREAM = os.getenv("QUERY_REWRITE_ON_STREAM", "false").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+# 改写等待上限（秒）
+QUERY_REWRITE_TIMEOUT = float(os.getenv("QUERY_REWRITE_TIMEOUT", "1.2"))
+# 流式对话：向量检索等待上限（秒），超时立刻用本地 BM25，换更快首 token
+CHAT_VECTOR_TIMEOUT = float(os.getenv("CHAT_VECTOR_TIMEOUT", "0.7"))
+# 对话默认检索：fast=优先本地 BM25；balanced=向量（超时回退 BM25）；quality=强制向量
+CHAT_RETRIEVE_MODE = (os.getenv("CHAT_RETRIEVE_MODE", "fast") or "fast").strip().lower()
 
 # ============================================================
 # 环境隔离 · 个人标识

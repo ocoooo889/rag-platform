@@ -1,7 +1,7 @@
 <template>
   <div class="branding-config page-shell">
     <div class="page-header">
-      <h2>品牌配置</h2>
+      <h2>自定义设置</h2>
       <el-button type="primary" @click="handleReset">恢复默认</el-button>
     </div>
 
@@ -423,7 +423,7 @@ const handleSubmit = async () => {
     const updateResult = await updateBrandingApi(data)
     await brandingStore.fetchBranding()
 
-    ElMessage.success('品牌配置更新成功')
+    ElMessage.success('自定义设置更新成功')
 
     const logoUrl = updateResult?.brand_logo_url || brandingStore.brandLogoUrl
     if (logoUrl) {
@@ -443,7 +443,7 @@ const handleSubmit = async () => {
       const errorMsg = error.response.data?.detail || error.response.data?.message || '参数格式错误'
       ElMessage.error(errorMsg)
     } else {
-      ElMessage.error(error?.response?.data?.msg || '品牌配置更新失败')
+      ElMessage.error(error?.response?.data?.msg || '自定义设置更新失败')
     }
   } finally {
     loading.value = false

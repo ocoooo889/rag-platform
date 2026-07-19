@@ -147,11 +147,28 @@ export async function updateChatSession(sessionId, data = {}) {
  * 流式对话：组装契约入参后交给 runSSE
  * Mock 异常：query 含 __timeout__ / __5002__ 等触发词
  */
+function normalizeUrl(url = '') {
+  return String(url || '').trim().replace(/\/$/, '')
+}
+
+/** 开发态 SSE 直连后端，避开 Vite http-proxy 对 event-stream 的攒包 */
+function resolveStreamUrl() {
+  if (API_BASE_URL) return `${API_BASE_URL}/api/chat/stream`
+  const proxy = normalizeUrl(
+    import.meta.env.VITE_API_PROXY || import.meta.env.VITE_API_PROXY_TARGET || ''
+  )
+  if (import.meta.env.DEV && proxy) {
+    return `${proxy}/api/chat/stream`
+  }
+  return '/api/chat/stream'
+}
+
 export async function streamChat(payload, handlers = {}) {
   const body = {
     kb_id: String(payload.kb_id),
     query: payload.query || payload.question || '',
-    search_type: payload.search_type || 'hybrid',
+    // 对话默认向量检索，比 hybrid 少一次全库 BM25，首 token 更快
+    search_type: payload.search_type || 'vector',
     top_n: payload.top_n || 3,
     env: getEnvTag()
   }
@@ -164,14 +181,9 @@ export async function streamChat(payload, handlers = {}) {
   if (scenario === 'timeout') errorScenario = 'timeout'
   if (scenario === 'llm_error') errorScenario = 'llm_error'
 
-  // [LUO-F02] baseURL 为空时用相对路径，走 Vite 代理
-  const streamUrl = API_BASE_URL
-    ? `${API_BASE_URL}/api/chat/stream`
-    : '/api/chat/stream'
-
   return runSSE({
     payload: body,
-    url: streamUrl,
+    url: resolveStreamUrl(),
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -181,6 +193,7 @@ export async function streamChat(payload, handlers = {}) {
     signal: handlers.signal,
     handlers: {
       onStart: handlers.onStart,
+      onStatus: handlers.onStatus,
       onMessage: handlers.onMessage,
       onDone: handlers.onDone,
       onError: handlers.onError
@@ -198,3 +211,16 @@ export async function streamChat(payload, handlers = {}) {
 }
 
 export { closeSSE, createSSEController }
+
+/** 预热知识库索引 / 向量链路，缩短首问等待 */
+export async function warmupChat(kbId) {
+  if (!kbId) return null
+  if (MOCK_OPEN()) {
+    return mockResolve({ kb_id: kbId, chunks: 0, vector_ready: true })
+  }
+  return request.post(
+    '/api/chat/warmup',
+    null,
+    { params: { kb_id: String(kbId) }, silent: true }
+  )
+}

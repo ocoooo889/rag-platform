@@ -8,6 +8,7 @@ import UserGroupManage from '@/views/UserGroupManage.vue'
 import ModelManage from '@/views/ModelManage.vue'
 import BrandingConfig from '@/views/BrandingConfig.vue'
 import { resolveRoleCode } from '@/utils/role'
+import { useChatStore } from '@/stores/chat'
 
 const routes = [
   { path: '/login', name: 'Login', component: Login },
@@ -57,13 +58,13 @@ const routes = [
         path: 'knowledge-bases',
         name: 'KnowledgeBases',
         component: () => import('@/views/KbManage.vue'),
-        meta: { roles: ['admin', 'user'] }
+        meta: { roles: ['admin'] }
       },
       {
         path: 'documents',
         name: 'Documents',
         component: () => import('@/views/DocManage.vue'),
-        meta: { roles: ['admin', 'user'] }
+        meta: { roles: ['admin'] }
       },
       {
         path: 'hit-test',
@@ -108,6 +109,15 @@ function redirectByRole() {
 }
 
 router.beforeEach((to, from, next) => {
+  // 离开智能对话时立刻中断 SSE，避免流式占用主线程拖死其它页面
+  if (from.name === 'ChatDialog' && to.name !== 'ChatDialog') {
+    try {
+      useChatStore().abortCurrentStream()
+    } catch {
+      /* pinia 未就绪时忽略 */
+    }
+  }
+
   const token = getToken()
 
   if (to.path === '/login') {
