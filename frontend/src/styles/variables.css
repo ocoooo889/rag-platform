@@ -190,12 +190,33 @@ body {
   border-radius: var(--radius-card);
   overflow: hidden;
   color: var(--text-color-primary);
+  width: 100%;
+  table-layout: fixed;
+}
+
+.el-table.table-cols-auto {
+  table-layout: auto;
+}
+
+.el-table .cell {
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.el-table td.el-table__cell {
+  height: auto;
 }
 
 .el-table th.el-table__cell {
   background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
   color: var(--text-color-primary);
   font-weight: 600;
+  text-align: center;
+}
+
+.el-table th.el-table__cell .cell {
+  text-align: center;
 }
 
 .el-tag {

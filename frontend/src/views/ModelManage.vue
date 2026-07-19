@@ -5,12 +5,18 @@
       <el-button type="primary" @click="openAddDialog">新增模型配置</el-button>
     </div>
     <div class="page-body">
-    <el-table :data="modelList" border>
-      <el-table-column prop="id" label="ID" width="60" />
-      <el-table-column prop="model_type" label="模型类型" :formatter="formatType" />
-      <el-table-column prop="model_name" label="模型名称" />
-      <el-table-column prop="api_base_url" label="API地址" />
-      <el-table-column prop="dimension" label="向量维度" />
+    <el-table
+      v-equal-table
+      :data="modelList"
+      border
+      table-layout="fixed"
+      style="width: 100%"
+    >
+      <el-table-column prop="id" label="ID" align="center" class-name="col-id" show-overflow-tooltip />
+      <el-table-column prop="model_type" label="模型类型" :formatter="formatType" show-overflow-tooltip />
+      <el-table-column prop="model_name" label="模型名称" show-overflow-tooltip />
+      <el-table-column prop="api_base_url" label="API地址" show-overflow-tooltip />
+      <el-table-column prop="dimension" label="向量维度" show-overflow-tooltip />
       <el-table-column prop="is_active" label="状态">
         <template #default="scope">
           <el-tag :type="scope.row.is_active ? 'success' : 'info'">

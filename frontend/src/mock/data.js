@@ -188,7 +188,48 @@ export const MOCK_DASHBOARD_STATS = {
   kb_count: 2,
   doc_count: 5,
   user_count: 3,
-  group_count: 2
+  group_count: 2,
+  chunk_total: 128,
+  avg_chunks_per_kb: 64,
+  docs_by_status: { completed: 4, failed: 1, pending: 0, processing: 0 },
+  docs_by_file_type: { md: 3, txt: 1, txt: 1 },
+  today_new_docs: 1,
+  failed_doc_count: 1,
+  failed_docs: [
+    {
+      id: 'd-fail',
+      filename: '损坏样例.pdf',
+      kb_id: 'kb1',
+      error_message: '解析失败（Mock）'
+    }
+  ],
+  question_count: 42,
+  message_count: 80,
+  session_count: 12,
+  today_question_count: 5,
+  avg_session_rounds: 3.5,
+  max_session_rounds: 9,
+  call_count: 42,
+  services: [
+    { key: 'api', label: '后端 API', status: 'ok', detail: '正常响应' },
+    { key: 'chroma', label: 'Chroma 向量服务', status: 'ok', detail: 'localhost:8000' },
+    {
+      key: 'bm25_cache',
+      label: 'BM25 内存索引',
+      status: 'idle',
+      detail: '已缓存 0/2 个知识库',
+      cached_kb_count: 0
+    },
+    { key: 'sqlite', label: '会话存储', status: 'ok', detail: '消息 80 条 / 会话 12 个' }
+  ],
+  alerts: [
+    {
+      level: 'error',
+      title: '文档解析失败',
+      message: '损坏样例.pdf: 解析失败（Mock）'
+    }
+  ],
+  generated_at: '2026-07-19T00:00:00Z'
 }
 
 /** SSE 模拟分段答案 + done.references */

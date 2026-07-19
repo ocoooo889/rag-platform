@@ -263,6 +263,23 @@ async def chat_stream(
                 yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
                 return
 
+            degraded = search_type != "keyword" and any(
+                (r or {}).get("retrieve_fallback") == "bm25" for r in (refs or [])
+            )
+            if degraded:
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {
+                            "type": "status",
+                            "stage": "retrieve",
+                            "message": "向量检索加载中，已启用关键词检索兜底",
+                        },
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+
             yield (
                 "data: "
                 + json.dumps(
@@ -327,6 +344,20 @@ async def chat_stream(
     )
 
 
+_warmup_generation = 0
+
+
+async def _probe_vector(kb_id: str, gen: int) -> None:
+    if gen != _warmup_generation:
+        return
+    try:
+        from app.rag_engine.embedder import query_similar
+
+        await query_similar("warmup", 1, where={"kb_id": str(kb_id)})
+    except Exception:
+        pass
+
+
 @router.post("/warmup")
 async def chat_warmup(
     kb_id: str = Query(..., description="知识库 ID"),
@@ -334,9 +365,12 @@ async def chat_warmup(
     db: Session = Depends(get_db),
 ):
     """
-    预热：加载 KB 分片/BM25 缓存，并轻量探测 Embedding+Chroma。
-    进入对话页时调用，缩短首问等待。
+    预热：鉴权后立刻受理；BM25 在后台线程构建，向量探测异步进行。
+    新请求递增世代，使旧任务在切库后尽快退出。
+    响应不阻塞等待索引完成（前端后台调用即可）。
     """
+    global _warmup_generation
+
     kb_id = (kb_id or "").strip()
     if not kb_id:
         return fail(400, "缺少必填参数: kb_id")
@@ -344,23 +378,30 @@ async def chat_warmup(
     if not kb_exists(kb_id):
         return fail(404, "知识库不存在")
 
-    from app.rag_engine.kb_index_cache import get_kb_index
+    _warmup_generation += 1
+    gen = _warmup_generation
 
-    idx = get_kb_index(kb_id)
-    embed_ok = False
-    try:
-        from app.rag_engine.embedder import query_similar
+    async def _job() -> None:
+        if gen != _warmup_generation:
+            return
+        try:
+            from app.rag_engine.kb_index_cache import get_kb_index
 
-        await query_similar("warmup", 1, where={"kb_id": str(kb_id)})
-        embed_ok = True
-    except Exception:
-        embed_ok = False
+            await asyncio.to_thread(get_kb_index, kb_id)
+        except Exception:
+            return
+        if gen != _warmup_generation:
+            return
+        await _probe_vector(kb_id, gen)
+
+    asyncio.create_task(_job())
 
     return ok(
         {
             "kb_id": kb_id,
-            "chunks": len(idx.texts),
-            "vector_ready": embed_ok,
+            "accepted": True,
+            "status": "warming",
+            "generation": gen,
         }
     )
 

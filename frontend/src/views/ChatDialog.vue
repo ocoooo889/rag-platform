@@ -3,8 +3,6 @@
     class="chat-dialog"
     :class="{ 'chat-dialog--resizing': resizing || vResizing }"
     :style="{ gridTemplateColumns: panelWidth + 'px 6px 1fr' }"
-    v-loading="bootLoading"
-    element-loading-text="加载中..."
   >
     <!-- 左侧会话栏 -->
     <aside class="session-panel">
@@ -215,6 +213,15 @@
       </div>
     </section>
 
+    <div
+      v-if="chatStore.kbWarming"
+      class="kb-warm-badge"
+      role="status"
+      aria-live="polite"
+    >
+      知识库资源加载中
+    </div>
+
     <ConfirmDialog
       v-model="deleteVisible"
       title="删除会话"
@@ -321,7 +328,6 @@ const renameVisible = ref(false)
 const renameId = ref(null)
 const renameTitle = ref('')
 const messageListRef = ref(null)
-const bootLoading = ref(false)
 const pageError = ref('')
 /** 仅当用户贴近底部时才自动滚到底，避免流式输出抢滚动 */
 const stickToBottom = ref(true)
@@ -351,8 +357,7 @@ const canSend = computed(
     hasKb.value &&
     !!chatStore.selectedKbId &&
     !!question.value.trim() &&
-    !chatStore.streaming &&
-    !bootLoading.value
+    !chatStore.streaming
 )
 
 const sendDisabledTip = computed(() => {
@@ -425,6 +430,7 @@ watch(
   (kbId) => {
     if (kbId) {
       kbStore.setSelectedKb(kbId)
+      // 后台预热，不挡交互
       chatStore.warmupSelectedKb()
     }
   }
@@ -432,39 +438,40 @@ watch(
 
 async function initPage() {
   pageError.value = ''
-  bootLoading.value = true
+
+  // 1) 本地历史立刻上屏
+  chatStore.hydrateFromLocal()
+  if (kbStore.selectedKbId) {
+    chatStore.selectedKbId = kbStore.selectedKbId
+  }
+  if (chatStore.currentSessionId) {
+    chatStore.bindMessagesToSession(chatStore.currentSessionId)
+  } else if (chatStore.sessions.length) {
+    chatStore.currentSessionId = String(chatStore.sessions[0].session_id)
+    chatStore.bindMessagesToSession(chatStore.currentSessionId)
+  }
+
   try {
-    await kbStore.loadList({ page: 1, page_size: 100 })
+    // 2) 无知识库列表时短等一次；已有列表则后台刷新
+    if (!kbStore.list.length) {
+      await kbStore.loadList({ page: 1, page_size: 100 })
+    } else {
+      kbStore.loadList({ page: 1, page_size: 100 }).catch(() => {})
+    }
+
     if (kbStore.selectedKbId) {
       chatStore.selectedKbId = kbStore.selectedKbId
     } else if (kbStore.list.length) {
       chatStore.selectedKbId = kbStore.list[0].id
     }
-    if (hasKb.value) {
-      chatStore.hydrateFromLocal()
-      // 预热与拉会话并行，缩短首问前的冷启动
-      await Promise.all([
-        chatStore.loadSessions(),
-        chatStore.warmupSelectedKb()
-      ])
-      // 左侧历史列表；主区只展示当前会话（本地已持久化）
-      if (chatStore.sessions.length) {
-        const targetId =
-          chatStore.currentSessionId &&
-          chatStore.sessions.some(
-            (s) => String(s.session_id) === String(chatStore.currentSessionId)
-          )
-            ? chatStore.currentSessionId
-            : chatStore.sessions[0].session_id
-        await chatStore.switchSession(targetId)
-      } else {
-        stickToBottom.value = true
-      }
-    }
+
+    if (!hasKb.value) return
+
+    // 3) 远端会话 + 预热全部后台，不挡首屏
+    chatStore.loadSessions().catch(() => {})
+    chatStore.warmupSelectedKb()
   } catch (e) {
     pageError.value = e?.message || e?.msg || '对话页加载失败，请重试'
-  } finally {
-    bootLoading.value = false
   }
 }
 
@@ -1169,5 +1176,34 @@ defineExpose({
 .session-action-menu .el-popper__arrow::before {
   background: #2a2a2a !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+
+.kb-warm-badge {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 40;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  color: rgba(230, 236, 250, 0.78);
+  background: rgba(18, 24, 38, 0.72);
+  border: 1px solid rgba(120, 160, 255, 0.18);
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  animation: kb-warm-fade-in 0.25s ease;
+}
+
+@keyframes kb-warm-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

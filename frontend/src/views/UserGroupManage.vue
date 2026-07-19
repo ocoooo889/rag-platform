@@ -5,23 +5,24 @@
       <el-button type="primary" @click="openAddDialog">新增用户组</el-button>
     </div>
     <div class="page-body">
-    <el-table :data="groupList" border table-layout="fixed">
-      <el-table-column prop="id" label="ID" min-width="56" />
-      <el-table-column prop="name" label="用户组名称" min-width="100" show-overflow-tooltip />
-      <el-table-column
-        prop="description"
-        label="描述"
-        width="400"
-        show-overflow-tooltip
-      />
-      <el-table-column prop="member_count" label="成员数" min-width="80" />
-      <el-table-column prop="kb_count" label="授权知识库数" min-width="120" />
-      <el-table-column label="创建时间" min-width="110">
+    <el-table
+      class="table-cols-auto"
+      :data="groupList"
+      border
+      table-layout="auto"
+      style="width: 100%"
+    >
+      <el-table-column prop="id" label="ID" width="72" align="center" class-name="col-id" />
+      <el-table-column prop="name" label="用户组名称" min-width="120" show-overflow-tooltip />
+      <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+      <el-table-column prop="member_count" label="成员数" width="88" />
+      <el-table-column prop="kb_count" label="授权知识库数" width="120" />
+      <el-table-column label="创建时间" width="120">
         <template #default="{ row }">
           {{ formatDate(row.created_at, 'YYYY/MM/DD') }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" min-width="280" fixed="right">
+      <el-table-column label="操作" min-width="320">
         <template #default="scope">
           <el-button text @click="openMembersDialog(scope.row)">成员管理</el-button>
           <el-button text @click="openKbAccessDialog(scope.row)">知识库授权</el-button>
@@ -54,10 +55,11 @@
     <el-dialog 
       v-model="membersDialogVisible" 
       title="成员管理" 
-      width="600px"
+      width="720px"
+      class="transfer-dialog"
       :close-on-click-modal="false"
     >
-      <div class="members-dialog">
+      <div class="transfer-dialog__body">
         <el-transfer
           v-model="selectedMembers"
           :data="userList"
@@ -83,10 +85,11 @@
     <el-dialog 
       v-model="kbAccessDialogVisible" 
       title="知识库授权" 
-      width="600px"
+      width="720px"
+      class="transfer-dialog"
       :close-on-click-modal="false"
     >
-      <div class="kb-access-dialog">
+      <div class="transfer-dialog__body">
         <el-transfer
           v-model="selectedKbs"
           :data="kbList"
@@ -279,8 +282,40 @@ onMounted(() => {
 .user-group-manage {
   /* page-shell 由 admin.css 统一 */
 }
-.members-dialog,
-.kb-access-dialog {
-  padding: 10px;
+
+.transfer-dialog__body {
+  display: flex;
+  justify-content: center;
+  padding: 4px 0 8px;
+  overflow-x: auto;
+}
+
+.transfer-dialog__body :deep(.el-transfer) {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  width: max-content;
+  max-width: 100%;
+}
+
+.transfer-dialog__body :deep(.el-transfer-panel) {
+  flex: 0 0 240px;
+  width: 240px;
+}
+
+.transfer-dialog__body :deep(.el-transfer__buttons) {
+  display: flex !important;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 4px;
+}
+
+.transfer-dialog__body :deep(.el-transfer__button) {
+  margin: 0 !important;
 }
 </style>

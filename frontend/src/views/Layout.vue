@@ -1,5 +1,5 @@
 <template>
-  <div class="layout-shell">
+  <div class="layout-shell" :class="{ 'layout-shell--fill': isDashboardFill }">
     <EnvParticleField fixed />
     <header class="header">
       <div class="header-left">
@@ -132,7 +132,7 @@
         </el-dialog>
       </div>
     </header>
-    <div class="layout-body">
+    <div class="layout-body" :class="{ 'layout-body--fill': isDashboardFill }">
       <aside class="aside">
         <div class="aside-brand">管理后台</div>
         <el-menu :default-active="activeMenu" class="menu" router>
@@ -190,28 +190,26 @@
           <div class="aside-status__title">系统状态</div>
           <div
             v-for="item in sidebarStatusItems"
-            :key="item.label"
+            :key="item.key"
             class="aside-status__item"
+            :title="item.detail"
           >
-            <div class="aside-status__row">
-              <span>{{ item.label }}</span>
-              <span class="aside-status__pct">{{ item.percent }}%</span>
-            </div>
-            <div class="aside-status__track">
-              <div
-                class="aside-status__fill"
-                :style="{
-                  width: `${item.percent}%`,
-                  background: item.gradient || item.color
-                }"
-              />
+            <span class="aside-status__dot" :class="`is-${item.status}`" />
+            <div class="aside-status__body">
+              <div class="aside-status__row">
+                <span class="aside-status__label">{{ item.label }}</span>
+                <span class="aside-status__tag" :class="`is-${item.status}`">
+                  {{ statusText(item.status) }}
+                </span>
+              </div>
+              <div class="aside-status__detail">{{ item.detail }}</div>
             </div>
           </div>
         </div>
         <div class="aside-spacer" aria-hidden="true" />
         <div class="aside-footer">{{ asideFooterText }}</div>
       </aside>
-      <main class="main">
+      <main class="main" :class="{ 'main--fill': isDashboardFill }">
         <router-view />
       </main>
     </div>
@@ -254,6 +252,7 @@ const uiPrefs = useUiPrefsStore()
 useGlassPointerGlow()
 
 const activeMenu = computed(() => router.currentRoute.value.path)
+const isDashboardFill = computed(() => router.currentRoute.value.name === 'Dashboard')
 /** 顶栏 Calendar 位：系统名称，最多 10 字 */
 const displayBrandName = computed(() => {
   const name = String(brandingStore.brandName || '').trim()
@@ -265,31 +264,35 @@ const asideFooterText = computed(() => {
   return text || PROVIDER_FOOTER
 })
 
-const sidebarStats = ref({
-  kb_count: 0,
-  doc_count: 0,
-  user_count: 0,
-  group_count: 0
-})
+const sidebarServices = ref([])
 
-const sidebarStatusItems = computed(() => [
-  {
-    label: '知识库服务',
-    percent: sidebarStats.value.kb_count ? 96 : 72,
-    color: '#4A7AFF'
-  },
-  {
-    label: '文档索引',
-    percent: sidebarStats.value.doc_count ? 92 : 68,
-    color: '#52C41A'
-  },
-  {
-    label: '权限体系',
-    percent: sidebarStats.value.user_count ? 88 : 64,
-    color: '#FA8C16',
-    gradient: 'linear-gradient(90deg, #a855f7 0%, #4A7AFF 100%)'
+const SIDEBAR_SERVICE_ORDER = ['api', 'chroma', 'bm25_cache', 'sqlite']
+
+function statusText(status) {
+  if (status === 'ok') return '正常'
+  if (status === 'idle') return '空闲'
+  if (status === 'warn') return '告警'
+  if (status === 'down') return '异常'
+  return '未知'
+}
+
+const sidebarStatusItems = computed(() => {
+  const list = Array.isArray(sidebarServices.value) ? sidebarServices.value : []
+  if (!list.length) {
+    return [
+      { key: 'api', label: '后端 API', status: 'idle', detail: '探测中…' },
+      { key: 'chroma', label: 'Chroma 向量', status: 'idle', detail: '探测中…' },
+      { key: 'bm25_cache', label: 'BM25 索引', status: 'idle', detail: '探测中…' }
+    ]
   }
-])
+  const byKey = Object.fromEntries(list.map((s) => [s.key, s]))
+  return SIDEBAR_SERVICE_ORDER.map((key) => byKey[key]).filter(Boolean).map((s) => ({
+    key: s.key,
+    label: s.label,
+    status: s.status || 'idle',
+    detail: s.detail || ''
+  }))
+})
 
 const showSidebarStatus = computed(() => isAdminRole(resolveRoleCode(userStore.userInfo)))
 const headerAvatarUrl = computed(() => String(userStore.userInfo?.avatar_url || '').trim())
@@ -482,14 +485,14 @@ onMounted(async () => {
   if (showSidebarStatus.value) {
     try {
       const data = await getStatsApi()
-      sidebarStats.value = {
-        kb_count: data.kb_count ?? 0,
-        doc_count: data.doc_count ?? 0,
-        user_count: data.user_count ?? 0,
-        group_count: data.group_count ?? 0
-      }
+      sidebarServices.value = Array.isArray(data.services) ? data.services : []
     } catch (e) {
-      /* ignore */
+      sidebarServices.value = [
+        { key: 'api', label: '后端 API', status: 'down', detail: '统计接口不可用' },
+        { key: 'chroma', label: 'Chroma 向量服务', status: 'idle', detail: '未探测' },
+        { key: 'bm25_cache', label: 'BM25 内存索引', status: 'idle', detail: '未探测' },
+        { key: 'sqlite', label: '会话存储', status: 'idle', detail: '未探测' }
+      ]
     }
   }
 })
@@ -511,6 +514,14 @@ const handleLogout = () => {
   overflow: visible;
   /* 透明，让 fixed 粒子成为唯一底；实黑由 body 承担 */
   background: transparent;
+}
+
+/* 系统概览：锁死视口高度，去掉底部多余可滚空白 */
+.layout-shell--fill {
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* —— 统一磨砂：仅 Aside（页眉不要毛玻璃；深蓝黑 30% + blur） —— */
@@ -695,6 +706,13 @@ const handleLogout = () => {
   overflow: visible;
 }
 
+.layout-body--fill {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
 .aside {
   position: fixed !important;
   top: var(--admin-header-height);
@@ -772,8 +790,44 @@ const handleLogout = () => {
   color: rgba(180, 190, 210, 0.55);
 }
 
+.aside-status__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
 .aside-status__item + .aside-status__item {
   margin-top: 12px;
+}
+
+.aside-status__dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #8c8c8c;
+}
+
+.aside-status__dot.is-ok {
+  background: #52c41a;
+  box-shadow: 0 0 0 4px rgba(82, 196, 26, 0.16);
+}
+
+.aside-status__dot.is-idle {
+  background: #faad14;
+  box-shadow: 0 0 0 4px rgba(250, 173, 20, 0.16);
+}
+
+.aside-status__dot.is-down,
+.aside-status__dot.is-warn {
+  background: #f56c6c;
+  box-shadow: 0 0 0 4px rgba(245, 108, 108, 0.16);
+}
+
+.aside-status__body {
+  flex: 1;
+  min-width: 0;
 }
 
 .aside-status__row {
@@ -781,28 +835,43 @@ const handleLogout = () => {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 6px;
   font-size: var(--admin-fs-caption);
-  color: rgba(200, 210, 230, 0.78);
+  color: rgba(200, 210, 230, 0.88);
 }
 
-.aside-status__pct {
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-  color: rgba(210, 220, 235, 0.7);
-}
-
-.aside-status__track {
-  height: 5px;
+.aside-status__label {
   overflow: hidden;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.aside-status__fill {
-  height: 100%;
-  border-radius: inherit;
-  transition: width 0.35s ease;
+.aside-status__tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgba(210, 220, 235, 0.55);
+}
+
+.aside-status__tag.is-ok {
+  color: #52c41a;
+}
+
+.aside-status__tag.is-idle {
+  color: #faad14;
+}
+
+.aside-status__tag.is-down,
+.aside-status__tag.is-warn {
+  color: #f56c6c;
+}
+
+.aside-status__detail {
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(180, 190, 210, 0.48);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 :deep(.el-menu) {
@@ -874,6 +943,47 @@ const handleLogout = () => {
   padding: 0 8px 24px 4px;
   background: transparent;
   overflow: visible;
+}
+
+/* 概览页：去掉 .main 底部 24px 留白（其他页仍保留便于滚动） */
+.main--fill {
+  height: 100%;
+  min-height: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.main--fill > * {
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 992px) {
+  .layout-shell--fill {
+    height: auto;
+    max-height: none;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .layout-body--fill {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .main--fill {
+    height: auto;
+    overflow: visible;
+    display: block;
+  }
+
+  .main--fill > * {
+    flex: none;
+    min-height: 0;
+  }
 }
 </style>
 

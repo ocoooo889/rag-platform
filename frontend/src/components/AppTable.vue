@@ -1,14 +1,17 @@
 <template>
   <el-table
     ref="tableRef"
+    v-equal-table
     v-loading="loading"
     element-loading-text="加载中..."
     :data="data"
     border
+    table-layout="fixed"
     style="width: 100%"
+    class="app-table"
     @selection-change="onSelectionChange"
   >
-    <el-table-column v-if="selectable" type="selection" width="48" />
+    <el-table-column v-if="selectable" type="selection" align="center" />
     <slot />
     <template #empty>
       <slot name="empty">
