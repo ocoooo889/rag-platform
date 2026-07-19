@@ -21,7 +21,6 @@ export const createRoleApi = async (data) => {
     const row = {
       id: nextMockId('r'),
       name: data.name,
-      description: data.description || '',
       permissions: data.permissions || [],
       created_at: new Date().toISOString()
     }

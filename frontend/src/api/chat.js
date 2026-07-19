@@ -86,9 +86,7 @@ export async function fetchChatMessages(sessionId) {
   if (!isChatSessionApiEnabled()) {
     return rejectSessionApiUnavailable()
   }
-  return request
-    .get(`/api/chat/sessions/${sessionId}/messages`, { silent: true })
-    .catch(() => request.get(`/api/chat/${sessionId}/messages`, { silent: true }))
+  return request.get(`/api/chat/sessions/${sessionId}/messages`, { silent: true })
 }
 
 /** 删除会话 */
@@ -103,9 +101,7 @@ export async function deleteChatSession(sessionId) {
   if (!isChatSessionApiEnabled()) {
     return rejectSessionApiUnavailable()
   }
-  return request
-    .delete(`/api/chat/sessions/${sessionId}`, { silent: true })
-    .catch(() => request.delete(`/api/chat/${sessionId}`, { silent: true }))
+  return request.delete(`/api/chat/sessions/${sessionId}`, { silent: true })
 }
 
 /** 更新会话：重命名 / 置顶 */

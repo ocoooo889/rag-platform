@@ -820,12 +820,6 @@ const handleLogout = () => {
   gap: 10px;
 }
 
-.aside-status__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-}
-
 .aside-status__item + .aside-status__item {
   margin-top: 12px;
 }
