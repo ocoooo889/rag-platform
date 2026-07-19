@@ -52,7 +52,7 @@ const routes = [
         path: 'branding',
         name: 'Branding',
         component: BrandingConfig,
-        meta: { roles: ['admin'] }
+        meta: { roles: ['admin', 'user'] }
       },
       {
         path: 'knowledge-bases',

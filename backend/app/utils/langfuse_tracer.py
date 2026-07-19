@@ -19,7 +19,14 @@ _init_tried = False
 
 
 def langfuse_enabled() -> bool:
-    return bool(config.LANGFUSE_PUBLIC_KEY and config.LANGFUSE_SECRET_KEY)
+    """占位 Key（xxxxxxxx）视为未配置，避免连不上的 Langfuse 拖慢对话。"""
+    pk = (config.LANGFUSE_PUBLIC_KEY or "").strip()
+    sk = (config.LANGFUSE_SECRET_KEY or "").strip()
+    if not pk or not sk:
+        return False
+    if "xxxxxxxx" in pk.lower() or "xxxxxxxx" in sk.lower():
+        return False
+    return True
 
 
 def get_langfuse():

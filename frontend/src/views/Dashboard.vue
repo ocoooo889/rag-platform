@@ -652,7 +652,7 @@ onUnmounted(() => {
   min-height: 64px;
   padding: 3px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--admin-fill);
   border: 1px solid color-mix(in srgb, var(--bar-color) 22%, transparent);
   transition:
     border-color 0.2s ease,
@@ -737,7 +737,7 @@ onUnmounted(() => {
 .dist-row__track {
   height: 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--admin-fill);
   overflow: hidden;
 }
 
@@ -840,7 +840,7 @@ onUnmounted(() => {
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: rgba(180, 190, 210, 0.55);
+  color: var(--admin-text-dim);
 }
 
 .time-card__clock {
@@ -858,7 +858,7 @@ onUnmounted(() => {
   margin-top: 6px;
   text-align: center;
   font-size: 13px;
-  color: rgba(230, 235, 245, 0.92);
+  color: var(--admin-text);
 }
 
 .time-card__meta {
@@ -878,14 +878,14 @@ onUnmounted(() => {
   gap: 4px;
   padding: 8px 10px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(120, 160, 255, 0.12);
+  background: var(--admin-fill);
+  border: 1px solid var(--glass-border);
   text-align: center;
 }
 
 .time-meta-box__label {
   font-size: 11px;
-  color: rgba(180, 190, 210, 0.55);
+  color: var(--admin-text-dim);
   text-align: center;
 }
 
@@ -959,7 +959,7 @@ onUnmounted(() => {
   font-weight: 400;
   line-height: 1.25;
   text-align: center;
-  color: rgba(230, 235, 245, 0.95);
+  color: var(--admin-text);
   word-break: break-word;
 }
 

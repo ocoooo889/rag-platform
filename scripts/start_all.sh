@@ -1,93 +1,108 @@
 #!/bin/bash
-
 # ================================================
-# 智能 RAG 平台一键启动脚本 (Linux/Mac)
-# 【项目负责人补充内容】
-# 功能：一键启动 Chroma + 后端 + 前端
+# 智能 RAG 平台一键启动 (Linux/macOS)
+# 顺序：检查 .env → venv+pip → Chroma(127.0.0.1) → 等心跳 → 后端 → 前端
 # ================================================
 
 set -e
 
 echo "================================================"
-echo "           智能 RAG 平台一键启动脚本 (Linux/Mac)"
-echo "           【项目负责人补充内容】"
+echo "           智能 RAG 平台一键启动脚本 (Linux/macOS)"
 echo "================================================"
 echo ""
 
 PROJECT_DIR=$(cd "$(dirname "$0")/.." && pwd)
 cd "$PROJECT_DIR"
 
-echo "[1/3] 启动 Chroma 向量库服务 (端口 8000)..."
-if command -v chroma &> /dev/null; then
-    chroma run --path ./chroma_data --port 8000 &
-    CHROMA_PID=$!
-    echo "      Chroma 服务已启动 (PID: $CHROMA_PID)"
-else
-    echo "      错误: chroma 命令未找到，请先安装 chromadb"
-    echo "      安装命令: pip install chromadb"
-    exit 1
+if [[ ! -f .env && ! -f backend/.env ]]; then
+  echo "[!] 未找到 .env"
+  echo "    请先执行:  cp .env.example .env"
+  echo "    并填写 OPENAI_API_KEY / ENV / LOCAL_DB_NAME / CHROMA_COLLECTION_SUFFIX / UPLOAD_DIR"
+  exit 1
 fi
-echo "      等待 3 秒..."
-sleep 3
+
+echo "[0/4] 准备后端虚拟环境与依赖..."
+cd backend
+if [[ ! -x venv/bin/python ]]; then
+  echo "      创建 venv..."
+  python3 -m venv venv
+fi
+# shellcheck disable=SC1091
+source venv/bin/activate
+python -m pip install -U pip -q
+pip install -r requirements.txt -q
+cd ..
+
+CHROMA_BIN="$PROJECT_DIR/backend/venv/bin/chroma"
+if [[ ! -x "$CHROMA_BIN" ]]; then
+  echo "错误: 未找到 $CHROMA_BIN（请确认 chromadb 已装入 venv）"
+  exit 1
+fi
 
 echo ""
-echo "[2/3] 启动后端服务 (端口 8001)..."
+echo "[1/4] 启动 Chroma (--host 127.0.0.1:8000)..."
+"$CHROMA_BIN" run --path ./chroma_data --host 127.0.0.1 --port 8000 &
+CHROMA_PID=$!
+echo "      Chroma PID=$CHROMA_PID"
+
+echo "      等待心跳就绪..."
+for i in $(seq 1 30); do
+  if curl -s -m 2 "http://127.0.0.1:8000/api/v2/heartbeat" >/dev/null 2>&1; then
+    echo "      Chroma 已就绪 (${i}s)"
+    break
+  fi
+  if [[ "$i" -eq 30 ]]; then
+    echo "错误: 30 秒内 Chroma 未就绪"
+    kill "$CHROMA_PID" 2>/dev/null || true
+    exit 1
+  fi
+  sleep 1
+done
+
+echo ""
+echo "[2/4] 启动后端 (端口 8001)..."
 cd backend
-if [ ! -d "venv" ]; then
-    echo "      创建虚拟环境..."
-    python3 -m venv venv
-fi
-echo "      激活虚拟环境并启动后端..."
+# shellcheck disable=SC1091
 source venv/bin/activate
-pip install -r requirements.txt -q
 uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload &
 BACKEND_PID=$!
-echo "      后端服务已启动 (PID: $BACKEND_PID)"
+echo "      Backend PID=$BACKEND_PID"
 cd ..
-echo "      等待 5 秒..."
-sleep 5
+sleep 2
 
 echo ""
-echo "[3/3] 启动前端服务 (端口 5173)..."
+echo "[3/4] 启动前端 (端口 5173)..."
 cd frontend
-if [ ! -d "node_modules" ]; then
-    echo "      安装前端依赖..."
-    npm install
+if [[ ! -d node_modules ]]; then
+  echo "      npm ci ..."
+  npm ci || npm install
 fi
-echo "      启动前端开发服务器..."
 npm run dev &
 FRONTEND_PID=$!
-echo "      前端服务已启动 (PID: $FRONTEND_PID)"
+echo "      Frontend PID=$FRONTEND_PID"
 cd ..
 
 echo ""
 echo "================================================"
-echo "              服务启动完成！"
+echo "              服务启动完成"
 echo "================================================"
-echo ""
-echo "访问地址："
-echo "  - 前端页面:    http://localhost:5173"
-echo "  - 后端接口:    http://localhost:8001"
-echo "  - 接口文档:    http://localhost:8001/docs"
-echo "  - Chroma API:  http://localhost:8000"
-echo ""
-echo "服务进程："
-echo "  - Chroma:      $CHROMA_PID"
-echo "  - Backend:     $BACKEND_PID"
-echo "  - Frontend:    $FRONTEND_PID"
+echo "  前端:     http://127.0.0.1:5173"
+echo "  后端:     http://127.0.0.1:8001/docs"
+echo "  Chroma:   http://127.0.0.1:8000/api/v2/heartbeat"
+echo "  账号:     admin / admin123  (Dashboard 仅管理员)"
+echo "  .env:     CHROMA_HOST=127.0.0.1 （须与 chroma --host 一致）"
 echo ""
 echo "按 Ctrl+C 停止所有服务..."
 
 cleanup() {
-    echo ""
-    echo "停止所有服务..."
-    kill $FRONTEND_PID 2>/dev/null || true
-    kill $BACKEND_PID 2>/dev/null || true
-    kill $CHROMA_PID 2>/dev/null || true
-    echo "所有服务已停止"
-    exit 0
+  echo ""
+  echo "停止所有服务..."
+  kill "$FRONTEND_PID" 2>/dev/null || true
+  kill "$BACKEND_PID" 2>/dev/null || true
+  kill "$CHROMA_PID" 2>/dev/null || true
+  echo "所有服务已停止"
+  exit 0
 }
 
 trap cleanup INT
-
 wait

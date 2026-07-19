@@ -11,7 +11,10 @@
 
 <script setup>
 import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { POINTER_FOCUS_VIEWPORT_RATIO } from '@/utils/pointerFocus'
+import { useUiPrefsStore } from '@/stores/uiPrefs'
+import { useBrandingStore } from '@/stores/branding'
 
 const props = defineProps({
   /** 为 true 时关闭鼠标邻近聚焦（如登录弹窗打开时） */
@@ -21,6 +24,10 @@ const props = defineProps({
 })
 
 const canvasRef = ref(null)
+const uiPrefs = useUiPrefsStore()
+const brandingStore = useBrandingStore()
+const { colorMode } = storeToRefs(uiPrefs)
+const { brandThemeColor } = storeToRefs(brandingStore)
 
 /** 设为 false 即可立刻关掉鼠标聚焦，还原纯氛围版 */
 const ENABLE_POINTER_FOCUS = true
@@ -30,11 +37,15 @@ let gridPoints = []
 let softDot = null
 let softDotTheme = null
 let softDotThemeKey = ''
+let softDotPrimary = null
+let softDotComplement = null
+let softDotPaletteKey = ''
 let viewW = 0
 let viewH = 0
 let gridCols = 0
 let gridRows = 0
 let pauseFocus = false
+let attrObserver = null
 
 const pointer = {
   x: 0,
@@ -53,6 +64,17 @@ watch(
   },
   { immediate: true }
 )
+
+/** 日间仅管理后台；登录页无 admin-theme，保持夜间灰点 */
+function isLightAdminMode() {
+  if (typeof document === 'undefined') return false
+  const root = document.documentElement
+  return root.classList.contains('admin-theme') && root.getAttribute('data-color-mode') === 'light'
+}
+
+watch([colorMode, brandThemeColor], () => {
+  invalidateSprites()
+})
 
 function onPointerMove(e) {
   if (!ENABLE_POINTER_FOCUS || pauseFocus) return
@@ -120,7 +142,7 @@ function readThemePrimary() {
   const raw = getComputedStyle(document.documentElement)
     .getPropertyValue('--el-color-primary')
     .trim()
-  return raw || '#3D9BFF'
+  return raw || brandThemeColor.value || '#3D9BFF'
 }
 
 function hexToRgb(color) {
@@ -146,6 +168,89 @@ function hexToRgb(color) {
   return { r: 61, g: 155, b: 255 }
 }
 
+function rgbToHsl(r, g, b) {
+  r /= 255
+  g /= 255
+  b /= 255
+  const max = Math.max(r, g, b)
+  const min = Math.min(r, g, b)
+  let h = 0
+  let s = 0
+  const l = (max + min) / 2
+  if (max !== min) {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    switch (max) {
+      case r:
+        h = ((g - b) / d + (g < b ? 6 : 0)) / 6
+        break
+      case g:
+        h = ((b - r) / d + 2) / 6
+        break
+      default:
+        h = ((r - g) / d + 4) / 6
+    }
+  }
+  return { h: h * 360, s, l }
+}
+
+function hue2rgb(p, q, t) {
+  let tt = t
+  if (tt < 0) tt += 1
+  if (tt > 1) tt -= 1
+  if (tt < 1 / 6) return p + (q - p) * 6 * tt
+  if (tt < 1 / 2) return q
+  if (tt < 2 / 3) return p + (q - p) * (2 / 3 - tt) * 6
+  return p
+}
+
+function hslToRgb(h, s, l) {
+  const hh = ((h % 360) + 360) % 360 / 360
+  let r
+  let g
+  let b
+  if (s === 0) {
+    r = g = b = l
+  } else {
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s
+    const p = 2 * l - q
+    r = hue2rgb(p, q, hh + 1 / 3)
+    g = hue2rgb(p, q, hh)
+    b = hue2rgb(p, q, hh - 1 / 3)
+  }
+  return {
+    r: Math.round(r * 255),
+    g: Math.round(g * 255),
+    b: Math.round(b * 255)
+  }
+}
+
+/** 主题色补色：色相 +180°（与 CSS admin-primary-complement 同思路） */
+function complementRgb(rgb) {
+  const { h, s, l } = rgbToHsl(rgb.r, rgb.g, rgb.b)
+  return hslToRgb(h + 180, Math.min(1, s * 0.95), Math.min(0.62, Math.max(0.38, l)))
+}
+
+function makeSoftDotSprite(rgb, size = 20) {
+  const c = document.createElement('canvas')
+  c.width = size
+  c.height = size
+  const g = c.getContext('2d')
+  const mid = size / 2
+  const { r, g: gg, b } = rgb
+  const grd = g.createRadialGradient(mid, mid, 0, mid, mid, mid * 0.9)
+  grd.addColorStop(0, `rgba(${Math.min(255, r + 40)}, ${Math.min(255, gg + 35)}, ${Math.min(255, b + 30)}, 1)`)
+  grd.addColorStop(0.35, `rgba(${r}, ${gg}, ${b}, 0.88)`)
+  grd.addColorStop(0.7, `rgba(${r}, ${gg}, ${b}, 0.32)`)
+  grd.addColorStop(1, `rgba(${r}, ${gg}, ${b}, 0)`)
+  g.fillStyle = grd
+  g.beginPath()
+  g.arc(mid, mid, mid * 0.9, 0, Math.PI * 2)
+  g.fill()
+  return c
+}
+
+/** 夜间 / 登录：中性灰波点（现状） */
 function ensureSoftDot() {
   if (softDot) return softDot
   const c = document.createElement('canvas')
@@ -163,6 +268,20 @@ function ensureSoftDot() {
   g.fill()
   softDot = c
   return softDot
+}
+
+/** 日间氛围点：主题色 + 补色 */
+function ensureLightPaletteSprites() {
+  const primary = readThemePrimary()
+  const key = `light:${primary}`
+  if (softDotPrimary && softDotComplement && softDotPaletteKey === key) {
+    return { primary: softDotPrimary, complement: softDotComplement }
+  }
+  softDotPaletteKey = key
+  const rgb = hexToRgb(primary)
+  softDotPrimary = makeSoftDotSprite(rgb, 20)
+  softDotComplement = makeSoftDotSprite(complementRgb(rgb), 20)
+  return { primary: softDotPrimary, complement: softDotComplement }
 }
 
 /** 鼠标照亮光斑：跟随 --el-color-primary（品牌主题色） */
@@ -186,6 +305,15 @@ function ensureSoftDotTheme() {
   gctx.fill()
   softDotTheme = c
   return softDotTheme
+}
+
+function invalidateSprites() {
+  softDot = null
+  softDotTheme = null
+  softDotThemeKey = ''
+  softDotPrimary = null
+  softDotComplement = null
+  softDotPaletteKey = ''
 }
 
 function initParticleGrid(width, height) {
@@ -214,12 +342,17 @@ function resizeParticleCanvas() {
   canvas.style.height = `${viewH}px`
   const ctx = canvas.getContext('2d')
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-  softDot = null
-  softDotTheme = null
-  softDotThemeKey = ''
+  invalidateSprites()
   ensureSoftDot()
   ensureSoftDotTheme()
   initParticleGrid(viewW, viewH)
+}
+
+function pickAmbientSprite(p, lightMode) {
+  if (!lightMode) return ensureSoftDot()
+  const { primary, complement } = ensureLightPaletteSprites()
+  // 棋盘交错：主题色 / 补色
+  return (p.i + p.j) % 2 === 0 ? primary : complement
 }
 
 function drawParticles(ts) {
@@ -229,7 +362,7 @@ function drawParticles(ts) {
   const width = viewW || window.innerWidth
   const height = viewH || window.innerHeight
   const t = (ts || 0) * 0.001
-  const sprite = ensureSoftDot()
+  const lightMode = isLightAdminMode()
   const spriteTheme = ensureSoftDotTheme()
 
   const fieldDrift = t * 0.09
@@ -283,7 +416,7 @@ function drawParticles(ts) {
 
     const crest = 0.75 + Math.max(0, elev) * 0.85
     const farFade = 0.55 + Math.min(1, Math.max(0, p.v)) * 0.45
-    let a = 0.55 * farFade * clearFade * crest
+    let a = (lightMode ? 0.72 : 0.55) * farFade * clearFade * crest
     let s = (1.05 + Math.min(1, Math.max(0, p.v)) * 1.85) * (0.9 + Math.max(0, elev) * 0.4)
     let fall = 0
 
@@ -300,6 +433,8 @@ function drawParticles(ts) {
     }
 
     if (a < 0.08) continue
+
+    const sprite = pickAmbientSprite(p, lightMode)
 
     if (fall > 0.04) {
       const mix = Math.min(1, fall * 1.35)
@@ -334,6 +469,11 @@ onMounted(() => {
   window.addEventListener('mousemove', onPointerMove, { passive: true })
   window.addEventListener('mouseleave', onPointerLeaveWindow)
   document.addEventListener('mouseout', onDocumentMouseOut)
+  attrObserver = new MutationObserver(() => invalidateSprites())
+  attrObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['class', 'data-color-mode', 'style']
+  })
   startParticleEngine()
 })
 
@@ -342,6 +482,10 @@ onUnmounted(() => {
   window.removeEventListener('mousemove', onPointerMove)
   window.removeEventListener('mouseleave', onPointerLeaveWindow)
   document.removeEventListener('mouseout', onDocumentMouseOut)
+  if (attrObserver) {
+    attrObserver.disconnect()
+    attrObserver = null
+  }
   stopParticleEngine()
 })
 </script>

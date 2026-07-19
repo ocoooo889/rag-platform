@@ -35,8 +35,8 @@ def _ensure_local_no_proxy() -> None:
 
 
 def _chroma_host_candidates() -> list[str]:
-    """Windows 上 localhost 常走 ::1，而 127.0.0.1 可能未监听，需双向回退。"""
-    primary = (config.CHROMA_HOST or "localhost").strip() or "localhost"
+    """按 .env 优先，并在 127.0.0.1 ↔ localhost 间回退。推荐固定 --host/CHROMA_HOST=127.0.0.1。"""
+    primary = (config.CHROMA_HOST or "127.0.0.1").strip() or "127.0.0.1"
     # 优先 127.0.0.1，减少 localhost→::1 撞上 Docker/WSL 占用端口
     alts = ["127.0.0.1", "localhost"]
     out: list[str] = []

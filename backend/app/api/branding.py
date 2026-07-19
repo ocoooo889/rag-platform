@@ -117,31 +117,58 @@ def get_branding(db: Session = Depends(get_db)):
 
 @router.put("/branding", response_model=ResponseModel)
 async def update_branding(
-    brand_name: str = Form(...),
-    brand_theme_color: str = Form(...),
-    brand_login_title: str = Form(...),
-    brand_footer_text: str = Form(...),
+    brand_name: Optional[str] = Form(None),
+    brand_theme_color: Optional[str] = Form(None),
+    brand_login_title: Optional[str] = Form(None),
+    brand_footer_text: Optional[str] = Form(None),
     brand_logo: Optional[UploadFile] = File(None),
     brand_favicon: Optional[UploadFile] = File(None),
     brand_logo_history_pick: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """更新系统品牌配置。需要管理员权限。支持上传 Logo / 回选历史 Logo。"""
+    """
+    更新系统品牌配置。
+    - 管理员：可改名称 / Logo / 主题色 / 登录副标题 / 侧栏页脚
+    - 普通用户：仅可改主题色（不可改名称、副标题、页脚、Logo）
+    """
+    theme = (brand_theme_color or "").strip()
+    if not theme:
+        return ResponseModel(code=400, msg="主题色不能为空")
+
+    # 普通用户：仅允许主题色
     if not is_admin(current_user):
-        return ResponseModel(code=403, msg="权限不足，仅管理员可修改品牌配置")
+        if brand_logo and brand_logo.filename:
+            return ResponseModel(code=403, msg="权限不足，普通用户不可修改 Logo")
+        if brand_favicon and brand_favicon.filename:
+            return ResponseModel(code=403, msg="权限不足，普通用户不可修改 Favicon")
+        if brand_logo_history_pick:
+            return ResponseModel(code=403, msg="权限不足，普通用户不可修改 Logo")
+        _upsert_config(db, "brand_theme_color", theme)
+        db.commit()
+        configs = db.query(SystemConfig).all()
+        latest_config_map = {c.config_key: c.config_value for c in configs}
+        return ResponseModel(data=_build_payload(latest_config_map))
 
     brand_name = (brand_name or "").strip()
+    brand_login_title = (brand_login_title or "").strip()
+    brand_footer_text = (brand_footer_text or "").strip()
     if not brand_name:
         return ResponseModel(code=400, msg="系统名称不能为空")
     if len(brand_name) > 10:
         return ResponseModel(code=400, msg="系统名称最多10个字")
+    if not brand_login_title:
+        return ResponseModel(code=400, msg="登录浮窗副标题不能为空")
+    if not brand_footer_text:
+        return ResponseModel(code=400, msg="侧栏页脚不能为空")
+    if len(brand_footer_text) > 24:
+        return ResponseModel(code=400, msg="侧栏页脚最多24个字")
 
     os.makedirs(BRANDING_DIR, exist_ok=True)
     history = _history_from_db(db)
     updates = {
         "brand_name": brand_name,
-        "brand_theme_color": brand_theme_color,
+        "brand_theme_color": theme,
         "brand_login_title": brand_login_title,
         "brand_footer_text": brand_footer_text,
     }
