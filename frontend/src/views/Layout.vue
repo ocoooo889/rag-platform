@@ -24,6 +24,24 @@
             {{ opt.label }}
           </button>
         </div>
+        <div
+          class="color-mode-switch"
+          role="group"
+          aria-label="界面模式"
+          title="界面模式（仅管理后台；登录页不同步）"
+        >
+          <button
+            v-for="opt in uiPrefs.colorModeOptions"
+            :key="opt.value"
+            type="button"
+            class="color-mode-switch__btn"
+            :class="{ 'is-active': uiPrefs.colorMode === opt.value }"
+            :aria-pressed="uiPrefs.colorMode === opt.value"
+            @click="uiPrefs.setColorMode(opt.value)"
+          >
+            {{ opt.label }}
+          </button>
+        </div>
         <span class="user-chip">{{ displayRole }}</span>
         <el-dropdown
           trigger="click"
@@ -438,7 +456,7 @@ const menuVisibility = {
   '/user-groups': (role) => isAdminRole(role),
   '/users': (role) => isAdminRole(role),
   '/models': (role) => isAdminRole(role),
-  '/branding': (role) => isAdminRole(role),
+  '/branding': () => true,
   '/knowledge-bases': (role) => isAdminRole(role),
   '/documents': (role) => isAdminRole(role),
   '/hit-test': () => true
@@ -450,7 +468,6 @@ const ADMIN_ONLY_PATHS = new Set([
   '/user-groups',
   '/users',
   '/models',
-  '/branding',
   '/knowledge-bases',
   '/documents'
 ])
@@ -467,6 +484,7 @@ const isAdminOnlyPath = (path) => ADMIN_ONLY_PATHS.has(path)
 
 /* 同步挂载暗色主题，避免首屏按钮先吃到亮色/默认 EP 样式导致各页观感不一致 */
 document.documentElement.classList.add('admin-theme')
+uiPrefs.applyColorMode(uiPrefs.colorMode, { admin: true })
 brandingStore.applyBranding()
 
 onMounted(async () => {
@@ -499,10 +517,12 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.documentElement.classList.remove('admin-theme')
+  uiPrefs.clearAdminColorMode()
 })
 
 const handleLogout = () => {
   document.documentElement.classList.remove('admin-theme')
+  uiPrefs.clearAdminColorMode()
   userStore.logout()
 }
 </script>
@@ -576,7 +596,7 @@ const handleLogout = () => {
   letter-spacing: 0;
   line-height: var(--admin-header-height);
   height: var(--admin-header-height);
-  color: var(--admin-text, #ffffff);
+  color: var(--admin-text);
   overflow: visible;
   text-overflow: clip;
   white-space: nowrap;
@@ -590,17 +610,19 @@ const handleLogout = () => {
   height: 100%;
 }
 
-.font-size-switch {
+.font-size-switch,
+.color-mode-switch {
   display: inline-flex;
   align-items: center;
   padding: 3px;
   gap: 2px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--admin-fill);
   border: 1px solid var(--glass-divider);
 }
 
-.font-size-switch__btn {
+.font-size-switch__btn,
+.color-mode-switch__btn {
   min-width: 28px;
   height: 26px;
   padding: 0 8px;
@@ -608,7 +630,7 @@ const handleLogout = () => {
   border: none;
   border-radius: 999px;
   background: transparent;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--admin-text-muted);
   font-size: var(--admin-fs-caption);
   font-weight: 600;
   line-height: 1;
@@ -616,11 +638,13 @@ const handleLogout = () => {
   transition: background 0.15s ease, color 0.15s ease;
 }
 
-.font-size-switch__btn:hover {
-  color: rgba(255, 255, 255, 0.88);
+.font-size-switch__btn:hover,
+.color-mode-switch__btn:hover {
+  color: var(--admin-text);
 }
 
-.font-size-switch__btn.is-active {
+.font-size-switch__btn.is-active,
+.color-mode-switch__btn.is-active {
   background: color-mix(in srgb, var(--el-color-primary) 55%, transparent);
   color: #fff;
 }
@@ -628,8 +652,8 @@ const handleLogout = () => {
 .user-chip {
   padding: 5px 11px;
   font-size: var(--admin-fs-caption);
-  color: rgba(255, 255, 255, 0.88);
-  background: rgba(255, 255, 255, 0.06);
+  color: var(--admin-text);
+  background: var(--admin-fill);
   border: 1px solid var(--glass-divider);
   border-radius: 999px;
 }
@@ -778,7 +802,7 @@ const handleLogout = () => {
 .aside-status__divider {
   height: 1px;
   margin: 4px 2px 14px;
-  background: rgba(160, 170, 190, 0.28);
+  background: var(--glass-divider);
 }
 
 .aside-status__title {
@@ -787,7 +811,13 @@ const handleLogout = () => {
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: rgba(180, 190, 210, 0.55);
+  color: var(--admin-text-dim);
+}
+
+.aside-status__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .aside-status__item {
@@ -836,7 +866,7 @@ const handleLogout = () => {
   justify-content: space-between;
   gap: 8px;
   font-size: var(--admin-fs-caption);
-  color: rgba(200, 210, 230, 0.88);
+  color: var(--admin-text);
 }
 
 .aside-status__label {
@@ -848,7 +878,7 @@ const handleLogout = () => {
 .aside-status__tag {
   flex-shrink: 0;
   font-size: 11px;
-  color: rgba(210, 220, 235, 0.55);
+  color: var(--admin-text-muted);
 }
 
 .aside-status__tag.is-ok {
@@ -868,7 +898,7 @@ const handleLogout = () => {
   margin-top: 3px;
   font-size: 11px;
   line-height: 1.35;
-  color: rgba(180, 190, 210, 0.48);
+  color: var(--admin-text-dim);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -905,22 +935,27 @@ const handleLogout = () => {
 
 :deep(.el-menu-item:hover) {
   background: var(--admin-menu-hover-bg);
-  color: rgba(255, 255, 255, 0.92);
+  color: var(--admin-menu-hover-text);
 }
 
 :deep(.el-menu-item.is-active) {
   background: transparent !important;
-  color: #ffffff;
+  color: var(--admin-menu-active-text);
   box-shadow: none !important;
   border-bottom-color: var(--el-color-primary);
 }
 
 :deep(.el-menu-item:hover .el-icon) {
-  color: #ffffff;
+  color: var(--admin-menu-hover-text);
 }
 
 :deep(.el-menu-item.is-active .el-icon) {
-  color: var(--el-color-primary);
+  color: var(--admin-menu-active-icon);
+}
+
+:deep(.el-menu-item.is-active .menu-label) {
+  color: var(--admin-menu-active-text);
+  font-weight: 600;
 }
 
 .admin-badge {

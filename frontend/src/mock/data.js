@@ -212,7 +212,7 @@ export const MOCK_DASHBOARD_STATS = {
   call_count: 42,
   services: [
     { key: 'api', label: '后端 API', status: 'ok', detail: '正常响应' },
-    { key: 'chroma', label: 'Chroma 向量服务', status: 'ok', detail: 'localhost:8000' },
+    { key: 'chroma', label: 'Chroma 向量服务', status: 'ok', detail: '127.0.0.1:8000' },
     {
       key: 'bm25_cache',
       label: 'BM25 内存索引',

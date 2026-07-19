@@ -2,70 +2,78 @@
   <div class="branding-config page-shell">
     <div class="page-header">
       <h2>自定义设置</h2>
-      <el-button type="primary" @click="handleReset">恢复默认</el-button>
+      <el-button v-if="isAdmin" type="primary" @click="handleReset">恢复默认</el-button>
     </div>
 
     <div class="page-body">
-    <div class="config-container">
+    <div class="config-container" :class="{ 'config-container--solo': !isAdmin }">
       <div class="config-form">
-        <el-form :model="form" :rules="rules" ref="formRef" label-width="132px">
-          <el-form-item prop="brand_name" label="系统名称">
-            <el-input
-              v-model="form.brand_name"
-              maxlength="10"
-              show-word-limit
-              placeholder="最多 10 个字"
-            />
-          </el-form-item>
-          
-          <el-form-item label="Logo 上传">
-            <div class="logo-upload-block">
-              <div v-if="previewLogoUrl" class="logo-preview">
-                <img :src="previewLogoUrl" alt="Logo预览" />
-              </div>
-              <div class="logo-actions">
-                <el-upload
-                  class="logo-uploader"
-                  action="#"
-                  :auto-upload="false"
-                  :limit="1"
-                  :show-file-list="false"
-                  :accept="'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml'"
-                  v-model:file-list="logoFileList"
-                  :on-change="handleLogoChange"
-                >
-                  <el-button type="primary">上传</el-button>
-                </el-upload>
-                <el-button :disabled="!canEditLogo" @click="handleEditLogo">修改</el-button>
-              </div>
-              <div class="logo-tip">支持 png/jpg/webp/svg，最大 2MB；保存后保留最近 3 张便于回选</div>
-              <div v-if="displayLogoHistory.length" class="logo-history">
-                <div class="logo-history__title">历史 Logo</div>
-                <div class="logo-history__list">
-                  <button
-                    v-for="(url, idx) in displayLogoHistory"
-                    :key="`${url}-${idx}`"
-                    type="button"
-                    class="logo-history__item"
-                    :class="{ 'is-active': isSameLogo(url, previewLogoUrl) }"
-                    :title="'回选历史 Logo'"
-                    @click="pickHistoryLogo(url)"
+        <el-form
+          class="branding-form"
+          :model="form"
+          :rules="formRules"
+          ref="formRef"
+          label-width="132px"
+        >
+          <template v-if="isAdmin">
+            <el-form-item prop="brand_name" label="系统名称">
+              <el-input
+                v-model="form.brand_name"
+                maxlength="10"
+                show-word-limit
+                placeholder="最多 10 个字"
+              />
+            </el-form-item>
+
+            <el-form-item label="Logo 上传" class="form-item--top">
+              <div class="logo-upload-block">
+                <div v-if="previewLogoUrl" class="logo-preview">
+                  <img :src="previewLogoUrl" alt="Logo预览" />
+                </div>
+                <div class="logo-actions">
+                  <el-upload
+                    class="logo-uploader"
+                    action="#"
+                    :auto-upload="false"
+                    :limit="1"
+                    :show-file-list="false"
+                    :accept="'image/png,image/jpeg,image/jpg,image/webp,image/gif,image/svg+xml'"
+                    v-model:file-list="logoFileList"
+                    :on-change="handleLogoChange"
                   >
-                    <img :src="url" alt="" />
-                  </button>
+                    <el-button type="primary">上传</el-button>
+                  </el-upload>
+                  <el-button :disabled="!canEditLogo" @click="handleEditLogo">修改</el-button>
+                </div>
+                <div class="logo-tip">支持 png/jpg/webp/svg，最大 2MB；保存后保留最近 3 张便于回选</div>
+                <div v-if="displayLogoHistory.length" class="logo-history">
+                  <div class="logo-history__title">历史 Logo</div>
+                  <div class="logo-history__list">
+                    <button
+                      v-for="(url, idx) in displayLogoHistory"
+                      :key="`${url}-${idx}`"
+                      type="button"
+                      class="logo-history__item"
+                      :class="{ 'is-active': isSameLogo(url, previewLogoUrl) }"
+                      :title="'回选历史 Logo'"
+                      @click="pickHistoryLogo(url)"
+                    >
+                      <img :src="url" alt="" />
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </el-form-item>
+            </el-form-item>
 
-          <LogoCropDialog
-            v-model="cropVisible"
-            :image-url="cropSourceUrl"
-            @confirm="onCropConfirm"
-            @cancel="onCropCancel"
-          />
-          
-          <el-form-item prop="brand_theme_color" label="主题色">
+            <LogoCropDialog
+              v-model="cropVisible"
+              :image-url="cropSourceUrl"
+              @confirm="onCropConfirm"
+              @cancel="onCropCancel"
+            />
+          </template>
+
+          <el-form-item prop="brand_theme_color" label="主题色" class="form-item--top">
             <div class="theme-swatches" role="listbox" aria-label="主题色">
               <button
                 v-for="preset in themePresets"
@@ -84,32 +92,67 @@
               </button>
             </div>
           </el-form-item>
-          
-          <el-form-item prop="brand_login_title" label="登录浮窗副标题">
-            <el-input
-              v-model="form.brand_login_title"
-              maxlength="24"
-              show-word-limit
-              placeholder="显示在登录浮窗「欢迎使用」下方"
+
+          <el-form-item label="个人头像">
+            <div class="avatar-upload-block">
+              <button type="button" class="avatar-preview-btn" title="更换头像" @click="triggerAvatarPick">
+                <img
+                  v-if="avatarPreviewUrl && !avatarBroken"
+                  :src="avatarPreviewUrl"
+                  alt=""
+                  class="avatar-preview-img"
+                  @error="avatarBroken = true"
+                />
+                <span v-else class="avatar-preview-fallback">{{ avatarFallback }}</span>
+              </button>
+              <div class="avatar-actions">
+                <el-button type="primary" @click="triggerAvatarPick">更换头像</el-button>
+                <span class="logo-tip">支持 png/jpg/webp，裁剪后立即生效</span>
+              </div>
+            </div>
+            <input
+              ref="avatarInputRef"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              class="avatar-file-input"
+              @change="onAvatarFileChange"
+            />
+            <LogoCropDialog
+              v-model="avatarCropVisible"
+              :image-url="avatarCropSourceUrl"
+              :output-size="256"
+              @confirm="onAvatarCropConfirm"
+              @cancel="onAvatarCropCancel"
             />
           </el-form-item>
-          
-          <el-form-item prop="brand_footer_text" label="侧栏页脚">
-            <el-input
-              v-model="form.brand_footer_text"
-              maxlength="24"
-              show-word-limit
-              placeholder="左侧导航栏底部文案，最多 24 字"
-            />
-          </el-form-item>
-          
+
+          <template v-if="isAdmin">
+            <el-form-item prop="brand_login_title" label="登录浮窗副标题">
+              <el-input
+                v-model="form.brand_login_title"
+                maxlength="24"
+                show-word-limit
+                placeholder="显示在登录浮窗「欢迎使用」下方"
+              />
+            </el-form-item>
+
+            <el-form-item prop="brand_footer_text" label="侧栏页脚">
+              <el-input
+                v-model="form.brand_footer_text"
+                maxlength="24"
+                show-word-limit
+                placeholder="左侧导航栏底部文案，最多 24 字"
+              />
+            </el-form-item>
+          </template>
+
           <el-form-item>
             <el-button type="primary" @click="handleSubmit" :loading="loading">保存配置</el-button>
           </el-form-item>
         </el-form>
       </div>
-      
-      <div class="config-preview">
+
+      <div v-if="isAdmin" class="config-preview">
         <h3>实时预览 · 登录浮窗</h3>
         <div
           class="brand-login-preview"
@@ -199,19 +242,39 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { updateBrandingApi } from '@/api/branding'
+import { uploadAvatarApi } from '@/api/auth'
 import { useBrandingStore } from '@/stores/branding'
+import { useUserStore } from '@/stores/user'
 import { ElMessage } from 'element-plus'
 import { User, Lock, Hide } from '@element-plus/icons-vue'
 import LogoCropDialog from '@/components/LogoCropDialog.vue'
-import { THEME_COLOR_PRESETS, nearestThemePreset } from '@/constants/themePresets'
+import { nearestThemePreset, themePresetsForMode } from '@/constants/themePresets'
+import { isAdminRole, resolveRoleCode } from '@/utils/role'
+import { useUiPrefsStore } from '@/stores/uiPrefs'
 
 const formRef = ref(null)
 const loading = ref(false)
 const logoFileList = ref([])
 const brandingStore = useBrandingStore()
-const themePresets = THEME_COLOR_PRESETS
+const userStore = useUserStore()
+const uiPrefs = useUiPrefsStore()
+const themePresets = computed(() => themePresetsForMode(uiPrefs.colorMode))
 const previewLoginType = ref('employee')
 const previewLogoBroken = ref(false)
+
+const isAdmin = computed(() => isAdminRole(resolveRoleCode(userStore.userInfo)))
+
+const avatarInputRef = ref(null)
+const avatarCropVisible = ref(false)
+const avatarCropSourceUrl = ref('')
+const avatarBroken = ref(false)
+let avatarPendingObjectUrl = ''
+
+const avatarPreviewUrl = computed(() => String(userStore.userInfo?.avatar_url || '').trim())
+const avatarFallback = computed(() => {
+  const name = String(userStore.userInfo?.display_name || userStore.userInfo?.username || 'U').trim()
+  return name.slice(0, 1).toUpperCase() || 'U'
+})
 
 const cropVisible = ref(false)
 const cropSourceUrl = ref('')
@@ -290,6 +353,63 @@ const rules = {
     { required: true, message: '请输入侧栏页脚', trigger: 'blur' },
     { max: 24, message: '侧栏页脚最多 24 个字', trigger: 'blur' }
   ]
+}
+
+/** 普通用户只校验主题色 */
+const formRules = computed(() => {
+  if (isAdmin.value) return rules
+  return {
+    brand_theme_color: rules.brand_theme_color
+  }
+})
+
+function clearAvatarPending() {
+  if (avatarPendingObjectUrl) {
+    URL.revokeObjectURL(avatarPendingObjectUrl)
+    avatarPendingObjectUrl = ''
+  }
+}
+
+function triggerAvatarPick() {
+  avatarInputRef.value?.click()
+}
+
+function onAvatarFileChange(e) {
+  const file = e?.target?.files?.[0]
+  if (avatarInputRef.value) avatarInputRef.value.value = ''
+  if (!file) return
+  if (!file.type?.startsWith('image/')) {
+    ElMessage.error('请上传图片文件')
+    return
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    ElMessage.error('头像文件不能超过 2MB')
+    return
+  }
+  clearAvatarPending()
+  avatarPendingObjectUrl = URL.createObjectURL(file)
+  avatarCropSourceUrl.value = avatarPendingObjectUrl
+  avatarCropVisible.value = true
+}
+
+async function onAvatarCropConfirm({ file }) {
+  avatarCropVisible.value = false
+  avatarCropSourceUrl.value = ''
+  clearAvatarPending()
+  try {
+    const user = await uploadAvatarApi(file)
+    if (user) userStore.setUserInfo({ ...userStore.userInfo, ...user })
+    avatarBroken.value = false
+    ElMessage.success('头像已更新')
+  } catch (error) {
+    ElMessage.error(error?.response?.data?.msg || error?.message || '头像上传失败')
+  }
+}
+
+function onAvatarCropCancel() {
+  avatarCropVisible.value = false
+  avatarCropSourceUrl.value = ''
+  clearAvatarPending()
 }
 
 const handleLogoChange = (file) => {
@@ -389,7 +509,10 @@ function selectThemeColor(value) {
 
 const initForm = () => {
   form.brand_name = brandingStore.brandName
-  form.brand_theme_color = nearestThemePreset(brandingStore.brandThemeColor).value
+  form.brand_theme_color = nearestThemePreset(
+    brandingStore.brandThemeColor,
+    uiPrefs.colorMode
+  ).value
   form.brand_login_title = brandingStore.brandLoginTitle
   form.brand_footer_text = brandingStore.brandFooterText
   localHistory.value = [...(brandingStore.brandLogoHistory || [])]
@@ -408,35 +531,41 @@ const handleSubmit = async () => {
   loading.value = true
   try {
     const data = new FormData()
-    data.append('brand_name', form.brand_name)
     data.append('brand_theme_color', form.brand_theme_color)
-    data.append('brand_login_title', form.brand_login_title)
-    data.append('brand_footer_text', form.brand_footer_text)
 
-    const logoRaw = logoFileList.value.find((f) => f?.raw)?.raw
-    if (logoRaw) {
-      data.append('brand_logo', logoRaw, logoRaw.name || 'logo.png')
-    } else if (historyPickUrl.value) {
-      data.append('brand_logo_history_pick', historyPickUrl.value)
+    if (isAdmin.value) {
+      data.append('brand_name', form.brand_name)
+      data.append('brand_login_title', form.brand_login_title)
+      data.append('brand_footer_text', form.brand_footer_text)
+
+      const logoRaw = logoFileList.value.find((f) => f?.raw)?.raw
+      if (logoRaw) {
+        data.append('brand_logo', logoRaw, logoRaw.name || 'logo.png')
+      } else if (historyPickUrl.value) {
+        data.append('brand_logo_history_pick', historyPickUrl.value)
+      }
     }
 
     const updateResult = await updateBrandingApi(data)
     await brandingStore.fetchBranding()
+    brandingStore.applyBranding()
 
     ElMessage.success('自定义设置更新成功')
 
-    const logoUrl = updateResult?.brand_logo_url || brandingStore.brandLogoUrl
-    if (logoUrl) {
-      revokeUrl(previewObjectUrl)
-      previewObjectUrl = ''
-      previewLogoUrl.value = logoUrl
-      logoSourceUrl.value = logoUrl
-      revokeUrl(logoSourceObjectUrl)
-      logoSourceObjectUrl = ''
+    if (isAdmin.value) {
+      const logoUrl = updateResult?.brand_logo_url || brandingStore.brandLogoUrl
+      if (logoUrl) {
+        revokeUrl(previewObjectUrl)
+        previewObjectUrl = ''
+        previewLogoUrl.value = logoUrl
+        logoSourceUrl.value = logoUrl
+        revokeUrl(logoSourceObjectUrl)
+        logoSourceObjectUrl = ''
+      }
+      localHistory.value = [...(brandingStore.brandLogoHistory || [])]
+      historyPickUrl.value = ''
+      logoFileList.value = []
     }
-    localHistory.value = [...(brandingStore.brandLogoHistory || [])]
-    historyPickUrl.value = ''
-    logoFileList.value = []
   } catch (error) {
     console.error('handleSubmit error:', error)
     if (error.response?.status === 422) {
@@ -474,9 +603,29 @@ watch(() => previewLogoUrl.value, () => {
   previewLogoBroken.value = false
 })
 
-watch(() => brandingStore.brandThemeColor, (newColor) => {
-  form.brand_theme_color = nearestThemePreset(newColor).value
+watch(() => avatarPreviewUrl.value, () => {
+  avatarBroken.value = false
 })
+
+watch(() => brandingStore.brandThemeColor, (newColor) => {
+  form.brand_theme_color = nearestThemePreset(newColor, uiPrefs.colorMode).value
+})
+
+/** 切换日夜间：色盘换列；若当前色不在该模式列表，回落到冰蓝 */
+watch(
+  () => uiPrefs.colorMode,
+  (mode) => {
+    const list = themePresetsForMode(mode)
+    const still = list.some(
+      (p) => p.value.toUpperCase() === String(form.brand_theme_color || '').toUpperCase()
+    )
+    if (!still) {
+      const next = nearestThemePreset(form.brand_theme_color, mode).value
+      form.brand_theme_color = next
+      handleThemeColorChange()
+    }
+  }
+)
 
 onMounted(() => {
   initForm()
@@ -484,6 +633,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearPendingSource()
+  clearAvatarPending()
   revokeUrl(logoSourceObjectUrl)
   revokeUrl(previewObjectUrl)
 })
@@ -499,6 +649,10 @@ onBeforeUnmount(() => {
   align-items: stretch;
   width: 100%;
 }
+.config-container--solo .config-form {
+  flex: 1 1 100%;
+  max-width: 640px;
+}
 .config-form {
   flex: 1 1 55%;
   min-width: 0;
@@ -508,6 +662,66 @@ onBeforeUnmount(() => {
   padding: 20px;
   border-radius: var(--radius-card);
   box-sizing: border-box;
+}
+
+/* Logo 上传 / 主题色：标签与多行内容上对齐 */
+.config-form :deep(.form-item--top.el-form-item) {
+  align-items: flex-start !important;
+}
+
+.config-form :deep(.form-item--top .el-form-item__label-wrap),
+.config-form :deep(.form-item--top .el-form-item__label) {
+  align-items: flex-start !important;
+  height: auto !important;
+  min-height: var(--admin-control-height, 32px);
+  line-height: 32px !important;
+  padding-top: 0 !important;
+}
+
+.config-form :deep(.form-item--top .el-form-item__content) {
+  align-items: flex-start;
+  line-height: normal;
+}
+.avatar-file-input {
+  display: none;
+}
+.avatar-upload-block {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.avatar-preview-btn {
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 50%;
+  line-height: 0;
+}
+.avatar-preview-img,
+.avatar-preview-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid color-mix(in srgb, var(--el-color-primary) 40%, transparent);
+}
+.avatar-preview-fallback {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--admin-text);
+  background: var(--admin-fill);
+}
+.avatar-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
 }
 .config-preview {
   flex: 1 1 45%;
@@ -906,4 +1120,16 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
+</style>
+<style>
+html.admin-theme .branding-config .branding-form .el-form-item.form-item--top {
+  align-items: flex-start !important;
+}
+
+html.admin-theme .branding-config .branding-form .el-form-item.form-item--top .el-form-item__label-wrap,
+html.admin-theme .branding-config .branding-form .el-form-item.form-item--top .el-form-item__label {
+  align-items: flex-start !important;
+  height: auto !important;
+  line-height: 32px !important;
+}
 </style>

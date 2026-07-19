@@ -87,9 +87,9 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", f"./uploads/{ENV}")
 DATABASE_URL = f"sqlite:///./{LOCAL_DB_NAME}"
 
 # ============================================================
-# Chroma 向量库
+# Chroma 向量库（默认 127.0.0.1，与 chroma --host 127.0.0.1 一致）
 # ============================================================
-CHROMA_HOST = os.getenv("CHROMA_HOST", "localhost")
+CHROMA_HOST = os.getenv("CHROMA_HOST", "127.0.0.1")
 CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8000"))
 CHROMA_COLLECTION_NAME = f"rag_chunks_{CHROMA_COLLECTION_SUFFIX}"
 

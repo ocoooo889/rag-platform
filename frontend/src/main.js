@@ -8,6 +8,7 @@ import { useUiPrefsStore } from '@/stores/uiPrefs'
 import equalTable from '@/directives/equalTable'
 import './styles/variables.css'
 import './styles/admin.css'
+import './styles/admin-light.css'
 import './styles/admin-typography.css'
 
 const app = createApp(App)

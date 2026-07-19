@@ -60,7 +60,11 @@ def _probe_chroma() -> dict:
     if "v1 API is deprecated" in msg or "Unimplemented" in msg:
         msg = "请改用 /api/v2/heartbeat（v1 已弃用）"
     elif "10061" in msg or "Connection refused" in msg or "积极拒绝" in msg:
-        msg = f"{config.CHROMA_HOST}:{config.CHROMA_PORT} 拒绝连接（可改 CHROMA_HOST=localhost）"
+        msg = (
+            f"{config.CHROMA_HOST}:{config.CHROMA_PORT} 拒绝连接"
+            "（确认已启动：chroma run --host 127.0.0.1 --port 8000；"
+            ".env 中 CHROMA_HOST=127.0.0.1；或运行 scripts/restart_dev.bat）"
+        )
     return {
         "key": "chroma",
         "label": "Chroma 向量服务",
