@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 
@@ -20,7 +21,6 @@ from app.db.sqlite_helper import (
     list_chat_messages,
     list_chat_sessions,
     load_chat_history,
-    load_chunks_by_kb,
     save_conversation,
     update_chat_session_prefs,
 )
@@ -78,14 +78,9 @@ def _validate_search_type(search_type: str | None) -> str | None:
 
 
 def _prepare_chunk_rows(kb_id: str):
-    rows = load_chunks_by_kb(kb_id)
-    if not rows:
-        return [], [], [], []
-    texts = [r["content"] for r in rows]
-    ids = [r["chroma_id"] or r["id"] for r in rows]
-    source_docs = [r["filename"] if "filename" in r.keys() else "" for r in rows]
-    doc_ids = [r["doc_id"] for r in rows]
-    return texts, ids, source_docs, doc_ids
+    from app.rag_engine.kb_index_cache import prepare_chunk_rows
+
+    return prepare_chunk_rows(kb_id)
 
 
 @router.post("/send")
@@ -179,43 +174,116 @@ async def chat_stream(
         return blocked
 
     session_id = req.session_id or new_id("s")
-    texts, ids, source_docs, doc_ids = _prepare_chunk_rows(req.kb_id)
-    history = _history_text(req.session_id)
     request_id = new_request_id()
     query = req.query.strip()
-
-    try:
-        token_iter, refs = await RAGPipeline.query(
-            kb_id=req.kb_id,
-            query=query,
-            search_type=search_type,
-            texts=texts,
-            ids=ids,
-            top_n=req.top_n,
-            source_docs=source_docs,
-            doc_ids=doc_ids,
-            chat_history=history,
-            session_id=session_id,
-            stream=True,
-            request_id=request_id,
-        )
-    except LLMServiceError as e:
-        return fail(5002, e.message)
-
-    save_conversation(new_id("msg"), session_id, req.kb_id, "user", query, None, _now())
+    kb_id = req.kb_id
+    top_n = req.top_n
+    history_session = req.session_id
 
     async def event_gen():
-        """SSE：客户端中途断开时仍尽量落库已生成内容（BUG-09）"""
+        """
+        尽早推送 start，再做检索/改写，缩短「发送后无反馈」的空白期；
+        首内容 token 仍依赖检索 + LLM，但中间有 status 提示。
+        """
         full = ""
+        refs: list = []
         try:
-            yield f"data: {json.dumps({'type': 'start', 'session_id': session_id, 'request_id': request_id, 'query': query}, ensure_ascii=False)}\n\n"
+            yield (
+                "data: "
+                + json.dumps(
+                    {
+                        "type": "start",
+                        "session_id": session_id,
+                        "request_id": request_id,
+                        "query": query,
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+            yield (
+                "data: "
+                + json.dumps(
+                    {"type": "status", "stage": "retrieve", "message": "正在检索知识库..."},
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+
+            texts, ids, source_docs, doc_ids = _prepare_chunk_rows(kb_id)
+            history = _history_text(history_session)
+
+            # 用户消息异步落库，不挡检索/首 token
+            asyncio.create_task(
+                asyncio.to_thread(
+                    save_conversation,
+                    new_id("msg"),
+                    session_id,
+                    kb_id,
+                    "user",
+                    query,
+                    None,
+                    _now(),
+                )
+            )
+
             try:
+                token_iter, refs = await RAGPipeline.query(
+                    kb_id=kb_id,
+                    query=query,
+                    search_type=search_type,
+                    texts=texts,
+                    ids=ids,
+                    top_n=top_n,
+                    source_docs=source_docs,
+                    doc_ids=doc_ids,
+                    chat_history=history,
+                    session_id=session_id,
+                    stream=True,
+                    request_id=request_id,
+                )
+            except LLMServiceError as e:
+                yield (
+                    "data: "
+                    + json.dumps(
+                        {"type": "chunk", "content": e.message},
+                        ensure_ascii=False,
+                    )
+                    + "\n\n"
+                )
+                full = e.message
+                refs = []
+                done = {
+                    "type": "done",
+                    "content": "",
+                    "query": query,
+                    "references": [],
+                    "error_code": 5002,
+                }
+                yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
+                return
+
+            yield (
+                "data: "
+                + json.dumps(
+                    {"type": "status", "stage": "generate", "message": "正在生成回答..."},
+                    ensure_ascii=False,
+                )
+                + "\n\n"
+            )
+
+            try:
+                chunk_i = 0
                 async for token in token_iter:
                     full += token
                     payload = {"type": "chunk", "content": token}
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    chunk_i += 1
+                    # SSE 注释行：促使中间缓冲尽快刷出（不显示在客户端）
+                    if chunk_i % 3 == 0:
+                        yield ": keepalive\n\n"
+                    await asyncio.sleep(0)
             except LLMServiceError as e:
-                # 流已开始时用 chunk 推送错误文案，仍结束 done
                 err = e.message
                 full = err
                 yield f"data: {json.dumps({'type': 'chunk', 'content': err}, ensure_ascii=False)}\n\n"
@@ -229,24 +297,72 @@ async def chat_stream(
                         "chunk_id": r.get("chunk_id"),
                         "content": r.get("content"),
                         "score": r.get("score"),
+                        "source_doc": r.get("source_doc") or "",
+                        "doc_id": r.get("doc_id") or "",
                     }
                     for r in refs
                 ],
             }
             yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
         finally:
-            # 正常结束或客户端断连，都保存当前已生成内容
-            save_conversation(
-                new_id("msg"),
-                session_id,
-                req.kb_id,
-                "assistant",
-                full,
-                json.dumps(refs, ensure_ascii=False),
-                _now(),
-            )
+            if full:
+                save_conversation(
+                    new_id("msg"),
+                    session_id,
+                    kb_id,
+                    "assistant",
+                    full,
+                    json.dumps(refs, ensure_ascii=False) if refs else None,
+                    _now(),
+                )
 
-    return StreamingResponse(event_gen(), media_type="text/event-stream")
+    return StreamingResponse(
+        event_gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/warmup")
+async def chat_warmup(
+    kb_id: str = Query(..., description="知识库 ID"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    预热：加载 KB 分片/BM25 缓存，并轻量探测 Embedding+Chroma。
+    进入对话页时调用，缩短首问等待。
+    """
+    kb_id = (kb_id or "").strip()
+    if not kb_id:
+        return fail(400, "缺少必填参数: kb_id")
+    await require_kb_access(kb_id, current_user, db)
+    if not kb_exists(kb_id):
+        return fail(404, "知识库不存在")
+
+    from app.rag_engine.kb_index_cache import get_kb_index
+
+    idx = get_kb_index(kb_id)
+    embed_ok = False
+    try:
+        from app.rag_engine.embedder import query_similar
+
+        await query_similar("warmup", 1, where={"kb_id": str(kb_id)})
+        embed_ok = True
+    except Exception:
+        embed_ok = False
+
+    return ok(
+        {
+            "kb_id": kb_id,
+            "chunks": len(idx.texts),
+            "vector_ready": embed_ok,
+        }
+    )
 
 
 def _parse_references(raw) -> list | None:

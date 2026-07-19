@@ -40,7 +40,29 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': {
           target: apiTarget,
-          changeOrigin: true
+          changeOrigin: true,
+          // SSE：禁止代理缓冲，避免「先几个字 → 卡住 → 整段弹出」
+          timeout: 0,
+          proxyTimeout: 0,
+          configure: (proxy) => {
+            proxy.on('proxyRes', (proxyRes, req, res) => {
+              const ct = String(proxyRes.headers['content-type'] || '')
+              const isStream =
+                ct.includes('text/event-stream') ||
+                String(req.url || '').includes('/chat/stream')
+              if (!isStream) return
+              // 关闭可能的压缩缓冲
+              if (proxyRes.headers['content-encoding']) {
+                delete proxyRes.headers['content-encoding']
+              }
+              res.setHeader('Cache-Control', 'no-cache, no-transform')
+              res.setHeader('X-Accel-Buffering', 'no')
+              // 立刻写出响应头，后续 chunk 边到边推
+              if (typeof res.flushHeaders === 'function') {
+                res.flushHeaders()
+              }
+            })
+          }
         },
         '/uploads': {
           target: apiTarget,

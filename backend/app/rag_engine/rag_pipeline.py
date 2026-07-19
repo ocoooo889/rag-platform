@@ -115,14 +115,23 @@ class RAGPipeline:
         )
 
         # 阶段 0：多轮 Query Rewrite（仅影响检索；生成仍用用户原问）
+        # 流式默认跳过改写，避免首 token 前多一轮 LLM
         retrieve_query = query
+        do_rewrite = True
+        if stream and not bool(getattr(config, "QUERY_REWRITE_ON_STREAM", False)):
+            do_rewrite = False
         rewrite_span = trace.span(
             name="query_rewrite",
-            input={"query": query, "has_history": bool((chat_history or "").strip())},
+            input={
+                "query": query,
+                "has_history": bool((chat_history or "").strip()),
+                "skipped": not do_rewrite,
+            },
         )
         t_rw = time.perf_counter()
         try:
-            retrieve_query = await rewrite_query_for_retrieve(query, chat_history)
+            if do_rewrite:
+                retrieve_query = await rewrite_query_for_retrieve(query, chat_history)
         except Exception as e:
             logger.warning("Query Rewrite 外层异常，使用原句检索: %s", e)
             retrieve_query = query
@@ -133,6 +142,7 @@ class RAGPipeline:
                 "retrieve_query": retrieve_query,
                 "rewritten": retrieve_query != query,
                 "elapsed_ms": rewrite_ms,
+                "skipped": not do_rewrite,
             },
         )
 

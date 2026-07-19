@@ -109,7 +109,7 @@
       />
 
       <div v-else class="chat-main__inner">
-        <div class="chat-scroll" ref="messageListRef">
+        <div class="chat-scroll" ref="messageListRef" @scroll.passive="onChatScroll">
           <div class="chat-content">
             <div
               v-if="!hasMessages && !chatStore.streaming"
@@ -136,12 +136,13 @@
             <div v-if="hasMessages || chatStore.streaming" class="message-thread">
               <ChatBubble
                 v-for="(msg, index) in chatStore.messages"
-                :key="`${msg.role}-${index}`"
+                :key="msg.id || `${msg.role}-${index}`"
                 :role="msg.role"
                 :content="msg.content"
                 :error="msg.error || ''"
                 :sources="msg.sources || []"
                 :streaming="isStreamingMessage(index)"
+                :loading-tip="chatStore.streamStatus || 'AI 思考中...'"
               />
             </div>
           </div>
@@ -322,6 +323,10 @@ const renameTitle = ref('')
 const messageListRef = ref(null)
 const bootLoading = ref(false)
 const pageError = ref('')
+/** 仅当用户贴近底部时才自动滚到底，避免流式输出抢滚动 */
+const stickToBottom = ref(true)
+let scrollRaf = null
+let streamScrollTimer = null
 
 const hasKb = computed(() => kbStore.list.length > 0)
 const hasMessages = computed(() => chatStore.messages.length > 0)
@@ -366,7 +371,14 @@ function isStreamingMessage(index) {
   )
 }
 
-async function scrollToBottom() {
+function onChatScroll() {
+  const el = messageListRef.value
+  if (!el) return
+  stickToBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 96
+}
+
+async function scrollToBottom(force = false) {
+  if (!force && !stickToBottom.value) return
   await nextTick()
   const el = messageListRef.value
   if (el) {
@@ -377,24 +389,44 @@ async function scrollToBottom() {
 watch(
   () => chatStore.messages.length,
   () => {
-    scrollToBottom()
+    stickToBottom.value = true
+    scrollToBottom(true)
+  }
+)
+
+// 流式期间用定时滚动，禁止按 content.length 每次 layout（会卡主线程 >1s 再整段刷出）
+watch(
+  () => chatStore.streaming,
+  (on) => {
+    if (streamScrollTimer != null) {
+      clearInterval(streamScrollTimer)
+      streamScrollTimer = null
+    }
+    if (on) {
+      streamScrollTimer = setInterval(() => {
+        scrollToBottom()
+      }, 120)
+    } else {
+      scrollToBottom(true)
+    }
   }
 )
 
 watch(
+  () => chatStore.currentSessionId,
   () => {
-    const list = chatStore.messages
-    return list.length ? list[list.length - 1]?.content : ''
-  },
-  () => {
-    scrollToBottom()
+    stickToBottom.value = true
+    scrollToBottom(true)
   }
 )
 
 watch(
   () => chatStore.selectedKbId,
   (kbId) => {
-    if (kbId) kbStore.setSelectedKb(kbId)
+    if (kbId) {
+      kbStore.setSelectedKb(kbId)
+      chatStore.warmupSelectedKb()
+    }
   }
 )
 
@@ -409,8 +441,13 @@ async function initPage() {
       chatStore.selectedKbId = kbStore.list[0].id
     }
     if (hasKb.value) {
-      await chatStore.loadSessions()
-      // 进入页面：左侧展示历史列表，主区拼出全部历史对话
+      chatStore.hydrateFromLocal()
+      // 预热与拉会话并行，缩短首问前的冷启动
+      await Promise.all([
+        chatStore.loadSessions(),
+        chatStore.warmupSelectedKb()
+      ])
+      // 左侧历史列表；主区只展示当前会话（本地已持久化）
       if (chatStore.sessions.length) {
         const targetId =
           chatStore.currentSessionId &&
@@ -420,6 +457,8 @@ async function initPage() {
             ? chatStore.currentSessionId
             : chatStore.sessions[0].session_id
         await chatStore.switchSession(targetId)
+      } else {
+        stickToBottom.value = true
       }
     }
   } catch (e) {
@@ -447,7 +486,9 @@ async function onCreateSession() {
 
 async function onSwitchSession(sessionId) {
   try {
+    stickToBottom.value = true
     await chatStore.switchSession(sessionId)
+    await scrollToBottom(true)
   } catch (e) {
     // 全局 axios 处理
   }
@@ -525,11 +566,8 @@ async function onSend() {
   }
   const text = question.value.trim()
   question.value = ''
-  try {
-    await chatStore.sendQuestion(text)
-  } catch (e) {
-    // store / 全局拦截兜底
-  }
+  // 不 await 整段流式：避免发送 Promise 挂起影响切页体感；错误由 store 落在气泡里
+  chatStore.sendQuestion(text).catch(() => {})
 }
 
 function useSuggestion(text) {
@@ -543,6 +581,14 @@ onMounted(() => {
 
 onUnmounted(() => {
   chatStore.abortCurrentStream()
+  if (streamScrollTimer != null) {
+    clearInterval(streamScrollTimer)
+    streamScrollTimer = null
+  }
+  if (scrollRaf != null) {
+    cancelAnimationFrame(scrollRaf)
+    scrollRaf = null
+  }
 })
 
 defineExpose({
@@ -627,7 +673,7 @@ defineExpose({
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--admin-fs-secondary, 13px);
   color: var(--text-color-regular);
 }
 
@@ -770,14 +816,14 @@ defineExpose({
 
 .welcome-title {
   margin: 0 0 8px;
-  font-size: 22px;
+  font-size: var(--admin-fs-title, 22px);
   font-weight: 600;
   color: var(--text-color-primary);
 }
 
 .welcome-subtitle {
   margin: 0 0 28px;
-  font-size: 14px;
+  font-size: var(--admin-fs-body, 14px);
   color: var(--text-color-secondary);
 }
 
@@ -914,7 +960,7 @@ defineExpose({
   border: none !important;
   padding: 2px 4px;
   resize: none;
-  font-size: 15px;
+  font-size: var(--admin-fs-body-lg, 15px);
   line-height: 1.65;
   color: var(--admin-text, #f5f5f5);
   caret-color: var(--el-color-primary);

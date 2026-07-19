@@ -85,7 +85,24 @@
   --admin-badge-text: rgba(200, 205, 220, 0.65);
   --admin-radius: 14px;
   --admin-radius-sm: 10px;
-  --admin-brand-font-size: 28px;
+  /* 管理后台文字阶梯默认值（admin-theme 下由 admin-typography 覆盖并支持大中小） */
+  --admin-fs-display: 28px;
+  --admin-fs-title: 22px;
+  --admin-fs-subtitle: 18px;
+  --admin-fs-body-lg: 15px;
+  --admin-fs-body: 14px;
+  --admin-fs-secondary: 13px;
+  --admin-fs-caption: 12px;
+  --admin-fs-tiny: 11px;
+  --admin-fw-regular: 400;
+  --admin-fw-medium: 500;
+  --admin-fw-semibold: 600;
+  --admin-fw-bold: 700;
+  --admin-lh-tight: 1.25;
+  --admin-lh-snug: 1.4;
+  --admin-lh-body: 1.55;
+  --admin-text-regular: rgba(210, 210, 215, 0.84);
+  --admin-brand-font-size: var(--admin-fs-display);
   /* 侧栏宽 = 左内边距 16px + 10 个汉字（与页眉系统名同宽对齐） */
   --admin-sidebar-pad-x: 16px;
   --admin-sidebar-width: calc(var(--admin-sidebar-pad-x) + 10 * var(--admin-brand-font-size));

@@ -15,7 +15,11 @@ set "PROJECT_DIR=%~dp0.."
 cd /d "%PROJECT_DIR%"
 
 echo [1/3] 启动 Chroma 向量库服务 (端口 8000)...
-start "Chroma" cmd /k "chroma run --path ./chroma_data --port 8000"
+if exist "backend\venv\Scripts\chroma.exe" (
+  start "Chroma" cmd /k "backend\venv\Scripts\chroma.exe run --path ./chroma_data --port 8000"
+) else (
+  start "Chroma" cmd /k "chroma run --path ./chroma_data --port 8000"
+)
 echo       Chroma 服务已启动，等待 3 秒...
 timeout /t 3 /nobreak >nul
 

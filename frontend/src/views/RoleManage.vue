@@ -1,7 +1,7 @@
 <template>
   <div class="role-manage page-shell">
     <div class="page-header">
-      <h2>角色管理</h2>
+      <h2>权限管理</h2>
       <el-button type="primary" @click="openAddDialog">新增角色</el-button>
     </div>
     <div class="page-body">

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app import config
-from app.rag_engine.embedder import delete_from_chroma, embed_and_store
+from app.rag_engine.embedder import VectorStoreError, delete_from_chroma, embed_and_store
 from app.rag_engine.splitter import split_file
 from app.utils.ids import new_id
 from app.utils.llm_client import EmbeddingServiceError
@@ -19,6 +19,7 @@ from app.utils.llm_client import EmbeddingServiceError
 logger = logging.getLogger(__name__)
 
 VECTOR_DEGRADED_MSG = "向量模型暂不可用，已切换关键词检索"
+CHROMA_DEGRADED_MSG = "向量库（Chroma）未启动，已切换关键词检索"
 
 
 def _db_path() -> str:
@@ -33,6 +34,8 @@ def _now() -> str:
 def _friendly_error(exc: Exception) -> str:
     text = str(exc) or exc.__class__.__name__
     low = text.lower()
+    if isinstance(exc, VectorStoreError) or "chroma" in low or "could not connect" in low:
+        return getattr(exc, "message", None) or CHROMA_DEGRADED_MSG
     if "invalid_api_key" in low or "incorrect api key" in low or "401" in low:
         return "向量化失败：API Key 无效，请检查 .env 中的 OPENAI_API_KEY / DASHSCOPE_API_KEY"
     if isinstance(exc, EmbeddingServiceError) or VECTOR_DEGRADED_MSG in text:
@@ -112,9 +115,12 @@ async def ingest_document(
         except EmbeddingServiceError as e:
             warn_msg = VECTOR_DEGRADED_MSG
             logger.warning("Embedding 不可用，降级仅写切片 doc_id=%s: %s", doc_id, e)
+        except VectorStoreError as e:
+            warn_msg = e.message or CHROMA_DEGRADED_MSG
+            logger.warning("Chroma 不可用，降级仅写切片 doc_id=%s: %s", doc_id, e)
         except Exception as e:
-            # Chroma / 网络等异常：同样降级写本地切片，保证文档可用
-            warn_msg = _friendly_error(e) if "invalid_api_key" in str(e).lower() else VECTOR_DEGRADED_MSG
+            # 其它异常：友好文案，仍写本地切片保证文档可用
+            warn_msg = _friendly_error(e)
             logger.warning("向量写入失败，降级仅写切片 doc_id=%s: %s", doc_id, e)
 
         cur.executemany(
@@ -129,6 +135,12 @@ async def ingest_document(
             ("completed", len(texts), warn_msg, doc_id),
         )
         conn.commit()
+        try:
+            from app.rag_engine.kb_index_cache import invalidate_kb_index
+
+            invalidate_kb_index(kb_id)
+        except Exception:
+            pass
         return len(texts)
     except Exception as e:
         msg = _friendly_error(e)

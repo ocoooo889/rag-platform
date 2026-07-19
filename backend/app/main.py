@@ -70,6 +70,10 @@ async def log_requests(request: Request, call_next):
     request_id_var.set(req_id)
     action_var.set(f"{request.method} {request.url.path}")
 
+    # 流式接口：不做耗时统计包一层，避免中间件语义干扰排查
+    if request.url.path.rstrip("/").endswith("/chat/stream"):
+        return await call_next(request)
+
     start_time = time.time()
     response = await call_next(request)
     duration_ms = (time.time() - start_time) * 1000
@@ -81,7 +85,10 @@ async def log_requests(request: Request, call_next):
     return response
 
 
-Instrumentator().instrument(app).expose(app)
+Instrumentator(
+    should_exclude_streaming_duration=True,
+    excluded_handlers=["/metrics", "/api/chat/stream", "/api/health", "/health"],
+).instrument(app).expose(app)
 
 # 白标与上传静态资源（相对 backend 工作目录）
 _uploads_root = Path("uploads").resolve()
