@@ -1,7 +1,8 @@
+import asyncio
 import os
 from typing import List
 
-from fastapi import APIRouter, Depends, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, Depends, UploadFile, File
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -17,6 +18,24 @@ from app.utils.logger import logger
 from app.utils.ids import new_id
 
 router = APIRouter(prefix="/api", tags=["documents"])
+
+
+async def _ingest_in_background(
+    kb_id: str,
+    doc_id: str,
+    file_path: str,
+    filename: str | None,
+) -> None:
+    """后台入库：异常只打日志，避免拖垮请求线程。"""
+    try:
+        await ingest_document(
+            kb_id=kb_id,
+            doc_id=doc_id,
+            file_path=file_path,
+            filename=filename,
+        )
+    except Exception:
+        logger.exception("后台入库异常 doc_id=%s", doc_id)
 
 
 class BatchDeleteRequest(BaseModel):
@@ -68,7 +87,6 @@ async def _purge_document(db: Session, db_doc: Document) -> None:
 @router.post("/knowledge-bases/{kb_id}/documents/upload", response_model=ResponseModel)
 async def upload_document(
     kb_id: str,
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -120,12 +138,14 @@ async def upload_document(
     db.commit()
     db.refresh(new_doc)
 
-    background_tasks.add_task(
-        ingest_document,
-        kb_id=kb_id,
-        doc_id=new_doc.id,
-        file_path=file_path,
-        filename=file.filename,
+    # 异步入库（create_task）：立刻返回上传结果；向量化在后台跑且不阻塞事件循环
+    asyncio.create_task(
+        _ingest_in_background(
+            kb_id=kb_id,
+            doc_id=new_doc.id,
+            file_path=file_path,
+            filename=file.filename,
+        )
     )
 
     return ResponseModel(data=doc_to_dict(new_doc))
