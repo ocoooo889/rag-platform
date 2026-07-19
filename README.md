@@ -70,6 +70,16 @@ scripts\restart_dev.bat
 bash scripts/restart_dev.sh
 ```
 
+## Docker 一键部署（对外端口 8520）
+
+```bash
+cp .env.example .env   # 填入 OPENAI_API_KEY 等
+docker compose up -d --build
+```
+
+浏览器打开：**http://localhost:8520**  
+详细说明见 [`docs/Docker部署说明.md`](docs/Docker部署说明.md)。
+
 ---
 
 ## 端口约定（勿混用）

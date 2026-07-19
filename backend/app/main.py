@@ -168,6 +168,13 @@ def _reset_stale_processing_docs(max_age_minutes: int | None = None) -> int:
 async def startup():
     Path(config.UPLOAD_DIR).mkdir(parents=True, exist_ok=True)
     try:
+        db_file = Path(config.LOCAL_DB_NAME)
+        if not db_file.is_absolute():
+            db_file = Path(__file__).resolve().parents[2] / db_file
+        db_file.parent.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    try:
         from app.db.seed import init_schema_and_seed
 
         init_schema_and_seed()

@@ -9,10 +9,17 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # 优先加载项目根 / backend 下的 .env，兼容多种启动目录
-# override=True：项目 .env 覆盖系统环境变量（避免本机 LLM_MODEL=gpt-5.1 盖住百炼 qwen-plus）
+# override=True：项目 .env 覆盖系统环境变量（避免本机 LLM_MODEL 盖住百炼配置）
+# Docker：设 DOTENV_OVERRIDE=false，让 compose environment 优先生效（如 CHROMA_HOST=chroma）
 _ROOT = Path(__file__).resolve().parents[2]  # rag-platform/
-load_dotenv(_ROOT / ".env", override=True)
-load_dotenv(_ROOT / "backend" / ".env", override=True)
+_DOTENV_OVERRIDE = os.getenv("DOTENV_OVERRIDE", "true").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+load_dotenv(_ROOT / ".env", override=_DOTENV_OVERRIDE)
+load_dotenv(_ROOT / "backend" / ".env", override=_DOTENV_OVERRIDE)
 load_dotenv(override=False)
 
 # ============================================================

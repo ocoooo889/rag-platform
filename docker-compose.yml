@@ -1,0 +1,73 @@
+# RAG Platform — Docker Compose
+# 对外入口：http://localhost:8520
+#
+# 使用前：
+#   1. 复制 .env.example 为 .env，填入 OPENAI_API_KEY 等
+#   2. docker compose up -d --build
+#
+# 注意：compose 会强制 CHROMA_HOST=chroma（容器内服务名），覆盖本机开发用的 127.0.0.1
+
+services:
+  chroma:
+    build:
+      context: .
+      dockerfile: docker/chroma/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - chroma_data:/data
+    # 仅内网；不映射到宿主机，避免与本地开发 8000 冲突
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8000/api/v2/heartbeat"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # 让 compose 环境变量优先生效（避免 .env 里 CHROMA_HOST=127.0.0.1 覆盖）
+      DOTENV_OVERRIDE: "false"
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+      ENV: ${ENV:-docker}
+      LOCAL_DB_NAME: /data/db/rag.db
+      UPLOAD_DIR: /data/uploads
+      CHAT_RETRIEVE_MODE: ${CHAT_RETRIEVE_MODE:-balanced}
+      CHAT_VECTOR_TIMEOUT: ${CHAT_VECTOR_TIMEOUT:-0.7}
+      HITTEST_VECTOR_TIMEOUT: ${HITTEST_VECTOR_TIMEOUT:-10}
+    volumes:
+      - backend_data:/data
+    depends_on:
+      chroma:
+        condition: service_healthy
+    expose:
+      - "8001"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8520:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  chroma_data:
+  backend_data:
