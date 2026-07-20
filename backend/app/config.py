@@ -65,6 +65,14 @@ HYBRID_CANDIDATE_MUL = int(os.getenv("HYBRID_CANDIDATE_MUL", "5"))
 DEFAULT_TOP_N = 3
 MAX_TOP_N = 10
 
+# 意图识别（规则路由）：闲聊/能力说明跳过检索；可用 ENABLE_INTENT_ROUTE=false 关闭
+ENABLE_INTENT_ROUTE = os.getenv("ENABLE_INTENT_ROUTE", "true").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+
 # 多轮对话：检索前是否做 Query Rewrite（失败自动回退原句）
 ENABLE_QUERY_REWRITE = os.getenv("ENABLE_QUERY_REWRITE", "true").lower() not in (
     "0",
@@ -82,7 +90,8 @@ QUERY_REWRITE_ON_STREAM = os.getenv("QUERY_REWRITE_ON_STREAM", "false").lower() 
 # 改写等待上限（秒）
 QUERY_REWRITE_TIMEOUT = float(os.getenv("QUERY_REWRITE_TIMEOUT", "1.2"))
 # 流式对话：向量检索等待上限（秒），超时立刻用本地 BM25，换更快首 token
-CHAT_VECTOR_TIMEOUT = float(os.getenv("CHAT_VECTOR_TIMEOUT", "0.7"))
+# 对话向量等待上限；过短会几乎总超时并降级为关键词（百炼 Embedding 常需数秒）
+CHAT_VECTOR_TIMEOUT = float(os.getenv("CHAT_VECTOR_TIMEOUT", "10"))
 # 命中测试：向量等待更长，避免误判为「向量不可用」
 HITTEST_VECTOR_TIMEOUT = float(os.getenv("HITTEST_VECTOR_TIMEOUT", "10"))
 # 对话默认检索：fast=优先本地 BM25；balanced=向量（超时回退 BM25）；quality=强制等向量

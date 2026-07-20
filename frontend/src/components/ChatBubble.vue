@@ -240,18 +240,22 @@ defineExpose({
   padding: 10px 12px;
   border-radius: 8px;
   line-height: 1.6;
-  white-space: pre-wrap;
   word-break: break-word;
   background: var(--bg-color-user-bubble);
   color: var(--text-color-primary);
 }
 
+.chat-bubble.user .chat-bubble__content {
+  white-space: pre-wrap;
+}
+
 .chat-bubble__content--assistant {
   background: var(--bg-color-ai-bubble);
-  padding: 10px 12px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  white-space: normal;
 }
 
 .chat-bubble__meta {
@@ -259,14 +263,39 @@ defineExpose({
   flex-wrap: wrap;
   gap: 6px;
   align-items: center;
+  padding-bottom: 2px;
 }
 
 .source-panel {
-  margin-top: 8px;
+  margin-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  padding-top: 2px;
+}
+
+.source-panel :deep(.el-collapse) {
+  border: none;
+}
+
+.source-panel :deep(.el-collapse-item__header) {
+  height: 36px;
+  line-height: 36px;
+  font-size: 13px;
+  color: var(--text-color-secondary);
+  background: transparent;
+  border: none;
+}
+
+.source-panel :deep(.el-collapse-item__wrap) {
+  border: none;
+  background: transparent;
+}
+
+.source-panel :deep(.el-collapse-item__content) {
+  padding-bottom: 4px;
 }
 
 .source-item {
-  padding: 8px 0;
+  padding: 10px 0;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -279,7 +308,7 @@ defineExpose({
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
   font-size: 12px;
   color: var(--text-color-secondary);
 }
@@ -288,6 +317,7 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  font-weight: 500;
 }
 
 .source-rerank-tag {
@@ -303,7 +333,11 @@ defineExpose({
 .source-item p {
   margin: 0;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.55;
   color: var(--text-color-regular);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 </style>

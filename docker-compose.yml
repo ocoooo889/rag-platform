@@ -41,7 +41,7 @@ services:
       LOCAL_DB_NAME: /data/db/rag.db
       UPLOAD_DIR: /data/uploads
       CHAT_RETRIEVE_MODE: ${CHAT_RETRIEVE_MODE:-balanced}
-      CHAT_VECTOR_TIMEOUT: ${CHAT_VECTOR_TIMEOUT:-0.7}
+      CHAT_VECTOR_TIMEOUT: ${CHAT_VECTOR_TIMEOUT:-10}
       HITTEST_VECTOR_TIMEOUT: ${HITTEST_VECTOR_TIMEOUT:-10}
     volumes:
       - backend_data:/data

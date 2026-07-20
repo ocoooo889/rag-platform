@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator
 
 from app import config
 from app.rag_engine.generator import generate_answer, generate_answer_stream
+from app.rag_engine.intent_classifier import classify_intent
 from app.rag_engine.prompt_guard import sanitize_hits, sanitize_user_query
 from app.rag_engine.query_rewrite import rewrite_query_for_retrieve
 from app.rag_engine.retriever import retrieve
@@ -119,6 +120,7 @@ class RAGPipeline:
             "query_rewritten": False,
             "guard_warnings": [],
             "retrieve": {},
+            "intent": {},
         }
         safe_query, guard_warnings = sanitize_user_query(query)
         if guard_warnings:
@@ -132,6 +134,48 @@ class RAGPipeline:
             input_data={"query": query},
             request_id=request_id,
         )
+
+        # 阶段 -1：意图识别（闲聊/能力说明可跳过检索）
+        intent_span = trace.span(name="intent", input={"query": query})
+        intent = classify_intent(query)
+        pipeline_meta["intent"] = intent.to_meta()
+        safe_end(
+            intent_span,
+            output={
+                "label": intent.label,
+                "skip_retrieve": intent.skip_retrieve,
+                "source": intent.source,
+            },
+        )
+
+        if intent.skip_retrieve and intent.reply:
+            hits: list[dict] = []
+            pipeline_meta["retrieve"] = {
+                "skipped": True,
+                "reason": "intent_route",
+                "search_type": search_type,
+            }
+            pipeline_meta["rewritten_query"] = query
+            pipeline_meta["query_rewritten"] = False
+            answer = intent.reply
+            try:
+                trace.update(
+                    output={
+                        "answer_preview": answer[:200],
+                        "hits_count": 0,
+                        "intent": intent.label,
+                        "skip_retrieve": True,
+                    }
+                )
+            except Exception:
+                pass
+            flush()
+            if stream:
+                async def _direct() -> AsyncIterator[str]:
+                    yield answer
+
+                return _direct(), hits, pipeline_meta
+            return answer, hits, pipeline_meta
 
         # 阶段 0：多轮 Query Rewrite（仅影响检索；生成仍用用户原问）
         # 流式默认跳过改写，避免首 token 前多一轮 LLM
@@ -212,6 +256,7 @@ class RAGPipeline:
                 "retrieve_query": retrieve_query,
                 "context": hits,
                 "chat_history": chat_history or "（无历史）",
+                "intent": intent.label,
             },
         )
 
