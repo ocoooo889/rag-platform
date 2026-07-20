@@ -70,7 +70,8 @@ async def rerank_hits(
     timeout = float(getattr(config, "RERANK_TIMEOUT", 3.0) or 3.0)
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # trust_env=False：绕过本机失效系统代理（与 embedder 一致）
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             resp = await client.post(_dashscope_rerank_url(), json=payload, headers=headers)
             resp.raise_for_status()
             body = resp.json()
