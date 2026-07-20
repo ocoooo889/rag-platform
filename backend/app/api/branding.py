@@ -9,8 +9,11 @@ from typing import Optional, List
 from app.db.database import get_db
 from app.db.models import SystemConfig, User
 from app.schema.response_schema import ResponseModel
+from app.schema.ports import list_ports_dict, probe_all_services, probe_service
 from app.utils.auth import get_current_user
-from app.utils.permission import is_admin
+from app.utils.permission import is_admin, ensure_admin_or_response
+from app.utils.metrics import service_port_up
+from app.utils.logger import logger
 
 router = APIRouter(prefix="/api/system", tags=["branding"])
 
@@ -221,3 +224,60 @@ async def update_branding(
     configs = db.query(SystemConfig).all()
     latest_config_map = {c.config_key: c.config_value for c in configs}
     return ResponseModel(data=_build_payload(latest_config_map))
+
+
+def _sync_service_metrics(results: list[dict]) -> None:
+    for row in results:
+        up = 1 if row.get("status") == "ok" else 0
+        service_port_up.labels(
+            port=str(row.get("port", "")),
+            service_key=str(row.get("key", "")),
+            process=str(row.get("process", "")),
+        ).set(up)
+
+
+@router.get("/ports", response_model=ResponseModel)
+def get_system_ports(
+    current_user: User = Depends(get_current_user),
+):
+    """返回 port.md 端口注册表（管理员）。"""
+    denied = ensure_admin_or_response(current_user)
+    if denied:
+        return denied
+    return ResponseModel(data=list_ports_dict())
+
+
+@router.get("/services/health", response_model=ResponseModel)
+def get_services_health(
+    current_user: User = Depends(get_current_user),
+):
+    """按 port.md 健康检查约定探测各端口（管理员）。"""
+    denied = ensure_admin_or_response(current_user)
+    if denied:
+        return denied
+
+    results = probe_all_services()
+    _sync_service_metrics(results)
+    logger.info(
+        "端口健康探测完成",
+        extra={
+            "action": "ports.health_probe",
+            "service_key": "ports",
+        },
+    )
+    return ResponseModel(data=results)
+
+
+@router.get("/services/health/{port}", response_model=ResponseModel)
+def get_service_health_by_port(
+    port: int,
+    current_user: User = Depends(get_current_user),
+):
+    """探测单个端口（管理员）。"""
+    denied = ensure_admin_or_response(current_user)
+    if denied:
+        return denied
+
+    result = probe_service(port)
+    _sync_service_metrics([result])
+    return ResponseModel(data=result)

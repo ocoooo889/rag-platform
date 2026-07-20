@@ -36,6 +36,17 @@ class KnowledgeBaseOut(KnowledgeBaseBase):
     document_count: int = 0
     model_config = ConfigDict(from_attributes=True)
 
+
+class KbIndexConfigOut(BaseModel):
+    kb_id: str
+    chunk_size: int
+    chunk_overlap: int
+    hybrid_alpha: float
+    default_search_type: str
+    enable_rerank: bool
+    default_top_n: int
+    updated_at: Optional[str] = None
+
 # 文档相关
 class DocumentOut(BaseModel):
     id: str
@@ -57,3 +68,21 @@ class BrandingConfigOut(BaseModel):
     brand_login_title: str
     brand_footer_text: str
     brand_logo_history: List[str] = []
+
+
+# 端口注册（port.md）
+class PortSpecOut(BaseModel):
+    port: int
+    feature: str
+    process: str
+    bind: str
+    protocol: str
+    health_check: str
+    owner: str
+    depends: List[str] = []
+
+
+class ServiceHealthOut(PortSpecOut):
+    key: str
+    status: str
+    detail: str
