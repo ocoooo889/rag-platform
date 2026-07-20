@@ -53,11 +53,11 @@ async def _retrieve_one_doc(
 ):
     """
     单文档检索（保留原有准入与返回逻辑）。
-    成功返回 (None, hits)；业务失败返回 (fail_response, None)。
+    成功返回 (None, hits, meta)；业务失败返回 (fail_response, None, None)。
     """
     doc = get_document(doc_id)
     if not doc or doc["kb_id"] != kb_id:
-        return fail(404, "文档不存在或不属于该知识库"), None
+        return fail(404, "文档不存在或不属于该知识库"), None, None
 
     # V2：非 completed 不可检索 → 4002
     if doc["status"] != "completed":
@@ -69,11 +69,12 @@ async def _retrieve_one_doc(
                 data={"doc_id": doc_id, "status": doc["status"]},
             ),
             None,
+            None,
         )
 
     rows = load_chunks_by_doc(doc_id)
     if not rows:
-        return None, []
+        return None, [], {}
 
     texts = [r["content"] for r in rows]
     ids = [r["chroma_id"] or r["id"] for r in rows]
@@ -81,7 +82,7 @@ async def _retrieve_one_doc(
     doc_ids = [doc_id] * len(rows)
 
     try:
-        hits = await RAGPipeline.retrieve_only(
+        hits, retrieve_meta = await RAGPipeline.retrieve_only(
             query=query,
             texts=texts,
             ids=ids,
@@ -93,12 +94,12 @@ async def _retrieve_one_doc(
             doc_ids=doc_ids,
         )
     except Exception as e:
-        return fail(5001, f"向量库服务异常: {e}"), None
+        return fail(5001, f"向量库服务异常: {e}"), None, None
 
     for h in hits:
         h.setdefault("source_doc", doc["filename"])
         h.setdefault("doc_id", doc_id)
-    return None, hits
+    return None, hits, retrieve_meta
 
 
 @router.post("/test_retrieve")
@@ -131,7 +132,7 @@ async def test_retrieve(
 
     # 单文档：行为与原先完全一致（含 404 / 4002 直接返回）
     if len(target_ids) == 1:
-        err, hits = await _retrieve_one_doc(
+        err, hits, retrieve_meta = await _retrieve_one_doc(
             kb_id=req.kb_id,
             doc_id=target_ids[0],
             query=query,
@@ -144,12 +145,14 @@ async def test_retrieve(
             "search_type": search_type,
             "total_hits": len(hits),
             "hits": hits,
+            "meta": retrieve_meta or {},
         })
 
     # 多文档：逐篇检索后按 score 合并，截断 top_n；遇 404/4002/5001 立即返回
     merged: list[dict] = []
+    merged_meta: dict = {}
     for doc_id in target_ids:
-        err, hits = await _retrieve_one_doc(
+        err, hits, retrieve_meta = await _retrieve_one_doc(
             kb_id=req.kb_id,
             doc_id=doc_id,
             query=query,
@@ -159,6 +162,8 @@ async def test_retrieve(
         if err is not None:
             return err
         merged.extend(hits or [])
+        if retrieve_meta:
+            merged_meta = retrieve_meta
 
     merged.sort(key=lambda h: float(h.get("score") or 0), reverse=True)
     hits = merged[:top_n]
@@ -166,4 +171,5 @@ async def test_retrieve(
         "search_type": search_type,
         "total_hits": len(hits),
         "hits": hits,
+        "meta": merged_meta,
     })

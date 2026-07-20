@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.rag_engine.prompt_guard import format_context_chunks, sanitize_chunk_content
 from app.utils.llm_client import chat_completion, chat_completion_stream
 
 # 新架子提示词在 backend/prompts/（兼容根目录 prompts/）
@@ -29,16 +30,15 @@ def build_messages(
     query: str,
     chat_history: str = "",
 ) -> list[dict]:
-    context = "\n\n".join(
-        f"[片段{i+1}] {c.get('content', '')}" for i, c in enumerate(context_chunks)
-    ) or "（无检索结果）"
+    context = format_context_chunks(context_chunks)
+    safe_query = sanitize_chunk_content(query)
 
     filled = (
         _load_template()
         .replace("{{chat_history}}", chat_history or "（无历史）")
         .replace("{{context_chunks}}", context)
-        .replace("{{query}}", query)
-        .replace("{{user_query}}", query)
+        .replace("{{query}}", safe_query)
+        .replace("{{user_query}}", safe_query)
     )
     return [{"role": "user", "content": filled}]
 
