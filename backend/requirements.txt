@@ -20,3 +20,6 @@ langfuse>=2.0.0,<3.0.0
 # --- 监控与日志 ---
 prometheus-fastapi-instrumentator>=6.1.0
 loguru>=0.7.2
+# --- 多格式文档解析（知识库上传）---
+pypdf>=4.0.0
+python-docx>=1.1.0

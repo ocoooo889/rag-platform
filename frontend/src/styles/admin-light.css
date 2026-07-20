@@ -71,6 +71,7 @@ html.admin-theme[data-color-mode='light'] {
 
   --bg-color-page: var(--admin-bg);
   --bg-color-page-soft: #e4eaf3;
+  --bg-color-secondary: #e4eaf3;
   --bg-color-card: var(--admin-surface);
   --bg-color-hover: var(--admin-fill-hover);
   --bg-color-user-bubble: var(--admin-primary-soft);
@@ -155,6 +156,7 @@ html.admin-theme[data-color-mode='light'] .el-card,
 html.admin-theme[data-color-mode='light'] .panel,
 html.admin-theme[data-color-mode='light'] .filter-bar,
 html.admin-theme[data-color-mode='light'] .upload-area,
+html.admin-theme[data-color-mode='light'] .split-panel,
 html.admin-theme[data-color-mode='light'] .config-form,
 html.admin-theme[data-color-mode='light'] .config-preview,
 html.admin-theme[data-color-mode='light'] .modal-preview,

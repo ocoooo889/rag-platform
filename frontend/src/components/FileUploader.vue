@@ -1,5 +1,5 @@
 <template>
-  <!-- 支持批量：md/txt、单文件 10MB、切分策略可选、点击+拖拽、进度条 -->
+  <!-- 支持批量：md/txt/pdf/docx/html/csv、单文件 10MB、切分策略可选、点击+拖拽、进度条 -->
   <div
     class="file-uploader"
     v-loading="uploading"
@@ -86,14 +86,14 @@
       :auto-upload="false"
       :show-file-list="true"
       :disabled="disabled || uploading || !kbId"
-      accept=".md,.txt"
+      accept=".md,.markdown,.txt,.pdf,.docx,.html,.htm,.csv"
       :on-change="onFileChange"
       :on-remove="onRemove"
       :file-list="fileList"
     >
       <div class="upload-tip">
         <p>点击或拖拽文件到此处上传（支持多选）</p>
-        <p class="sub">仅支持 .md、.txt，单文件不超过 10MB</p>
+        <p class="sub">支持 .md / .txt / .pdf / .docx / .html / .csv，单文件不超过 10MB</p>
       </div>
     </el-upload>
 
@@ -132,7 +132,8 @@ const props = defineProps({
 const emit = defineEmits(['success', 'fail', 'progress', 'update:uploading', 'update:progress'])
 
 const MAX_SIZE = 10 * 1024 * 1024
-const ALLOWED_EXT = ['md', 'txt']
+const ALLOWED_EXT = ['md', 'markdown', 'txt', 'pdf', 'docx', 'html', 'htm', 'csv']
+const ALLOWED_LABEL = '.md / .txt / .pdf / .docx / .html / .csv'
 
 const DEFAULT_STRATEGIES = [
   { value: 'recursive', label: '递归切分', desc: '优先按标题/段落/句子边界切，默认兼容 Day1' },
@@ -177,7 +178,7 @@ function validateFile(file) {
   const name = file.name || ''
   const ext = name.includes('.') ? name.split('.').pop().toLowerCase() : ''
   if (!ALLOWED_EXT.includes(ext)) {
-    ElMessage.warning(`「${name}」格式不支持，仅支持 .md、.txt`)
+    ElMessage.warning(`「${name}」格式不支持，仅支持 ${ALLOWED_LABEL}`)
     return false
   }
   if (file.size > MAX_SIZE) {
@@ -276,9 +277,11 @@ async function startUpload() {
 .split-panel {
   margin-bottom: 14px;
   padding: 12px 14px;
-  border: 1px solid var(--border-color, #e5e7eb);
-  border-radius: 8px;
-  background: var(--bg-color-secondary, #fafafa);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-card, 8px);
+  /* 优先主题 secondary；未定义时回退 page-soft，避免夜间白底 */
+  background: var(--bg-color-secondary, var(--bg-color-page-soft, transparent));
+  color: var(--text-color-primary);
 }
 
 .split-row {
@@ -295,7 +298,7 @@ async function startUpload() {
 
 .split-label {
   font-size: 13px;
-  color: var(--text-color-secondary, #6b7280);
+  color: var(--text-color-secondary);
   min-width: 64px;
 }
 
@@ -303,16 +306,17 @@ async function startUpload() {
 .hint-inline {
   margin: 0;
   font-size: 12px;
-  color: var(--text-color-secondary, #6b7280);
+  color: var(--text-color-secondary);
 }
 
 .opt-main {
   font-size: 13px;
+  color: var(--text-color-primary);
 }
 
 .opt-desc {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--text-color-secondary);
   line-height: 1.3;
   max-width: 320px;
   white-space: normal;

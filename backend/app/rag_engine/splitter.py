@@ -469,38 +469,36 @@ def split_text(text: str, options: SplitOptions | None = None) -> list[str]:
     return asyncio.run(split_text_async(text, opts)).texts
 
 
-def _read_text(file_path: str) -> str:
-    """UTF-8 优先，失败再试 utf-8-sig / gbk（Windows 长文档常见）。"""
-    last_err: Exception | None = None
-    for enc in ("utf-8", "utf-8-sig", "gbk", "gb2312"):
-        try:
-            with open(file_path, "r", encoding=enc) as f:
-                return f.read()
-        except UnicodeDecodeError as e:
-            last_err = e
-            continue
-    raise ValueError(f"无法解码文档，已尝试 utf-8/gbk：{last_err}")
+def _read_text(file_path: str, filename: str | None = None) -> str:
+    """按扩展名提取纯文本（md/txt/pdf/docx/html/csv）。"""
+    from app.rag_engine.document_loader import load_document_text
+
+    return load_document_text(file_path, filename=filename)
 
 
 def split_file(
     file_path: str,
     encoding: str | None = None,
     options: SplitOptions | None = None,
+    filename: str | None = None,
 ) -> list[str]:
-    """读取本地 md/txt 并切片（同步，兼容旧调用）。"""
+    """读取本地文档并切片（同步，兼容旧调用）。"""
     if encoding:
         with open(file_path, "r", encoding=encoding) as f:
             return split_text(f.read(), options)
-    return split_text(_read_text(file_path), options)
+    return split_text(_read_text(file_path, filename=filename), options)
 
 
 async def split_file_async(
     file_path: str,
     encoding: str | None = None,
     options: SplitOptions | None = None,
+    filename: str | None = None,
 ) -> SplitResult:
-    """异步读文件并切分。"""
+    """异步读文件并切分（支持多格式）。"""
     if encoding:
         with open(file_path, "r", encoding=encoding) as f:
             return await split_text_async(f.read(), options)
-    return await split_text_async(_read_text(file_path), options)
+    return await split_text_async(
+        _read_text(file_path, filename=filename), options
+    )

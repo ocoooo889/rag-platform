@@ -16,6 +16,7 @@ html.admin-theme {
 
   --bg-color-page: transparent;
   --bg-color-page-soft: rgba(10, 13, 24, 0.45);
+  --bg-color-secondary: rgba(10, 13, 24, 0.45);
   --bg-color-card: transparent;
   --bg-color-hover: var(--admin-fill-hover);
   --bg-color-user-bubble: var(--admin-primary-soft);
@@ -218,6 +219,7 @@ html.admin-theme .el-drawer,
 html.admin-theme .panel,
 html.admin-theme .filter-bar,
 html.admin-theme .upload-area,
+html.admin-theme .split-panel,
 html.admin-theme .config-form,
 html.admin-theme .config-preview,
 html.admin-theme .modal-preview,
@@ -321,6 +323,7 @@ html.admin-theme .el-card,
 html.admin-theme .panel,
 html.admin-theme .filter-bar,
 html.admin-theme .upload-area,
+html.admin-theme .split-panel,
 html.admin-theme .config-form,
 html.admin-theme .config-preview,
 html.admin-theme .modal-preview,
@@ -348,6 +351,7 @@ html.admin-theme .el-card::before,
 html.admin-theme .panel::before,
 html.admin-theme .filter-bar::before,
 html.admin-theme .upload-area::before,
+html.admin-theme .split-panel::before,
 html.admin-theme .config-form::before,
 html.admin-theme .config-preview::before,
 html.admin-theme .modal-preview::before,
@@ -421,6 +425,7 @@ html.admin-theme .el-table--border::after {
 html.admin-theme .kb-card > *,
 html.admin-theme .panel > *,
 html.admin-theme .filter-bar > *,
+html.admin-theme .split-panel > *,
 html.admin-theme .stat-card > *,
 html.admin-theme .chart-card > *,
 html.admin-theme .status-item > *,

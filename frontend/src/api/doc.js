@@ -88,8 +88,11 @@ export async function uploadDocument(formData, onUploadProgress) {
     if (!kbId || !file) return mockReject(400, '缺少 kb_id 或 file')
     const name = file.name || '未命名.md'
     const lower = name.toLowerCase()
-    if (!lower.endsWith('.md') && !lower.endsWith('.txt')) {
-      return mockReject(400, '仅支持 .md / .txt')
+    const okExt = ['.md', '.markdown', '.txt', '.pdf', '.docx', '.html', '.htm', '.csv'].some(
+      (ext) => lower.endsWith(ext)
+    )
+    if (!okExt) {
+      return mockReject(400, '仅支持 .md / .txt / .pdf / .docx / .html / .csv')
     }
     if (typeof onUploadProgress === 'function') {
       onUploadProgress({ loaded: 50, total: 100 })
@@ -97,11 +100,12 @@ export async function uploadDocument(formData, onUploadProgress) {
     }
     const id = nextMockId('doc')
     const now = new Date().toISOString()
+    const ext = lower.includes('.') ? lower.split('.').pop() : 'md'
     const row = normalizeDocRow({
       id,
       kb_id: String(kbId),
       filename: name,
-      file_type: lower.endsWith('.txt') ? 'txt' : 'md',
+      file_type: ext === 'markdown' ? 'md' : ext,
       file_size: file.size || 1024,
       chunk_count: 0,
       status: DOC_STATUS.PENDING,

@@ -72,7 +72,9 @@ async def ingest_document(
     _set_status(doc_id, "processing", chunk_count=0, error_message=None)
 
     try:
-        split_result = await split_file_async(str(path), options=opts)
+        split_result = await split_file_async(
+            str(path), options=opts, filename=filename
+        )
         texts = split_result.texts
         embed_texts = split_result.vectors_source()
         split_meta = split_result.meta

@@ -14,6 +14,12 @@ from app.utils.permission import require_kb_access, ensure_admin_or_response
 from app.config import UPLOAD_DIR
 from app.rag_engine.ingest import ingest_document
 from app.rag_engine.embedder import delete_from_chroma
+from app.rag_engine.document_loader import (
+    ALLOWED_DOC_EXTENSIONS,
+    allowed_ext_label,
+    is_allowed_doc_filename,
+    normalize_ext,
+)
 from app.rag_engine.splitter import list_split_strategies, parse_split_options
 from app.utils.logger import logger
 from app.utils.ids import new_id
@@ -136,8 +142,11 @@ async def upload_document(
     if not db_kb:
         return ResponseModel(code=404, msg="知识库不存在")
 
-    if not file.filename.endswith((".md", ".txt")):
-        return ResponseModel(code=400, msg="仅支持 .md 和 .txt 文件格式")
+    if not is_allowed_doc_filename(file.filename):
+        return ResponseModel(
+            code=400,
+            msg=f"仅支持 {allowed_ext_label()} 文件格式",
+        )
 
     split_options = parse_split_options(
         strategy=split_strategy,
@@ -170,7 +179,14 @@ async def upload_document(
             pass
         return ResponseModel(code=400, msg="文件大小超过 10MB 限制")
 
-    file_type = "md" if safe_name.endswith(".md") else "txt"
+    ext = normalize_ext(safe_name) or "txt"
+    # 入库类型：markdown 归并为 md，其余用真实后缀
+    if ext == "markdown":
+        file_type = "md"
+    elif ext in ALLOWED_DOC_EXTENSIONS:
+        file_type = ext
+    else:
+        file_type = "txt"
 
     new_doc = Document(
         id=doc_id,
@@ -194,7 +210,8 @@ async def upload_document(
             kb_id=kb_id,
             doc_id=new_doc.id,
             file_path=file_path,
-            filename=file.filename,
+            # 与库表 filename 一致，避免带路径的原始名影响后缀识别
+            filename=safe_name,
             split_options=split_options,
         )
     )
