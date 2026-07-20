@@ -30,10 +30,8 @@ async def probe_rerank_service() -> tuple[bool, str, dict]:
             body = resp.json()
             data = body.get("data") if isinstance(body, dict) else {}
             mode = (data or {}).get("mode") or "unknown"
-            model = (data or {}).get("model") or ""
+            # 侧栏只展示地址与运行模式，不展示模型名
             detail = f"127.0.0.1:8002 · {mode}"
-            if model:
-                detail += f" · {model}"
             return True, detail, data or {}
     except Exception as e:  # noqa: BLE001
         return False, f"8002 不可达: {e}", {}

@@ -139,7 +139,7 @@ export async function fetchSplitStrategies() {
   if (MOCK_OPEN()) {
     return mockResolve({
       items: [
-        { value: 'recursive', label: '递归切分（推荐）', desc: '优先按标题/段落/句子边界切' },
+        { value: 'recursive', label: '递归切分', desc: '优先按标题/段落/句子边界切' },
         { value: 'fixed', label: '固定长度', desc: '按固定字符数硬切' },
         { value: 'markdown_header', label: '按标题切分', desc: '按 Markdown 标题切' },
         { value: 'paragraph', label: '按段落切分', desc: '按空行分段' },

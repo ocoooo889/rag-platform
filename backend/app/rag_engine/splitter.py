@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 # 前端/API 可选策略
 SPLIT_STRATEGIES: dict[str, dict[str, str]] = {
     "recursive": {
-        "label": "递归切分（推荐）",
+        "label": "递归切分",
         "desc": "优先按标题/段落/句子边界切，默认兼容 Day1",
     },
     "fixed": {

@@ -135,7 +135,7 @@ const MAX_SIZE = 10 * 1024 * 1024
 const ALLOWED_EXT = ['md', 'txt']
 
 const DEFAULT_STRATEGIES = [
-  { value: 'recursive', label: '递归切分（推荐）', desc: '优先按标题/段落/句子边界切，默认兼容 Day1' },
+  { value: 'recursive', label: '递归切分', desc: '优先按标题/段落/句子边界切，默认兼容 Day1' },
   { value: 'fixed', label: '固定长度', desc: '按固定字符数硬切，适合快速对比实验' },
   { value: 'markdown_header', label: '按标题切分', desc: '按 # / ## / ### 章节切，适合手册、规范' },
   { value: 'paragraph', label: '按段落切分', desc: '按空行分段，过长段落再二次切' },
