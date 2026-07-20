@@ -74,6 +74,14 @@ CHAT_VECTOR_TIMEOUT = float(os.getenv("CHAT_VECTOR_TIMEOUT", "0.7"))
 CHAT_RETRIEVE_MODE = (os.getenv("CHAT_RETRIEVE_MODE", "fast") or "fast").strip().lower()
 
 # ============================================================
+# Rerank（默认关闭，开启后对 hybrid/vector 候选重排）
+# ============================================================
+ENABLE_RERANK = os.getenv("ENABLE_RERANK", "false").lower() in ("1", "true", "yes", "on")
+RERANK_MODEL = os.getenv("RERANK_MODEL", "gte-rerank")
+RERANK_CANDIDATE_MUL = int(os.getenv("RERANK_CANDIDATE_MUL", "5"))
+RERANK_TIMEOUT = float(os.getenv("RERANK_TIMEOUT", "3.0"))
+
+# ============================================================
 # 环境隔离 · 个人标识
 # ============================================================
 ENV = os.getenv("ENV", "dev-default")
