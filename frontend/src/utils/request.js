@@ -228,7 +228,7 @@ request.interceptors.response.use(
     if (!msg) {
       if (error?.code === 'ECONNABORTED') msg = '请求超时，请稍后重试'
       else if (error?.message === 'Network Error') msg = '网络异常，请检查网络后重试'
-      else msg = '网络异常，请稍后重试'
+      else msg = error.message || '网络异常，请稍后重试'
     }
     if (!silent) ElMessage.error(msg)
     return Promise.reject(error)
@@ -236,4 +236,4 @@ request.interceptors.response.use(
 )
 
 export default request
-export { getEnvTag, getToken, ERROR_MESSAGES }
+export { getEnvTag, getToken, clearAuthStorage, ERROR_MESSAGES }

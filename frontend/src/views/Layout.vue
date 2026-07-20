@@ -296,7 +296,7 @@ const asideFooterText = computed(() => {
 
 const sidebarServices = ref([])
 
-const SIDEBAR_SERVICE_ORDER = ['api', 'chroma', 'bm25_cache', 'sqlite']
+const SIDEBAR_SERVICE_ORDER = ['api', 'chroma', 'rerank', 'bm25_cache', 'sqlite']
 
 function statusText(status) {
   if (status === 'ok') return '正常'
@@ -312,6 +312,7 @@ const sidebarStatusItems = computed(() => {
     return [
       { key: 'api', label: '后端 API', status: 'idle', detail: '探测中…' },
       { key: 'chroma', label: 'Chroma 向量', status: 'idle', detail: '探测中…' },
+      { key: 'rerank', label: 'Rerank 重排', status: 'idle', detail: '探测中…' },
       { key: 'bm25_cache', label: 'BM25 索引', status: 'idle', detail: '探测中…' }
     ]
   }

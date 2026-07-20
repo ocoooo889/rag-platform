@@ -1,7 +1,8 @@
+import asyncio
 import os
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, BackgroundTasks
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -13,6 +14,7 @@ from app.utils.permission import require_kb_access, ensure_admin_or_response
 from app.config import UPLOAD_DIR
 from app.rag_engine.ingest import ingest_document
 from app.rag_engine.embedder import delete_from_chroma
+from app.rag_engine.splitter import list_split_strategies, parse_split_options
 from app.utils.logger import logger
 from app.utils.ids import new_id
 
@@ -20,6 +22,26 @@ router = APIRouter(prefix="/api", tags=["documents"])
 
 # 同一 doc_id 防止重复触发 reprocess
 _reprocess_inflight: set[str] = set()
+
+
+async def _ingest_in_background(
+    kb_id: str,
+    doc_id: str,
+    file_path: str,
+    filename: str | None,
+    split_options,
+) -> None:
+    """后台入库：异常只打日志，避免拖垮请求线程。"""
+    try:
+        await ingest_document(
+            kb_id=kb_id,
+            doc_id=doc_id,
+            file_path=file_path,
+            filename=filename,
+            split_options=split_options,
+        )
+    except Exception:
+        logger.exception("后台入库异常 doc_id=%s", doc_id)
 
 
 class BatchDeleteRequest(BaseModel):
@@ -37,6 +59,9 @@ def doc_to_dict(doc: Document):
         "status": doc.status,
         "chunk_count": doc.chunk_count,
         "error_message": getattr(doc, "error_message", None) or "",
+        "split_strategy": getattr(doc, "split_strategy", None) or "",
+        "chunk_size": getattr(doc, "chunk_size", None),
+        "chunk_overlap": getattr(doc, "chunk_overlap", None),
         "created_at": doc.created_at.isoformat() if doc.created_at else None,
         "updated_at": updated.isoformat() if updated else None,
     }
@@ -82,15 +107,29 @@ async def _purge_document(db: Session, db_doc: Document) -> None:
     db.delete(db_doc)
 
 
+@router.get("/documents/split-strategies", response_model=ResponseModel)
+async def get_split_strategies(
+    current_user: User = Depends(get_current_user),
+):
+    """切分策略列表（前端下拉）。"""
+    _ = current_user
+    return ResponseModel(data={"items": list_split_strategies()})
+
+
 @router.post("/knowledge-bases/{kb_id}/documents/upload", response_model=ResponseModel)
 async def upload_document(
     kb_id: str,
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
+    split_strategy: Optional[str] = Form(None),
+    chunk_size: Optional[int] = Form(None),
+    chunk_overlap: Optional[int] = Form(None),
+    parent_chunk_size: Optional[int] = Form(None),
+    parent_chunk_overlap: Optional[int] = Form(None),
+    semantic_threshold: Optional[float] = Form(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """上传文档到特定知识库。上传前会检查该知识库是否存在，并校验用户是否有权限访问"""
+    """上传文档到特定知识库。可选手动选择切分策略与参数。"""
     await require_kb_access(kb_id, current_user, db)
 
     db_kb = db.query(KnowledgeBase).filter(KnowledgeBase.id == kb_id).first()
@@ -99,6 +138,15 @@ async def upload_document(
 
     if not file.filename.endswith((".md", ".txt")):
         return ResponseModel(code=400, msg="仅支持 .md 和 .txt 文件格式")
+
+    split_options = parse_split_options(
+        strategy=split_strategy,
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        parent_chunk_size=parent_chunk_size,
+        parent_chunk_overlap=parent_chunk_overlap,
+        semantic_threshold=semantic_threshold,
+    )
 
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     doc_id = new_id("d")
@@ -132,17 +180,23 @@ async def upload_document(
         file_size=file_size,
         status="pending",
         error_message=None,
+        split_strategy=split_options.normalized_strategy(),
+        chunk_size=split_options.resolved_size(),
+        chunk_overlap=split_options.resolved_overlap(),
     )
     db.add(new_doc)
     db.commit()
     db.refresh(new_doc)
 
-    background_tasks.add_task(
-        ingest_document,
-        kb_id=kb_id,
-        doc_id=new_doc.id,
-        file_path=file_path,
-        filename=file.filename,
+    # 异步入库（create_task）：立刻返回上传结果；向量化在后台跑且不阻塞事件循环
+    asyncio.create_task(
+        _ingest_in_background(
+            kb_id=kb_id,
+            doc_id=new_doc.id,
+            file_path=file_path,
+            filename=file.filename,
+            split_options=split_options,
+        )
     )
 
     return ResponseModel(data=doc_to_dict(new_doc))

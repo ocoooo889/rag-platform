@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app import config
 from app.db.database import get_db
 from app.db.models import User
 from app.db.sqlite_helper import (
@@ -20,10 +19,9 @@ from app.db.sqlite_helper import (
     kb_exists,
     list_chat_messages,
     list_chat_sessions,
-    load_chat_history,
-    save_conversation,
     update_chat_session_prefs,
 )
+from app.rag_engine.memory import default_memory, history_for_prompt
 from app.rag_engine.rag_pipeline import RAGPipeline
 from app.schema.rag import ChatRequest, ChatSessionUpdate
 from app.utils.auth import get_current_user
@@ -40,15 +38,6 @@ _VALID_SEARCH_TYPES = frozenset({"vector", "keyword", "hybrid"})
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
-
-
-def _history_text(session_id: str | None) -> str:
-    if not session_id:
-        return ""
-    rows = load_chat_history(session_id, config.MAX_CHAT_HISTORY_ROUNDS)
-    if not rows:
-        return ""
-    return "\n".join(f"{r['role']}: {r['content']}" for r in rows)
 
 
 def _check_kb_docs_ready(kb_id: str):
@@ -110,12 +99,13 @@ async def chat_send(
 
     session_id = req.session_id or new_id("s")
     texts, ids, source_docs, doc_ids = _prepare_chunk_rows(req.kb_id)
-    history = _history_text(req.session_id)
+    # 短时记忆：带入本轮之前的最近 N 轮（不含本轮，本轮稍后写入）
+    history = history_for_prompt(req.session_id)
     request_id = new_request_id()
     query = req.query.strip()
 
     try:
-        answer, refs = await RAGPipeline.query(
+        answer, refs, rag_meta = await RAGPipeline.query(
             kb_id=req.kb_id,
             query=query,
             search_type=search_type,
@@ -128,14 +118,22 @@ async def chat_send(
             session_id=session_id,
             stream=False,
             request_id=request_id,
+            enable_rerank=req.enable_rerank,
         )
     except LLMServiceError as e:
         return fail(5002, e.message)
 
-    save_conversation(new_id("msg"), session_id, req.kb_id, "user", query, None, _now())
-    save_conversation(
-        new_id("msg"), session_id, req.kb_id, "assistant", answer,
-        json.dumps(refs, ensure_ascii=False), _now(),
+    # 短时记忆落库：本轮 user + assistant
+    ts = _now()
+    default_memory.save_turn(
+        user_msg_id=new_id("msg"),
+        assistant_msg_id=new_id("msg"),
+        session_id=session_id,
+        kb_id=req.kb_id,
+        user_content=query,
+        assistant_content=answer,
+        references_json=json.dumps(refs, ensure_ascii=False),
+        created_at=ts,
     )
 
     # V2 契约：响应回显 query（CHAT-22 / BUG-04）
@@ -145,6 +143,7 @@ async def chat_send(
         "answer": answer,
         "references": refs,
         "request_id": request_id,
+        "meta": rag_meta,
     })
 
 
@@ -187,6 +186,7 @@ async def chat_stream(
         """
         full = ""
         refs: list = []
+        rag_meta: dict = {}
         try:
             yield (
                 "data: "
@@ -211,24 +211,23 @@ async def chat_stream(
             )
 
             texts, ids, source_docs, doc_ids = _prepare_chunk_rows(kb_id)
-            history = _history_text(history_session)
+            # 短时记忆：流式同样先读历史，再异步写入本轮 user
+            history = history_for_prompt(history_session)
 
             # 用户消息异步落库，不挡检索/首 token
             asyncio.create_task(
                 asyncio.to_thread(
-                    save_conversation,
-                    new_id("msg"),
-                    session_id,
-                    kb_id,
-                    "user",
-                    query,
-                    None,
-                    _now(),
+                    default_memory.save_user,
+                    msg_id=new_id("msg"),
+                    session_id=session_id,
+                    kb_id=kb_id,
+                    content=query,
+                    created_at=_now(),
                 )
             )
 
             try:
-                token_iter, refs = await RAGPipeline.query(
+                token_iter, refs, rag_meta = await RAGPipeline.query(
                     kb_id=kb_id,
                     query=query,
                     search_type=search_type,
@@ -241,6 +240,7 @@ async def chat_stream(
                     session_id=session_id,
                     stream=True,
                     request_id=request_id,
+                    enable_rerank=req.enable_rerank,
                 )
             except LLMServiceError as e:
                 yield (
@@ -263,8 +263,9 @@ async def chat_stream(
                 yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
                 return
 
-            degraded = search_type != "keyword" and any(
-                (r or {}).get("retrieve_fallback") == "bm25" for r in (refs or [])
+            degraded = search_type != "keyword" and (
+                any((r or {}).get("retrieve_fallback") == "bm25" for r in (refs or []))
+                or (rag_meta.get("retrieve") or {}).get("fallback") == "bm25"
             )
             if degraded:
                 yield (
@@ -309,6 +310,7 @@ async def chat_stream(
                 "type": "done",
                 "content": "",
                 "query": query,
+                "meta": rag_meta,
                 "references": [
                     {
                         "chunk_id": r.get("chunk_id"),
@@ -316,6 +318,7 @@ async def chat_stream(
                         "score": r.get("score"),
                         "source_doc": r.get("source_doc") or "",
                         "doc_id": r.get("doc_id") or "",
+                        "reranked": bool(r.get("reranked")),
                     }
                     for r in refs
                 ],
@@ -323,14 +326,14 @@ async def chat_stream(
             yield f"data: {json.dumps(done, ensure_ascii=False)}\n\n"
         finally:
             if full:
-                save_conversation(
-                    new_id("msg"),
-                    session_id,
-                    kb_id,
-                    "assistant",
-                    full,
-                    json.dumps(refs, ensure_ascii=False) if refs else None,
-                    _now(),
+                # 短时记忆：流式结束后写入 assistant
+                default_memory.save_assistant(
+                    msg_id=new_id("msg"),
+                    session_id=session_id,
+                    kb_id=kb_id,
+                    content=full,
+                    references_json=json.dumps(refs, ensure_ascii=False) if refs else None,
+                    created_at=_now(),
                 )
 
     return StreamingResponse(

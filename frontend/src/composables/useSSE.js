@@ -132,6 +132,7 @@ function runMockSSE(options = {}) {
       content: r.content,
       score: r.score,
       source_doc: r.source_doc || '',
+      reranked: !!r.reranked,
       doc_id: r.doc_id || '',
       method: r.method || r.retrieve_fallback || ''
     }))
@@ -240,6 +241,8 @@ async function runFetchSSE(options = {}) {
           content: r.content,
           score: r.score,
           source_doc: r.source_doc || '',
+          reranked: !!r.reranked,
+          doc_id: r.doc_id || '',
           method: r.method || r.retrieve_fallback || ''
         }))
         finish({ ...event, sources })
@@ -340,6 +343,8 @@ function runEventSourceSSE(options = {}) {
           content: r.content,
           score: r.score,
           source_doc: r.source_doc || '',
+          reranked: !!r.reranked,
+          doc_id: r.doc_id || '',
           method: r.method || r.retrieve_fallback || ''
         }))
         abort()

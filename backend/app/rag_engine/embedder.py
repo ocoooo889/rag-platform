@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 import urllib.request
 
 import chromadb
@@ -11,6 +13,9 @@ from app import config
 from app.utils.llm_client import get_embedding, get_embeddings_batch
 
 logger = logging.getLogger(__name__)
+
+# 本机地址：系统代理（如小茅）拦截 HttpClient 时会导致向量写入永久挂起
+_LOCAL_NO_PROXY = ("127.0.0.1", "localhost", "::1")
 
 
 class VectorStoreError(Exception):
@@ -21,9 +26,18 @@ class VectorStoreError(Exception):
         super().__init__(message)
 
 
+def _ensure_local_no_proxy() -> None:
+    """确保访问本机 Chroma 时不走系统/环境代理。"""
+    for key in ("NO_PROXY", "no_proxy"):
+        cur = [x.strip() for x in (os.environ.get(key) or "").split(",") if x.strip()]
+        merged = list(dict.fromkeys([*cur, *_LOCAL_NO_PROXY]))
+        os.environ[key] = ",".join(merged)
+
+
 def _chroma_host_candidates() -> list[str]:
     """按 .env 优先，并在 127.0.0.1 ↔ localhost 间回退。推荐固定 --host/CHROMA_HOST=127.0.0.1。"""
     primary = (config.CHROMA_HOST or "127.0.0.1").strip() or "127.0.0.1"
+    # 优先 127.0.0.1，减少 localhost→::1 撞上 Docker/WSL 占用端口
     alts = ["127.0.0.1", "localhost"]
     out: list[str] = []
     for h in [primary, *alts]:
@@ -37,12 +51,16 @@ def probe_chroma_heartbeat(timeout: float = 2.5) -> tuple[bool, str, str]:
     HTTP 探测 /api/v2/heartbeat。
     返回 (ok, detail, resolved_host)。
     """
+    _ensure_local_no_proxy()
     port = config.CHROMA_PORT
     last_err = "连接失败"
+    # 直连、不走代理（urllib 默认可能读系统代理）
+    proxy_handler = urllib.request.ProxyHandler({})
+    opener = urllib.request.build_opener(proxy_handler)
     for host in _chroma_host_candidates():
         url = f"http://{host}:{port}/api/v2/heartbeat"
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as resp:
+            with opener.open(url, timeout=timeout) as resp:
                 if 200 <= resp.status < 300:
                     return True, f"{host}:{port}", host
         except Exception as e:  # noqa: BLE001
@@ -52,6 +70,7 @@ def probe_chroma_heartbeat(timeout: float = 2.5) -> tuple[bool, str, str]:
 
 def get_chroma_client():
     """获取可用的 HttpClient；优先 .env，失败则回退 localhost/127.0.0.1。"""
+    _ensure_local_no_proxy()
     port = config.CHROMA_PORT
     last_err: Exception | None = None
     # 先用廉价 heartbeat 选定可达 host，再建 client（避免 chromadb 空 ValueError）
@@ -104,6 +123,37 @@ def _distance_to_score(distance) -> float:
     return round(1.0 / (1.0 + max(d, 0.0)), 4)
 
 
+def _chroma_add_sync(
+    texts: list[str],
+    ids: list[str],
+    embeddings: list[list[float]],
+    metadatas: list[dict] | None,
+) -> None:
+    """同步写 Chroma（供 to_thread，避免堵死 asyncio 事件循环）"""
+    collection = _get_collection()
+    kwargs = {"embeddings": embeddings, "documents": texts, "ids": ids}
+    if metadatas:
+        kwargs["metadatas"] = metadatas
+    collection.add(**kwargs)
+
+
+def _chroma_query_sync(query_vec: list[float], n_results: int, where: dict | None) -> dict:
+    collection = _get_collection()
+    kwargs = {
+        "query_embeddings": [query_vec],
+        "n_results": n_results,
+        "include": ["documents", "distances", "metadatas"],
+    }
+    if where:
+        kwargs["where"] = where
+    return collection.query(**kwargs)
+
+
+def _chroma_delete_sync(ids: list[str]) -> None:
+    collection = _get_collection()
+    collection.delete(ids=ids)
+
+
 async def embed_and_store(
     texts: list[str],
     ids: list[str],
@@ -124,8 +174,6 @@ async def embed_and_store(
         raise ValueError("metadatas 与 texts 长度不一致")
 
     write_batch = max(1, int(getattr(config, "CHROMA_WRITE_BATCH_SIZE", 100) or 100))
-    # 按写入批次推进：每批内部再走 embedding batch
-    collection = None
     stored = 0
     total = len(texts)
     if progress_callback:
@@ -139,13 +187,10 @@ async def embed_and_store(
         part_ids = ids[start:end]
         part_meta = metadatas[start:end] if metadatas else None
         embeddings = await get_embeddings_batch(part_texts)
-        if collection is None:
-            collection = _get_collection()
-        kwargs = {"embeddings": embeddings, "documents": part_texts, "ids": part_ids}
-        if part_meta:
-            kwargs["metadatas"] = part_meta
         try:
-            collection.add(**kwargs)
+            await asyncio.to_thread(
+                _chroma_add_sync, part_texts, part_ids, embeddings, part_meta
+            )
         except VectorStoreError:
             raise
         except Exception as e:
@@ -159,7 +204,7 @@ async def embed_and_store(
                 pass
         if total > write_batch and (end == total or end % (write_batch * 5) == 0 or start == 0):
             logger.info("Chroma 写入进度 %s/%s", stored, total)
-
+        await asyncio.sleep(0)
     logger.info("写入 Chroma %s 条，集合=%s", total, config.CHROMA_COLLECTION_NAME)
 
 
@@ -169,18 +214,9 @@ async def query_similar(
     where: dict | None = None,
 ) -> list[dict]:
     query_vec = await get_embedding(query)
-    collection = _get_collection()
     n_results = max(top_n, 1)
-    kwargs = {
-        "query_embeddings": [query_vec],
-        "n_results": n_results,
-        "include": ["documents", "distances", "metadatas"],
-    }
-    if where:
-        kwargs["where"] = where
-
     try:
-        results = collection.query(**kwargs)
+        results = await asyncio.to_thread(_chroma_query_sync, query_vec, n_results, where)
     except VectorStoreError:
         raise
     except Exception as e:
@@ -212,7 +248,6 @@ async def delete_from_chroma(ids: list[str]) -> None:
     if not ids:
         return
     try:
-        collection = _get_collection()
-        collection.delete(ids=ids)
+        await asyncio.to_thread(_chroma_delete_sync, ids)
     except Exception as e:
         logger.warning("Chroma 删除忽略: %s", e)

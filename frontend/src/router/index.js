@@ -109,6 +109,45 @@ function getToken() {
   return localStorage.getItem('token') || localStorage.getItem('rag_token')
 }
 
+/** JWT 是否已过期（解析失败视为无效，清掉） */
+function isTokenExpired(token) {
+  if (!token || typeof token !== 'string') return true
+  const parts = token.split('.')
+  if (parts.length < 2) return true
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const json = decodeURIComponent(
+      atob(b64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    )
+    const payload = JSON.parse(json)
+    if (!payload.exp) return false
+    // 提前 30 秒视为过期，避免边界抖动
+    return Number(payload.exp) * 1000 <= Date.now() + 30_000
+  } catch {
+    return true
+  }
+}
+
+function clearAuthStorage() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('rag_token')
+  localStorage.removeItem('userInfo')
+  localStorage.removeItem('rag_user')
+}
+
+function getValidToken() {
+  const token = getToken()
+  if (!token) return ''
+  if (isTokenExpired(token)) {
+    clearAuthStorage()
+    return ''
+  }
+  return token
+}
+
 function getUserInfo() {
   const raw = localStorage.getItem('userInfo') || localStorage.getItem('rag_user')
   try {
@@ -134,7 +173,7 @@ router.beforeEach((to, from, next) => {
     }
   }
 
-  const token = getToken()
+  const token = getValidToken()
 
   if (to.path === '/login') {
     if (token) {

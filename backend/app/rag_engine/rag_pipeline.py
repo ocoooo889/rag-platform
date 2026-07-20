@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator
 
 from app import config
 from app.rag_engine.generator import generate_answer, generate_answer_stream
+from app.rag_engine.prompt_guard import sanitize_hits, sanitize_user_query
 from app.rag_engine.query_rewrite import rewrite_query_for_retrieve
 from app.rag_engine.retriever import retrieve
 from app.utils.langfuse_tracer import flush, safe_end, start_trace
@@ -36,7 +37,8 @@ class RAGPipeline:
         doc_ids: list[str] | None = None,
         user_id: str | None = None,
         request_id: str | None = None,
-    ) -> list[dict]:
+        enable_rerank: bool | None = None,
+    ) -> tuple[list[dict], dict]:
         """仅检索（命中测试），上报 retrieval Trace"""
         trace = start_trace(
             "rag_retrieve",
@@ -52,7 +54,7 @@ class RAGPipeline:
         span = trace.span(name="retrieval", input={"query": query, "search_type": search_type})
         t0 = time.perf_counter()
         try:
-            hits = await retrieve(
+            hits, retrieve_meta = await retrieve(
                 query,
                 texts,
                 ids,
@@ -62,8 +64,10 @@ class RAGPipeline:
                 kb_id=kb_id,
                 source_docs=source_docs,
                 doc_ids=doc_ids,
+                enable_rerank=enable_rerank,
                 purpose="hittest",
             )
+            hits = sanitize_hits(hits)
             elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
             safe_end(
                 span,
@@ -71,13 +75,16 @@ class RAGPipeline:
                     "hits_count": len(hits),
                     "scores": [h.get("score") for h in hits[:5]],
                     "elapsed_ms": elapsed_ms,
+                    "retrieve_meta": retrieve_meta,
                 },
             )
             try:
-                trace.update(output={"hits_count": len(hits), "elapsed_ms": elapsed_ms})
+                trace.update(
+                    output={"hits_count": len(hits), "elapsed_ms": elapsed_ms}
+                )
             except Exception:
                 pass
-            return hits
+            return hits, retrieve_meta
         except Exception as e:
             safe_end(span, output={"error": str(e)})
             raise
@@ -100,12 +107,23 @@ class RAGPipeline:
         session_id: str | None = None,
         stream: bool = False,
         request_id: str | None = None,
-    ) -> tuple[Any, list[dict]]:
+        enable_rerank: bool | None = None,
+    ) -> tuple[Any, list[dict], dict]:
         """
         完整 RAG：检索 + LLM 生成。
-        stream=False 时返回 (answer: str, hits)
-        stream=True 时返回 (async_iterator, hits)，调用方自行消费 iterator
+        stream=False 时返回 (answer: str, hits, meta)
+        stream=True 时返回 (async_iterator, hits, meta)，调用方自行消费 iterator
         """
+        pipeline_meta: dict[str, Any] = {
+            "rewritten_query": query,
+            "query_rewritten": False,
+            "guard_warnings": [],
+            "retrieve": {},
+        }
+        safe_query, guard_warnings = sanitize_user_query(query)
+        if guard_warnings:
+            pipeline_meta["guard_warnings"] = guard_warnings
+        query = safe_query or query
         trace = start_trace(
             "rag_query",
             user_id=user_id,
@@ -137,6 +155,8 @@ class RAGPipeline:
             logger.warning("Query Rewrite 外层异常，使用原句检索: %s", e)
             retrieve_query = query
         rewrite_ms = round((time.perf_counter() - t_rw) * 1000, 2)
+        pipeline_meta["rewritten_query"] = retrieve_query
+        pipeline_meta["query_rewritten"] = retrieve_query != query
         safe_end(
             rewrite_span,
             output={
@@ -154,7 +174,7 @@ class RAGPipeline:
         )
         t0 = time.perf_counter()
         try:
-            hits = await retrieve(
+            hits, retrieve_meta = await retrieve(
                 retrieve_query,
                 texts,
                 ids,
@@ -163,11 +183,15 @@ class RAGPipeline:
                 kb_id=kb_id,
                 source_docs=source_docs,
                 doc_ids=doc_ids,
+                enable_rerank=enable_rerank,
                 purpose="chat",
             )
+            hits = sanitize_hits(hits)
         except Exception as e:
             logger.warning("RAG 检索失败，降级为空上下文: %s", e)
             hits = []
+            retrieve_meta = {"fallback": "empty", "search_type": search_type}
+        pipeline_meta["retrieve"] = retrieve_meta
         retrieve_ms = round((time.perf_counter() - t0) * 1000, 2)
         safe_end(
             retrieval_span,
@@ -219,7 +243,7 @@ class RAGPipeline:
                         pass
                     flush()
 
-            return _gen(), hits
+            return _gen(), hits, pipeline_meta
 
         t1 = time.perf_counter()
         answer = await generate_answer(hits, query, chat_history)
@@ -241,4 +265,4 @@ class RAGPipeline:
         except Exception:
             pass
         flush()
-        return answer, hits
+        return answer, hits, pipeline_meta

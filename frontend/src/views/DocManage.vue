@@ -66,6 +66,11 @@
               </template>
             </el-table-column>
             <el-table-column prop="chunk_count" label="分片数量" show-overflow-tooltip />
+            <el-table-column label="切分方式" min-width="110" show-overflow-tooltip>
+              <template #default="{ row }">
+                {{ splitStrategyLabel(row.split_strategy) }}
+              </template>
+            </el-table-column>
             <el-table-column label="上传时间" show-overflow-tooltip>
               <template #default="{ row }">
                 {{ formatDate(row.uploaded_at || row.created_at, 'YYYY/MM/DD') }}
@@ -192,6 +197,21 @@ function statusLabel(status) {
 
 function statusClass(status) {
   return `doc-status doc-status--${getDocStatusClassSuffix(status)}`
+}
+
+const SPLIT_LABELS = {
+  recursive: '递归切分',
+  fixed: '固定长度',
+  markdown_header: '按标题',
+  paragraph: '按段落',
+  sentence: '按句子',
+  semantic: '语义切分',
+  parent_child: '父子块'
+}
+
+function splitStrategyLabel(strategy) {
+  if (!strategy) return '—'
+  return SPLIT_LABELS[strategy] || strategy
 }
 
 function progressOf(row) {

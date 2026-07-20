@@ -54,7 +54,18 @@
               class="source-item"
             >
               <div class="source-item__head">
-                <span>{{ item.source_doc || '未知文档' }}</span>
+                <span class="source-item__title">
+                  {{ item.source_doc || '未知文档' }}
+                  <el-tag
+                    v-if="item.reranked"
+                    size="small"
+                    type="success"
+                    effect="plain"
+                    class="source-rerank-tag"
+                  >
+                    已重排
+                  </el-tag>
+                </span>
                 <span class="source-item__meta">
                   <el-tag
                     v-if="methodLabel(item.method)"
@@ -271,6 +282,16 @@ defineExpose({
   margin-bottom: 4px;
   font-size: 12px;
   color: var(--text-color-secondary);
+}
+
+.source-item__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-rerank-tag {
+  font-weight: 500;
 }
 
 .source-item__meta {

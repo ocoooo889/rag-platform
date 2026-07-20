@@ -45,14 +45,18 @@ goto wait_chroma
 :chroma_ready
 echo       Chroma 已就绪 (%_tries%s)
 
-echo [2/3] 启动后端...
+echo [2/4] 启动后端...
 start "Backend" /D "%PROJECT_DIR%\backend" cmd /k "venv\Scripts\activate.bat && uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
 timeout /t 2 /nobreak >nul
 
-echo [3/3] 启动前端...
+echo [3/4] 启动 Rerank (8002)...
+start "Rerank" /D "%PROJECT_DIR%\backend" cmd /k "venv\Scripts\activate.bat && set HTTP_PROXY=&& set HTTPS_PROXY=&& set http_proxy=&& set https_proxy=&& uvicorn rerank_service.main:app --host 127.0.0.1 --port 8002 --reload"
+timeout /t 1 /nobreak >nul
+
+echo [4/4] 启动前端...
 start "Frontend" /D "%PROJECT_DIR%\frontend" cmd /k "npm run dev"
 
 echo.
-echo 完成。前端 http://127.0.0.1:5173  Chroma http://127.0.0.1:8000/api/v2/heartbeat
+echo 完成。前端 http://127.0.0.1:5173  Rerank http://127.0.0.1:8002/health
 echo 请确认 .env 中 CHROMA_HOST=127.0.0.1
 pause

@@ -18,6 +18,8 @@ from app import config
 from app.api import (
     chat,
     rag,
+    rag_eval,
+    eval_tasks,
     auth,
     users,
     roles,
@@ -98,6 +100,8 @@ _uploads_root.mkdir(parents=True, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=str(_uploads_root)), name="uploads")
 
 app.include_router(rag.router, prefix="/api/rag")
+app.include_router(rag_eval.router, prefix="/api/rag")
+app.include_router(eval_tasks.router)
 app.include_router(chat.router, prefix="/api/chat")
 app.include_router(auth.router)
 app.include_router(users.router)
