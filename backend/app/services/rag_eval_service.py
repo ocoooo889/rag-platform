@@ -85,8 +85,8 @@ async def _retrieve_for_eval(
 
     texts = [r["content"] for r in rows]
     ids = [r["chroma_id"] or r["id"] for r in rows]
-    doc = get_document(doc_id) or {}
-    filename = doc.get("filename", "")
+    doc = get_document(doc_id)
+    filename = str(doc["filename"]) if doc else ""
     source_docs = [filename] * len(rows)
     doc_ids = [doc_id] * len(rows)
 
