@@ -24,6 +24,8 @@ def json_formatter(record):
         "search_type": extra.get("search_type", None),
         "query": extra.get("query", None),
         "duration_ms": extra.get("duration_ms", None),
+        "port": extra.get("port", None),
+        "service_key": extra.get("service_key", None),
         "message": record["message"]
     }
     # 仅序列化不为 None 的字段

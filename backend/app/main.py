@@ -1,9 +1,12 @@
 """
 FastAPI 入口
-启动：在 backend 目录执行
-  uvicorn app.main:app --reload --port 8001
+启动（port.md）：
+  uvicorn app.main:app --host 0.0.0.0 --port 8001   # 主实例
+  uvicorn app.main:app --host 0.0.0.0 --port 8003   # 副本1
+  uvicorn app.main:app --host 0.0.0.0 --port 8004   # 副本2（可选）
 """
 
+import os
 import time
 import uuid
 from pathlib import Path
@@ -30,17 +33,31 @@ from app.api import (
 )
 from app.utils.exceptions import BusinessException
 from app.utils.logger import logger, request_id_var, action_var
+from app.schema.ports import DOCKER_SPA_PORT, GATEWAY_PORT, VITE_DEV_PORT
 
 app = FastAPI(title="智能 RAG 平台 API", version="1.0.0")
 
+
+def _cors_origins() -> list[str]:
+    """允许的前端 / 网关来源（port.md：5173、8080、8520；5174 并行开发）。"""
+    origins: list[str] = []
+    for port in (VITE_DEV_PORT, 5174, GATEWAY_PORT, DOCKER_SPA_PORT):
+        origins.extend(
+            [
+                f"http://localhost:{port}",
+                f"http://127.0.0.1:{port}",
+            ]
+        )
+    return origins
+
+
+def _runtime_api_port() -> int:
+    return int(os.getenv("API_PORT", str(config.API_PORT)))
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-    ],
+    allow_origins=_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -189,12 +206,14 @@ async def startup():
 @app.get("/health")
 @app.get("/api/health")
 async def health():
+    port = _runtime_api_port()
     return {
         "code": 0,
         "msg": "success",
         "data": {
             "status": "ok",
             "env": config.ENV,
+            "port": port,
             "collection": config.CHROMA_COLLECTION_NAME,
         },
     }

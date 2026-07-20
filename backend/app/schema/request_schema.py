@@ -62,6 +62,16 @@ class KnowledgeBaseUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
 
+
+class KbIndexConfigUpdate(BaseModel):
+    """知识库级索引配置（挂 /api/knowledge-bases/{kb_id}/index-config）"""
+    chunk_size: Optional[int] = None
+    chunk_overlap: Optional[int] = None
+    hybrid_alpha: Optional[float] = None
+    default_search_type: Optional[str] = None  # vector | keyword | hybrid
+    enable_rerank: Optional[bool] = None
+    default_top_n: Optional[int] = None
+
 # 大模型配置相关
 class LLMConfigBase(BaseModel):
     model_type: str

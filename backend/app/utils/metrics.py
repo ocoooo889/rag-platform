@@ -58,3 +58,10 @@ active_users_gauge = Gauge(
     "active_users_current",
     "当前活跃用户数"
 )
+
+# === 端口 / 依赖服务健康（port.md · 后端 B）===
+service_port_up = Gauge(
+    "service_port_up",
+    "依赖服务端口是否可达（1=ok, 0=down）",
+    ["port", "service_key", "process"],
+)
