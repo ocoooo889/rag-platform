@@ -22,6 +22,9 @@ export async function testRetrieve(data) {
     query: data.query,
     top_n: data.top_n
   }
+  if (typeof data.enable_rerank === 'boolean') {
+    body.enable_rerank = data.enable_rerank
+  }
 
   if (MOCK_OPEN()) {
     if (!body.kb_id || !body.doc_id || !(body.query || '').trim()) {

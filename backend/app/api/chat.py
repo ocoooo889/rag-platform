@@ -118,6 +118,7 @@ async def chat_send(
             session_id=session_id,
             stream=False,
             request_id=request_id,
+            enable_rerank=req.enable_rerank,
         )
     except LLMServiceError as e:
         return fail(5002, e.message)
@@ -239,6 +240,7 @@ async def chat_stream(
                     session_id=session_id,
                     stream=True,
                     request_id=request_id,
+                    enable_rerank=req.enable_rerank,
                 )
             except LLMServiceError as e:
                 yield (
@@ -316,6 +318,7 @@ async def chat_stream(
                         "score": r.get("score"),
                         "source_doc": r.get("source_doc") or "",
                         "doc_id": r.get("doc_id") or "",
+                        "reranked": bool(r.get("reranked")),
                     }
                     for r in refs
                 ],

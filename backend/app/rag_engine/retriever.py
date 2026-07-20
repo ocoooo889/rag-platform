@@ -73,7 +73,14 @@ def _mark_bm25_fallback(hits: list[dict]) -> list[dict]:
     return hits
 
 
-def _new_retrieve_meta(search_type: str) -> dict:
+def _resolve_enable_rerank(enable_rerank: bool | None) -> bool:
+    """请求级覆盖；None 时跟随全局 ENABLE_RERANK。"""
+    if enable_rerank is None:
+        return bool(getattr(config, "ENABLE_RERANK", False))
+    return bool(enable_rerank)
+
+
+def _new_retrieve_meta(search_type: str, *, enable_rerank: bool = False) -> dict:
     """构建检索过程 meta，供 pipeline / 接口回显。"""
     mode = str(getattr(config, "CHAT_RETRIEVE_MODE", "balanced") or "balanced").lower()
     return {
@@ -81,7 +88,12 @@ def _new_retrieve_meta(search_type: str) -> dict:
         "retrieve_mode": mode,
         "effective_search_type": search_type,
         "fallback": None,
-        "rerank": {"enabled": bool(getattr(config, "ENABLE_RERANK", False)), "applied": False},
+        "rerank": {
+            "enabled": enable_rerank,
+            "applied": False,
+            "model": getattr(config, "RERANK_MODEL", "qwen3-rerank"),
+            "service": "rerank-8002",
+        },
     }
 
 
@@ -91,12 +103,15 @@ async def _maybe_rerank(
     *,
     top_n: int,
     meta: dict,
+    enable_rerank: bool | None = None,
 ) -> list[dict]:
-    if not hits or not bool(getattr(config, "ENABLE_RERANK", False)):
-        return hits[:top_n]
     from app.rag_engine.reranker import rerank_hits
 
-    reranked, rerank_meta = await rerank_hits(query, hits, top_n=top_n)
+    if not hits:
+        return hits[:top_n]
+    reranked, rerank_meta = await rerank_hits(
+        query, hits, top_n=top_n, enabled=enable_rerank
+    )
     meta["rerank"] = rerank_meta
     if rerank_meta.get("applied"):
         meta["effective_search_type"] = f"{meta.get('effective_search_type', '')}+rerank"
@@ -114,10 +129,12 @@ async def retrieve(
     kb_id: str | None = None,
     source_docs: list[str] | None = None,
     doc_ids: list[str] | None = None,
+    enable_rerank: bool | None = None,
 ) -> tuple[list[dict], dict]:
     top_n = min(max(top_n or config.DEFAULT_TOP_N, 1), config.MAX_TOP_N)
     search_type = (search_type or "hybrid").strip().lower()
-    meta = _new_retrieve_meta(search_type)
+    rerank_on = _resolve_enable_rerank(enable_rerank)
+    meta = _new_retrieve_meta(search_type, enable_rerank=rerank_on)
     source_docs = source_docs or [""] * len(texts)
     doc_ids = doc_ids or ([doc_id or ""] * len(texts))
 
@@ -144,7 +161,9 @@ async def retrieve(
             query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
         )[:top_n]
         meta["effective_search_type"] = "keyword"
-        return await _maybe_rerank(query, hits, top_n=top_n, meta=meta), meta
+        return await _maybe_rerank(
+            query, hits, top_n=top_n, meta=meta, enable_rerank=rerank_on
+        ), meta
 
     where = None
     if doc_id:
@@ -163,7 +182,9 @@ async def retrieve(
             )[:top_n]
             meta["effective_search_type"] = "keyword"
             meta["retrieve_mode"] = "fast"
-            return await _maybe_rerank(query, hits, top_n=top_n, meta=meta), meta
+            return await _maybe_rerank(
+                query, hits, top_n=top_n, meta=meta, enable_rerank=rerank_on
+            ), meta
 
         async def _vector():
             hits = await query_similar(query, top_n, where=where)
@@ -182,7 +203,9 @@ async def retrieve(
             else:
                 hits = await _vector()
             meta["effective_search_type"] = "vector"
-            return await _maybe_rerank(query, hits, top_n=top_n, meta=meta), meta
+            return await _maybe_rerank(
+                query, hits, top_n=top_n, meta=meta, enable_rerank=rerank_on
+            ), meta
         except asyncio.TimeoutError:
             logger.info("向量检索超时 %.2fs，回退 BM25", timeout)
             meta["fallback"] = "bm25"
@@ -192,7 +215,9 @@ async def retrieve(
                     query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
                 )[:top_n]
             )
-            return await _maybe_rerank(query, hits, top_n=top_n, meta=meta), meta
+            return await _maybe_rerank(
+                query, hits, top_n=top_n, meta=meta, enable_rerank=rerank_on
+            ), meta
         except (EmbeddingServiceError, VectorStoreError):
             meta["fallback"] = "bm25"
             meta["effective_search_type"] = "vector->bm25"
@@ -201,10 +226,11 @@ async def retrieve(
                     query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
                 )[:top_n]
             )
-            return await _maybe_rerank(query, hits, top_n=top_n, meta=meta), meta
+            return await _maybe_rerank(
+                query, hits, top_n=top_n, meta=meta, enable_rerank=rerank_on
+            ), meta
 
     # hybrid：向量 / BM25 各取候选集并集再融合，避免对全库 chunk 初始化打分表
-    rerank_on = bool(getattr(config, "ENABLE_RERANK", False))
     cand_mul = max(
         config.HYBRID_CANDIDATE_MUL,
         int(getattr(config, "RERANK_CANDIDATE_MUL", 5) or 5) if rerank_on else 1,
@@ -220,7 +246,9 @@ async def retrieve(
                 query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
             )[:top_n]
         )
-        return await _maybe_rerank(query, hits, top_n=top_n, meta=meta), meta
+        return await _maybe_rerank(
+            query, hits, top_n=top_n, meta=meta, enable_rerank=rerank_on
+        ), meta
 
     keyword_hits = _bm25_search(
         query, texts, ids, source_docs, doc_ids, bm25=cached_bm25
@@ -277,5 +305,7 @@ async def retrieve(
     results = [r for r in results if r["score"] > 0] or results
     meta["effective_search_type"] = "hybrid"
     hits = results[:cand_n]
-    hits = await _maybe_rerank(query, hits, top_n=top_n, meta=meta)
+    hits = await _maybe_rerank(
+        query, hits, top_n=top_n, meta=meta, enable_rerank=rerank_on
+    )
     return hits, meta

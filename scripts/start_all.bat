@@ -73,12 +73,17 @@ goto wait_chroma
 echo       Chroma 已就绪 (%_tries%s)
 
 echo.
-echo [2/4] 启动后端 (端口 8001)...
+echo [2/5] 启动后端 (端口 8001)...
 start "Backend" /D "%PROJECT_DIR%\backend" cmd /k "venv\Scripts\activate.bat && uvicorn app.main:app --host 0.0.0.0 --port 8001 --reload"
 timeout /t 2 /nobreak >nul
 
 echo.
-echo [3/4] 启动前端 (端口 5173)...
+echo [3/5] 启动 Rerank 微服务 (端口 8002)...
+start "Rerank" /D "%PROJECT_DIR%\backend" cmd /k "venv\Scripts\activate.bat && set HTTP_PROXY=&& set HTTPS_PROXY=&& set http_proxy=&& set https_proxy=&& uvicorn rerank_service.main:app --host 127.0.0.1 --port 8002 --reload"
+timeout /t 1 /nobreak >nul
+
+echo.
+echo [4/5] 启动前端 (端口 5173)...
 cd frontend
 if not exist "node_modules" (
   echo       npm ci / npm install...
@@ -93,6 +98,7 @@ echo              服务启动完成
 echo ================================================
 echo   前端:     http://127.0.0.1:5173
 echo   后端:     http://127.0.0.1:8001/docs
+echo   Rerank:   http://127.0.0.1:8002/health
 echo   Chroma:   http://127.0.0.1:8000/api/v2/heartbeat
 echo   账号:     admin / admin123  (Dashboard 仅管理员)
 echo   .env:     CHROMA_HOST=127.0.0.1 （须与 chroma --host 一致）

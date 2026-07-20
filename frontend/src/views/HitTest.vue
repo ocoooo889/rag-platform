@@ -96,6 +96,15 @@
             </div>
           </el-form-item>
 
+          <el-form-item label="Rerank">
+            <el-switch
+              v-model="hitStore.enableRerank"
+              :disabled="hitStore.loading"
+              active-text="开启重排"
+              inactive-text="关闭"
+            />
+          </el-form-item>
+
           <el-form-item>
             <el-button
               type="primary"
@@ -147,6 +156,25 @@
             选择文档并输入问题后，点击「运行测试」查看命中结果
           </div>
 
+          <div
+            v-if="hitStore.lastMeta?.rerank && hitStore.hasSearched && !hitStore.loading"
+            class="rerank-meta"
+          >
+            <el-tag
+              size="small"
+              :type="hitStore.lastMeta.rerank.applied ? 'success' : 'info'"
+              effect="plain"
+            >
+              {{
+                hitStore.lastMeta.rerank.applied
+                  ? `已重排 · ${hitStore.lastMeta.effective_search_type || hitStore.searchType}`
+                  : hitStore.enableRerank
+                    ? `未生效 · ${hitStore.lastMeta.rerank.fallback || '未应用'}`
+                    : 'Rerank 已关闭'
+              }}
+            </el-tag>
+          </div>
+
           <RetrieveResultCard
             v-for="item in hitStore.results"
             :key="`${item.chunk_id}-${item.rank}`"
@@ -155,6 +183,7 @@
             :content="item.content"
             :source-doc="item.source_doc"
             :chunk-id="item.chunk_id"
+            :reranked="!!item.reranked"
           />
         </div>
       </section>
@@ -413,6 +442,10 @@ onMounted(() => {
 .result-area {
   min-height: 180px;
   position: relative;
+}
+
+.rerank-meta {
+  margin-bottom: 10px;
 }
 
 .result-placeholder {

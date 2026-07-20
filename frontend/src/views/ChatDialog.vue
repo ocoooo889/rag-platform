@@ -187,6 +187,15 @@
                     :value="kb.id"
                   />
                 </el-select>
+                <el-switch
+                  v-model="chatStore.enableRerank"
+                  size="small"
+                  inline-prompt
+                  active-text="Rerank"
+                  inactive-text="Rerank"
+                  :disabled="chatStore.streaming"
+                  title="开启后对检索结果做二次重排（调用 8002）"
+                />
                 <el-button
                   v-if="chatStore.streaming"
                   text

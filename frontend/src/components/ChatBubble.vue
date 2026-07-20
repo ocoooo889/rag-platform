@@ -36,7 +36,18 @@
               class="source-item"
             >
               <div class="source-item__head">
-                <span>{{ item.source_doc || '未知文档' }}</span>
+                <span>
+                  {{ item.source_doc || '未知文档' }}
+                  <el-tag
+                    v-if="item.reranked"
+                    size="small"
+                    type="success"
+                    effect="plain"
+                    class="source-rerank-tag"
+                  >
+                    已重排
+                  </el-tag>
+                </span>
                 <span :style="{ color: getScoreColor(item.score) }">
                   {{ formatScorePercent(item.score) }}
                 </span>
@@ -195,6 +206,16 @@ defineExpose({
   margin-bottom: 4px;
   font-size: 12px;
   color: var(--text-color-secondary);
+}
+
+.source-item__head > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.source-rerank-tag {
+  font-weight: 500;
 }
 
 .source-item p {

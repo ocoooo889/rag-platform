@@ -1,7 +1,5 @@
 """
-检索结果 Rerank（可选）。
-
-优先调用 DashScope Text ReRank；失败时保持原排序（不阻断主链路）。
+检索结果 Rerank：优先调用本机 8002 微服务；失败时保持原排序。
 """
 
 from __future__ import annotations
@@ -16,13 +14,29 @@ from app import config
 logger = logging.getLogger(__name__)
 
 
-def _dashscope_rerank_url() -> str:
-    base = (config.OPENAI_BASE_URL or "").rstrip("/")
-    if "compatible-mode" in base:
-        return "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
-    if "dashscope" in base:
-        return f"{base.split('/compatible-mode')[0]}/api/v1/services/rerank/text-rerank/text-rerank"
-    return "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+def _service_base() -> str:
+    return str(
+        getattr(config, "RERANK_SERVICE_URL", None) or "http://127.0.0.1:8002"
+    ).rstrip("/")
+
+
+async def probe_rerank_service() -> tuple[bool, str, dict]:
+    """探测 8002 健康；返回 (ok, detail, data)。"""
+    url = f"{_service_base()}/health"
+    try:
+        async with httpx.AsyncClient(timeout=2.0, trust_env=False) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            body = resp.json()
+            data = body.get("data") if isinstance(body, dict) else {}
+            mode = (data or {}).get("mode") or "unknown"
+            model = (data or {}).get("model") or ""
+            detail = f"127.0.0.1:8002 · {mode}"
+            if model:
+                detail += f" · {model}"
+            return True, detail, data or {}
+    except Exception as e:  # noqa: BLE001
+        return False, f"8002 不可达: {e}", {}
 
 
 async def rerank_hits(
@@ -30,18 +44,21 @@ async def rerank_hits(
     hits: list[dict[str, Any]],
     *,
     top_n: int,
+    enabled: bool | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """
-    对候选片段重排序。
-    返回 (rerank 后 hits, meta)。
+    对候选片段重排序（经 8002）。
+    enabled=None 时跟随 config.ENABLE_RERANK。
     """
+    use = bool(getattr(config, "ENABLE_RERANK", False)) if enabled is None else bool(enabled)
     meta: dict[str, Any] = {
-        "enabled": bool(getattr(config, "ENABLE_RERANK", False)),
+        "enabled": use,
         "applied": False,
         "model": getattr(config, "RERANK_MODEL", "qwen3-rerank"),
         "fallback": None,
+        "service": "rerank-8002",
     }
-    if not meta["enabled"] or not hits:
+    if not use or not hits:
         return hits[:top_n], meta
 
     q = (query or "").strip()
@@ -52,37 +69,37 @@ async def rerank_hits(
     if not any(documents):
         return hits[:top_n], meta
 
-    api_key = (config.OPENAI_API_KEY or "").strip()
-    if not api_key:
-        meta["fallback"] = "no_api_key"
-        logger.info("Rerank 跳过：未配置 API Key")
-        return hits[:top_n], meta
-
     payload = {
+        "query": q,
+        "documents": documents,
+        "top_n": min(max(top_n, 1), len(documents)),
         "model": meta["model"],
-        "input": {"query": q, "documents": documents},
-        "parameters": {"top_n": min(max(top_n, 1), len(documents))},
     }
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    timeout = float(getattr(config, "RERANK_TIMEOUT", 3.0) or 3.0)
+    timeout = float(getattr(config, "RERANK_TIMEOUT", 5.0) or 5.0)
+    url = f"{_service_base()}/rerank"
 
     try:
-        # trust_env=False：绕过本机失效系统代理（与 embedder 一致）
         async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-            resp = await client.post(_dashscope_rerank_url(), json=payload, headers=headers)
+            resp = await client.post(url, json=payload)
             resp.raise_for_status()
             body = resp.json()
     except Exception as e:  # noqa: BLE001
-        meta["fallback"] = "api_error"
-        logger.warning("Rerank API 失败，保持原排序: %s", e)
+        meta["fallback"] = "service_error"
+        logger.warning("Rerank 服务调用失败，保持原排序: %s", e)
         return hits[:top_n], meta
 
-    results = ((body.get("output") or {}).get("results") or [])
+    data = body.get("data") if isinstance(body, dict) else {}
+    svc_meta = (data or {}).get("meta") or {}
+    results = (data or {}).get("results") or []
+    if svc_meta:
+        meta["model"] = svc_meta.get("model") or meta["model"]
+        if svc_meta.get("fallback"):
+            meta["fallback"] = svc_meta.get("fallback")
+        if svc_meta.get("stub"):
+            meta["stub"] = True
+
     if not results:
-        meta["fallback"] = "empty_result"
+        meta["fallback"] = meta.get("fallback") or "empty_result"
         return hits[:top_n], meta
 
     reranked: list[dict[str, Any]] = []

@@ -50,6 +50,7 @@ async def _retrieve_one_doc(
     query: str,
     search_type: str,
     top_n: int,
+    enable_rerank: bool | None = None,
 ):
     """
     单文档检索（保留原有准入与返回逻辑）。
@@ -92,6 +93,7 @@ async def _retrieve_one_doc(
             doc_id=doc_id,
             source_docs=source_docs,
             doc_ids=doc_ids,
+            enable_rerank=enable_rerank,
         )
     except Exception as e:
         return fail(5001, f"向量库服务异常: {e}"), None, None
@@ -138,6 +140,7 @@ async def test_retrieve(
             query=query,
             search_type=search_type,
             top_n=top_n,
+            enable_rerank=req.enable_rerank,
         )
         if err is not None:
             return err
@@ -158,6 +161,7 @@ async def test_retrieve(
             query=query,
             search_type=search_type,
             top_n=top_n,
+            enable_rerank=req.enable_rerank,
         )
         if err is not None:
             return err

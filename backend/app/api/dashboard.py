@@ -99,6 +99,28 @@ def _probe_bm25_cache(kb_total: int) -> dict:
         }
 
 
+async def _probe_rerank() -> dict:
+    """探测 Rerank 微服务（组长端口表 8002）。"""
+    from app.rag_engine.reranker import probe_rerank_service
+
+    ok, detail, data = await probe_rerank_service()
+    if ok:
+        return {
+            "key": "rerank",
+            "label": "Rerank 重排服务",
+            "status": "ok",
+            "detail": detail,
+            "mode": (data or {}).get("mode"),
+            "model": (data or {}).get("model"),
+        }
+    return {
+        "key": "rerank",
+        "label": "Rerank 重排服务",
+        "status": "down",
+        "detail": detail or "8002 不可达",
+    }
+
+
 @router.get("/stats")
 async def get_dashboard_stats(
     db: Session = Depends(get_db),
@@ -201,6 +223,7 @@ async def get_dashboard_stats(
             "detail": "正常响应",
         },
         _probe_chroma(),
+        await _probe_rerank(),
         _probe_bm25_cache(kb_count),
         {
             "key": "sqlite",

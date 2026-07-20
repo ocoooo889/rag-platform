@@ -111,7 +111,8 @@ function runMockSSE(options = {}) {
       chunk_id: r.chunk_id,
       content: r.content,
       score: r.score,
-      source_doc: r.source_doc || ''
+      source_doc: r.source_doc || '',
+      reranked: !!r.reranked
     }))
     onDone &&
       onDone({
@@ -217,7 +218,8 @@ async function runFetchSSE(options = {}) {
           chunk_id: r.chunk_id,
           content: r.content,
           score: r.score,
-          source_doc: r.source_doc || ''
+          source_doc: r.source_doc || '',
+          reranked: !!r.reranked
         }))
         finish({ ...event, sources })
       } else if (event.content && !event.type) {
@@ -316,7 +318,8 @@ function runEventSourceSSE(options = {}) {
           chunk_id: r.chunk_id,
           content: r.content,
           score: r.score,
-          source_doc: r.source_doc || ''
+          source_doc: r.source_doc || '',
+          reranked: !!r.reranked
         }))
         abort()
         onDone && onDone({ ...event, sources })

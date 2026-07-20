@@ -10,6 +10,8 @@ class HitTestRequest(BaseModel):
     search_type: str
     query: str
     top_n: int = Field(default=3, ge=1, le=10)
+    # None=跟随服务端 ENABLE_RERANK；true/false=单次请求覆盖
+    enable_rerank: bool | None = None
 
 
 class ChatRequest(BaseModel):
@@ -18,6 +20,8 @@ class ChatRequest(BaseModel):
     session_id: str | None = None
     search_type: str = "hybrid"
     top_n: int = Field(default=3, ge=1, le=10)
+    # None=跟随服务端 ENABLE_RERANK；true/false=单次请求覆盖
+    enable_rerank: bool | None = None
 
 
 class ChatSessionUpdate(BaseModel):

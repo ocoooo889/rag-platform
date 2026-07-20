@@ -37,6 +37,7 @@ class RAGPipeline:
         doc_ids: list[str] | None = None,
         user_id: str | None = None,
         request_id: str | None = None,
+        enable_rerank: bool | None = None,
     ) -> tuple[list[dict], dict]:
         """仅检索（命中测试），上报 retrieval Trace"""
         trace = start_trace(
@@ -63,6 +64,7 @@ class RAGPipeline:
                 kb_id=kb_id,
                 source_docs=source_docs,
                 doc_ids=doc_ids,
+                enable_rerank=enable_rerank,
             )
             hits = sanitize_hits(hits)
             elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
@@ -104,6 +106,7 @@ class RAGPipeline:
         session_id: str | None = None,
         stream: bool = False,
         request_id: str | None = None,
+        enable_rerank: bool | None = None,
     ) -> tuple[Any, list[dict], dict]:
         """
         完整 RAG：检索 + LLM 生成。
@@ -179,6 +182,7 @@ class RAGPipeline:
                 kb_id=kb_id,
                 source_docs=source_docs,
                 doc_ids=doc_ids,
+                enable_rerank=enable_rerank,
             )
             hits = sanitize_hits(hits)
         except Exception as e:

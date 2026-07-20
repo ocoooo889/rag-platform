@@ -35,7 +35,10 @@ export const useHitTestStore = defineStore('hitTest', () => {
   /** UI Tab 模式，请求字段为 search_type（非 mode） */
   const searchType = ref('hybrid')
   const topN = ref(3)
+  /** 是否开启 Rerank（请求级覆盖服务端默认） */
+  const enableRerank = ref(false)
   const results = ref([])
+  const lastMeta = ref(null)
   const loading = ref(false)
   const hasSearched = ref(false)
   const errorMsg = ref('')
@@ -43,12 +46,14 @@ export const useHitTestStore = defineStore('hitTest', () => {
   function setMode(nextMode) {
     searchType.value = nextMode
     results.value = []
+    lastMeta.value = null
     hasSearched.value = false
     errorMsg.value = ''
   }
 
   function clearResults() {
     results.value = []
+    lastMeta.value = null
     hasSearched.value = false
     errorMsg.value = ''
   }
@@ -60,13 +65,15 @@ export const useHitTestStore = defineStore('hitTest', () => {
       content: item.content || '',
       source_doc: item.source_doc || '',
       chunk_id: String(item.chunk_id || ''),
-      doc_id: item.doc_id
+      doc_id: item.doc_id,
+      reranked: !!item.reranked
     }))
   }
 
   async function runTest() {
     loading.value = true
     errorMsg.value = ''
+    lastMeta.value = null
     try {
       const ids = Array.isArray(docIds.value) ? docIds.value.filter(Boolean) : []
       if (!ids.length) {
@@ -82,17 +89,20 @@ export const useHitTestStore = defineStore('hitTest', () => {
           doc_id: docId,
           search_type: searchType.value,
           query: query.value,
-          top_n: topN.value
+          top_n: topN.value,
+          enable_rerank: enableRerank.value
         })
       )
 
       let merged = []
       let firstError = null
+      let meta = null
       for (const item of settled) {
         if (item.status === 'fulfilled') {
           const data = item.value?.data || {}
           // 契约主字段 hits；items 仅作历史兼容兜底
           merged = merged.concat(data.hits || data.items || [])
+          if (data.meta) meta = data.meta
         } else if (!firstError) {
           firstError = item.reason
         }
@@ -108,6 +118,7 @@ export const useHitTestStore = defineStore('hitTest', () => {
 
       merged.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
       results.value = normalizeHits(merged.slice(0, topN.value))
+      lastMeta.value = meta
       hasSearched.value = true
       return results.value
     } catch (e) {
@@ -128,7 +139,9 @@ export const useHitTestStore = defineStore('hitTest', () => {
     /** @deprecated 使用 searchType；保留别名避免页面破坏 */
     mode: searchType,
     topN,
+    enableRerank,
     results,
+    lastMeta,
     loading,
     hasSearched,
     errorMsg,

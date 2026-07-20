@@ -77,11 +77,15 @@ CHAT_RETRIEVE_MODE = (os.getenv("CHAT_RETRIEVE_MODE", "fast") or "fast").strip()
 
 # ============================================================
 # Rerank（默认关闭，开启后对 hybrid/vector 候选重排）
+# 实际推理走本机微服务 8002；ENABLE_RERANK 为全局默认，请求可覆盖
 # ============================================================
 ENABLE_RERANK = os.getenv("ENABLE_RERANK", "false").lower() in ("1", "true", "yes", "on")
 RERANK_MODEL = os.getenv("RERANK_MODEL", "qwen3-rerank")
 RERANK_CANDIDATE_MUL = int(os.getenv("RERANK_CANDIDATE_MUL", "5"))
 RERANK_TIMEOUT = float(os.getenv("RERANK_TIMEOUT", "3.0"))
+RERANK_SERVICE_URL = (
+    os.getenv("RERANK_SERVICE_URL", "http://127.0.0.1:8002") or "http://127.0.0.1:8002"
+).rstrip("/")
 
 # ============================================================
 # 环境隔离 · 个人标识

@@ -131,6 +131,8 @@ export const useChatStore = defineStore('chat', () => {
   const streaming = ref(false)
   const loading = ref(false)
   const selectedKbId = ref(null)
+  /** 对话请求是否开启 Rerank（调用 8002） */
+  const enableRerank = ref(false)
   /** 流式阶段提示：检索中 / 生成中 */
   const streamStatus = ref('')
   /** 知识库后台预热中（不挡发送） */
@@ -645,7 +647,8 @@ export const useChatStore = defineStore('chat', () => {
       search_type: 'vector',
       top_n: 3,
       // 始终带上会话 id，后端才能加载多轮上下文（含 local-*）
-      session_id: String(sessionId)
+      session_id: String(sessionId),
+      enable_rerank: !!enableRerank.value
     }
 
     await streamChat(payload, {
@@ -786,6 +789,7 @@ export const useChatStore = defineStore('chat', () => {
     streaming,
     loading,
     selectedKbId,
+    enableRerank,
     streamStatus,
     kbWarming,
     loadSessions,
