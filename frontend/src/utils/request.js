@@ -66,6 +66,26 @@ function isOnLoginPage() {
   }
 }
 
+/** 401 时清空本地登录态，避免「有 token 进后台 → 401 回登录」死循环 */
+function clearAuthStorage() {
+  try {
+    if (typeof localStorage === 'undefined') return
+    localStorage.removeItem('token')
+    localStorage.removeItem('rag_token')
+    localStorage.removeItem('userInfo')
+    localStorage.removeItem('rag_user')
+  } catch (e) {
+    // ignore
+  }
+}
+
+function redirectToLogin() {
+  clearAuthStorage()
+  if (!isOnLoginPage()) {
+    window.location.href = '/login'
+  }
+}
+
 const request = axios.create({
   baseURL: API_BASE_URL,
   timeout: 60000
@@ -117,8 +137,8 @@ request.interceptors.response.use(
     }
     const msg = ERROR_MESSAGES[res.code] || res.message || res.msg || '请求失败'
     if (!silent) ElMessage.error(msg)
-    if (res.code === 401 && !silent && !isOnLoginPage()) {
-      window.location.href = '/login'
+    if (res.code === 401 && !silent) {
+      redirectToLogin()
     }
     return Promise.reject(res)
   },
@@ -135,12 +155,12 @@ request.interceptors.response.use(
       error.message ||
       '网络异常，请稍后重试'
     if (!silent) ElMessage.error(msg)
-    if ((code === 401 || error?.response?.status === 401) && !silent && !isOnLoginPage()) {
-      window.location.href = '/login'
+    if ((code === 401 || error?.response?.status === 401) && !silent) {
+      redirectToLogin()
     }
     return Promise.reject(error)
   }
 )
 
 export default request
-export { getEnvTag, getToken, ERROR_MESSAGES }
+export { getEnvTag, getToken, clearAuthStorage, ERROR_MESSAGES }
