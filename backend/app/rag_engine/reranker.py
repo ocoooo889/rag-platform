@@ -38,7 +38,7 @@ async def rerank_hits(
     meta: dict[str, Any] = {
         "enabled": bool(getattr(config, "ENABLE_RERANK", False)),
         "applied": False,
-        "model": getattr(config, "RERANK_MODEL", "gte-rerank-v2"),
+        "model": getattr(config, "RERANK_MODEL", "qwen3-rerank"),
         "fallback": None,
     }
     if not meta["enabled"] or not hits:
