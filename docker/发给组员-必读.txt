@@ -1,0 +1,27 @@
+RAG Platform — Docker 部署包（对外端口 8520）
+========================================
+
+【最推荐】
+组员直接 git 拉取分支 zhangyu-fix-final（已含 Docker 文件），
+复制 .env.example 为 .env 并填写 OPENAI_API_KEY，然后：
+
+  docker compose up -d --build
+
+浏览器打开：http://localhost:8520
+账号：admin / admin123
+
+【本 zip 是什么】
+仅含 docker-compose、Dockerfile、nginx、Chroma 构建说明等配置，
+不含源码全文、不含 .env 密钥、不含 Docker 镜像层。
+
+若组员已有完整仓库：把本包内对应文件覆盖进项目后执行 compose 即可。
+
+【注意】
+- 不要把含真实 Key 的 .env 打进压缩包发给别人
+- 首次构建需能拉取 python / node / nginx 基础镜像
+- 镜像站失败时见 docs/Docker部署说明.md
+
+【可选：离线镜像】
+你本机先 docker compose build 成功后，再运行：
+  scripts\pack_docker_images.bat
+生成较大的 images tar，对方 docker load 后可少拉镜像。

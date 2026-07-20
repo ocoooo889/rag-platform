@@ -9,10 +9,17 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 # 优先加载项目根 / backend 下的 .env，兼容多种启动目录
-# override=True：项目 .env 覆盖系统环境变量（避免本机 LLM_MODEL=gpt-5.1 盖住百炼 qwen-plus）
+# override=True：项目 .env 覆盖系统环境变量（避免本机 LLM_MODEL 盖住百炼配置）
+# Docker：设 DOTENV_OVERRIDE=false，让 compose environment 优先生效（如 CHROMA_HOST=chroma）
 _ROOT = Path(__file__).resolve().parents[2]  # rag-platform/
-load_dotenv(_ROOT / ".env", override=True)
-load_dotenv(_ROOT / "backend" / ".env", override=True)
+_DOTENV_OVERRIDE = os.getenv("DOTENV_OVERRIDE", "true").lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+load_dotenv(_ROOT / ".env", override=_DOTENV_OVERRIDE)
+load_dotenv(_ROOT / "backend" / ".env", override=_DOTENV_OVERRIDE)
 load_dotenv(override=False)
 
 # ============================================================
@@ -21,14 +28,18 @@ load_dotenv(override=False)
 # 可用 .env 覆盖；接百炼时用 text-embedding-v4，维度仍对齐 1536
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "1536"))
-EMBEDDING_TIMEOUT = int(os.getenv("EMBEDDING_TIMEOUT", "10"))
+EMBEDDING_TIMEOUT = int(os.getenv("EMBEDDING_TIMEOUT", "60"))
 EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "10"))
+# Chroma 单次写入条数（长文档分批，避免一次塞几千条）
+CHROMA_WRITE_BATCH_SIZE = int(os.getenv("CHROMA_WRITE_BATCH_SIZE", "100"))
+# Embedding 额外重试次数（连接抖动常见）；总尝试 = 1 + 该值
+EMBEDDING_MAX_RETRIES = int(os.getenv("EMBEDDING_MAX_RETRIES", "4"))
 
 # ============================================================
-# [定死] 切片参数（Day1 定死，不可改）
+# [定死] 切片参数（Day1 定死默认；可用 .env 略调以适配长文档）
 # ============================================================
-CHUNK_SIZE = 500
-CHUNK_OVERLAP = 50
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "500"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "50"))
 SEPARATORS = ["\n## ", "\n### ", "\n", "。", ".", " "]
 
 # ============================================================
@@ -40,7 +51,7 @@ MAX_CHAT_HISTORY_ROUNDS = 10  # 多轮对话最多保留轮数（超出自动截
 # ============================================================
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o-mini")
 LLM_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "10"))
-LLM_MAX_RETRIES = 1
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "1"))
 
 # ============================================================
 # [定死] 混合检索加权因子（Hybrid Score Formula）
@@ -70,8 +81,12 @@ QUERY_REWRITE_ON_STREAM = os.getenv("QUERY_REWRITE_ON_STREAM", "false").lower() 
 QUERY_REWRITE_TIMEOUT = float(os.getenv("QUERY_REWRITE_TIMEOUT", "1.2"))
 # 流式对话：向量检索等待上限（秒），超时立刻用本地 BM25，换更快首 token
 CHAT_VECTOR_TIMEOUT = float(os.getenv("CHAT_VECTOR_TIMEOUT", "0.7"))
-# 对话默认检索：fast=优先本地 BM25；balanced=向量（超时回退 BM25）；quality=强制向量
-CHAT_RETRIEVE_MODE = (os.getenv("CHAT_RETRIEVE_MODE", "fast") or "fast").strip().lower()
+# 命中测试：向量等待更长，避免误判为「向量不可用」
+HITTEST_VECTOR_TIMEOUT = float(os.getenv("HITTEST_VECTOR_TIMEOUT", "10"))
+# 对话默认检索：fast=优先本地 BM25；balanced=向量（超时回退 BM25）；quality=强制等向量
+CHAT_RETRIEVE_MODE = (os.getenv("CHAT_RETRIEVE_MODE", "balanced") or "balanced").strip().lower()
+# 启动扫描：processing 超过该分钟数（按 updated_at）则标 failed
+STALE_PROCESSING_MINUTES = int(os.getenv("STALE_PROCESSING_MINUTES", "30") or 30)
 
 # ============================================================
 # 环境隔离 · 个人标识

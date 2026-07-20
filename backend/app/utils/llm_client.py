@@ -21,6 +21,9 @@ logger = logging.getLogger(__name__)
 _client = AsyncOpenAI(
     api_key=config.OPENAI_API_KEY or "sk-missing",
     base_url=config.OPENAI_BASE_URL,
+    # 避免 SDK 默认超时过短导致长文档中途 Connection error
+    timeout=float(max(config.EMBEDDING_TIMEOUT, config.LLM_TIMEOUT, 60) + 30),
+    max_retries=0,
 )
 
 
@@ -77,19 +80,41 @@ async def get_embedding(text: str) -> list[float]:
 
 
 async def get_embeddings_batch(texts: list[str], trace_id: str | None = None) -> list[list[float]]:
-    """批量向量化；百炼兼容接口建议每批不超过 10 条"""
+    """批量向量化；百炼兼容接口建议每批不超过 10 条；长文档会顺序多批并打进度日志。"""
     if not texts:
         return []
     if not config.OPENAI_API_KEY or config.OPENAI_API_KEY.startswith("sk-xxxx"):
         raise EmbeddingServiceError("向量模型暂不可用，已切换关键词检索")
 
     batch_size = max(1, config.EMBEDDING_BATCH_SIZE)
+    total = len(texts)
+    batches = (total + batch_size - 1) // batch_size
     all_vectors: list[list[float]] = []
 
-    for start in range(0, len(texts), batch_size):
+    for i, start in enumerate(range(0, total, batch_size), start=1):
         chunk = texts[start:start + batch_size]
         all_vectors.extend(await _embed_one_batch(chunk, trace_id=trace_id))
+        if batches > 3 and (i == 1 or i == batches or i % 10 == 0):
+            logger.info("Embedding 进度 %s/%s 批（已完成 %s/%s 片）", i, batches, len(all_vectors), total)
     return all_vectors
+
+
+def _is_transient_embed_error(exc: Exception) -> bool:
+    text = str(exc).lower()
+    keys = (
+        "connection",
+        "timeout",
+        "timed out",
+        "temporarily",
+        "rate limit",
+        "429",
+        "502",
+        "503",
+        "504",
+        "bad gateway",
+        "server error",
+    )
+    return any(k in text for k in keys)
 
 
 async def _embed_one_batch(texts: list[str], trace_id: str | None = None) -> list[list[float]]:
@@ -102,7 +127,8 @@ async def _embed_one_batch(texts: list[str], trace_id: str | None = None) -> lis
     if _is_dashscope() or str(config.EMBEDDING_MODEL).startswith("text-embedding-v"):
         kwargs["dimensions"] = config.EMBEDDING_DIM
 
-    for attempt in range(config.LLM_MAX_RETRIES + 1):
+    max_retries = max(config.LLM_MAX_RETRIES, getattr(config, "EMBEDDING_MAX_RETRIES", 4))
+    for attempt in range(max_retries + 1):
         try:
             resp = await asyncio.wait_for(
                 _client.embeddings.create(**kwargs),
@@ -120,10 +146,15 @@ async def _embed_one_batch(texts: list[str], trace_id: str | None = None) -> lis
             return vectors
         except Exception as e:
             last_err = e
-            logger.warning("Embedding 第 %s 次失败: %s", attempt + 1, e)
-            if attempt < config.LLM_MAX_RETRIES:
-                await asyncio.sleep(1)
-    raise EmbeddingServiceError("向量模型暂不可用，已切换关键词检索") from last_err
+            logger.warning("Embedding 第 %s/%s 次失败: %s", attempt + 1, max_retries + 1, e)
+            if attempt >= max_retries:
+                break
+            # 连接类错误多等一会再试
+            delay = min(2 ** attempt, 16) if _is_transient_embed_error(e) else 1
+            await asyncio.sleep(delay)
+    raise EmbeddingServiceError(
+        f"向量模型暂不可用（已重试 {max_retries + 1} 次）：{(str(last_err) or '')[:120]}"
+    ) from last_err
 
 
 async def chat_completion(

@@ -40,8 +40,9 @@
 | 403 | 权限不足 | 无权限访问该接口 |
 | 404 | 资源不存在 | 知识库 / 文档 ID 不存在 |
 | 4001 | 用户组未授权 | 用户不在任何用户组，或组未分配知识库（后端 B） |
-| 4002 | 文档未就绪 | 文档状态非 completed，不可检索/对话（后端 A） |
-| 4003 | 字段命名不规范 | 检索/对话输入未使用统一字段 `query` |
+| 4002 | 文档未就绪 | 文档为 pending/processing/failed，不可检索/对话 |
+| 4003 | 白标配置缺失 | 系统品牌配置未初始化，使用默认值兜底 |
+| 4004 | 向量不可用 | 文档 status=degraded 时禁止纯向量检索，请用关键词/混合或重新向量化 |
 | 500 | 服务内部异常 | 未预期的服务器错误 |
 | 5001 | 向量库异常 | Chroma 连接失败 / 查询失败 |
 | 5002 | 大模型调用异常 | LLM API 超时 / Key 失效 / 返回异常 |
@@ -319,8 +320,17 @@
 |--------|------|
 | pending | 已上传，等待处理 |
 | processing | 正在切片 + 向量化 |
-| completed | 处理完成，可检索 |
+| completed | 向量 + BM25 均就绪，可检索 |
+| degraded | 仅 BM25 就绪（向量写入失败）；可关键词/混合，不可纯向量 |
 | failed | 处理失败 |
+
+### POST `/api/documents/{doc_id}/reprocess` — 重新向量化
+
+具备该文档所属知识库访问权即可。清理旧切片/向量后后台重新入库。
+
+**异常：**
+- 404 — 文档或原始文件不存在
+- 400 — 正在处理中（`processing` 且 `updated_at` 未超过 10 分钟）
 
 ### POST `/api/knowledge-bases/{kb_id}/documents/upload` — 上传文档
 
@@ -475,6 +485,7 @@
 - 400 — 必填参数为空
 - 404 — 知识库 / 文档不存在
 - 4002 — 文档未就绪（pending/processing/failed）
+- 4004 — 文档 degraded，禁止纯向量检索
 - 5001 — 向量库异常（Chroma 连接失败）
 
 ---
@@ -646,6 +657,7 @@ data: {"type": "done", "content": "", "references": [{"chunk_id":"c001","content
 | DELETE | `/api/knowledge-bases/{kb_id}` | 4号 | 删除知识库 |
 | GET | `/api/knowledge-bases/{kb_id}/documents` | 4号 | 文档列表 |
 | POST | `/api/knowledge-bases/{kb_id}/documents/upload` | 4号 | 上传文档 |
+| POST | `/api/documents/{doc_id}/reprocess` | 4号 | 重新向量化 |
 | DELETE | `/api/knowledge-bases/{kb_id}/documents/{doc_id}` | 4号 | 删除文档 |
 | GET | `/api/documents/all` | 4号 | 全部文档（级联下拉用） |
 | GET | `/api/models` | 4号 | 模型列表 |

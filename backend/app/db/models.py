@@ -83,11 +83,14 @@ class Document(Base):
     filename = Column(String)
     file_type = Column(String) # md / txt
     file_size = Column(Integer)
-    status = Column(String, default="pending") # pending, processing, completed, failed
+    # pending | processing | completed | degraded | failed
+    # completed=向量+BM25；degraded=仅 BM25（向量写入失败）
+    status = Column(String, default="pending")
     chunk_count = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
     knowledge_base = relationship("KnowledgeBase", back_populates="documents")
     chunks = relationship("Chunk", back_populates="document", cascade="all, delete-orphan")
 

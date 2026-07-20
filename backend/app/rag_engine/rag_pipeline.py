@@ -62,6 +62,7 @@ class RAGPipeline:
                 kb_id=kb_id,
                 source_docs=source_docs,
                 doc_ids=doc_ids,
+                purpose="hittest",
             )
             elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
             safe_end(
@@ -162,6 +163,7 @@ class RAGPipeline:
                 kb_id=kb_id,
                 source_docs=source_docs,
                 doc_ids=doc_ids,
+                purpose="chat",
             )
         except Exception as e:
             logger.warning("RAG 检索失败，降级为空上下文: %s", e)

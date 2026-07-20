@@ -10,6 +10,7 @@ venv/
 env/
 ENV/
 dist/
+dist-docker/
 build/
 
 # 环境变量与本地密钥（禁止提交）

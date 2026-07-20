@@ -55,8 +55,8 @@ def _check_kb_docs_ready(kb_id: str):
     """
     V2 第十一章：知识库文档准入。
     - 无文档 → 404
-    - 全部未 completed → 4002
-    - 部分 completed → 放行（检索层只取 completed）
+    - 全部为 pending/processing/failed → 4002
+    - 存在 completed 或 degraded → 放行（检索层取 completed+degraded）
     """
     total, pending = count_docs_by_kb(kb_id)
     if total == 0:

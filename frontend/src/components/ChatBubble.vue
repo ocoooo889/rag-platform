@@ -37,8 +37,18 @@
             >
               <div class="source-item__head">
                 <span>{{ item.source_doc || '未知文档' }}</span>
-                <span :style="{ color: getScoreColor(item.score) }">
-                  {{ formatScorePercent(item.score) }}
+                <span class="source-item__meta">
+                  <el-tag
+                    v-if="methodLabel(item.method)"
+                    size="small"
+                    type="info"
+                    effect="plain"
+                  >
+                    {{ methodLabel(item.method) }}
+                  </el-tag>
+                  <span :style="{ color: getScoreColor(item.score) }">
+                    {{ formatScorePercent(item.score) }}
+                  </span>
                 </span>
               </div>
               <p>{{ item.content }}</p>
@@ -99,6 +109,17 @@ watch(avatarSrc, () => {
 const showSources = computed(
   () => !props.streaming && Array.isArray(props.sources) && props.sources.length > 0
 )
+
+const METHOD_LABEL = {
+  vector: '向量',
+  bm25: '关键词',
+  keyword: '关键词',
+  hybrid: '混合'
+}
+
+function methodLabel(raw) {
+  return METHOD_LABEL[String(raw || '').toLowerCase()] || ''
+}
 
 /** 透传流式命令式 API，供少数非受控场景复用 */
 defineExpose({
@@ -192,9 +213,17 @@ defineExpose({
 .source-item__head {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 4px;
   font-size: 12px;
   color: var(--text-color-secondary);
+}
+
+.source-item__meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .source-item p {

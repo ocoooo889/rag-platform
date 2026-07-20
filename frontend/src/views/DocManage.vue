@@ -71,21 +71,36 @@
                 {{ formatDate(row.uploaded_at || row.created_at, 'YYYY/MM/DD') }}
               </template>
             </el-table-column>
-            <el-table-column label="状态" show-overflow-tooltip>
+            <el-table-column label="状态" min-width="160">
               <template #default="{ row }">
                 <el-tag :class="statusClass(row.status)" size="small">
                   {{ statusLabel(row.status) }}
                 </el-tag>
+                <el-progress
+                  v-if="progressOf(row)"
+                  :percentage="progressOf(row).percent"
+                  :stroke-width="4"
+                  style="margin-top: 6px; max-width: 160px"
+                />
                 <div
-                  v-if="row.error_message"
+                  v-else-if="row.error_message"
                   :class="row.status === 'failed' ? 'fail-reason' : 'warn-reason'"
                 >
                   {{ row.error_message }}
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作">
+            <el-table-column label="操作" width="180">
               <template #default="{ row }">
+                <el-button
+                  v-if="canReprocess(row)"
+                  text
+                  type="primary"
+                  :loading="reprocessingId === row.id"
+                  @click="onReprocess(row)"
+                >
+                  重新向量化
+                </el-button>
                 <el-button text type="danger" @click="openDelete(row)">删除</el-button>
               </template>
             </el-table-column>
@@ -126,7 +141,13 @@ import { ElMessage } from 'element-plus'
 import { useKbStore } from '@/stores/kb'
 import { useDocStore } from '@/stores/doc'
 import { formatFileSize, formatDate } from '@/utils/format'
-import { getDocStatusLabel, getDocStatusClassSuffix } from '@/utils/docStatus'
+import {
+  DOC_STATUS,
+  getDocStatusLabel,
+  getDocStatusClassSuffix,
+  parseVectorProgress
+} from '@/utils/docStatus'
+import { reprocessDocument } from '@/api/doc'
 import AppTable from '@/components/AppTable.vue'
 import AppPagination from '@/components/AppPagination.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -145,6 +166,7 @@ const deletingId = ref(null)
 const batchMode = ref(false)
 const selectedRows = ref([])
 const tableRef = ref(null)
+const reprocessingId = ref(null)
 
 const hasKb = computed(() => kbStore.list.length > 0)
 
@@ -161,6 +183,35 @@ function statusLabel(status) {
 
 function statusClass(status) {
   return `doc-status doc-status--${getDocStatusClassSuffix(status)}`
+}
+
+function progressOf(row) {
+  if (row?.status !== DOC_STATUS.PROCESSING) return null
+  return parseVectorProgress(row.error_message)
+}
+
+function canReprocess(row) {
+  const s = row?.status
+  return (
+    s === DOC_STATUS.DEGRADED ||
+    s === DOC_STATUS.FAILED ||
+    s === DOC_STATUS.COMPLETED
+  )
+}
+
+async function onReprocess(row) {
+  if (!row?.id || reprocessingId.value) return
+  reprocessingId.value = row.id
+  try {
+    await reprocessDocument(row.id)
+    ElMessage.success('已开始重新向量化')
+    await reloadDocs()
+    if (selectedKbId.value) docStore.startPolling(selectedKbId.value)
+  } catch (e) {
+    // 全局 axios 已提示
+  } finally {
+    reprocessingId.value = null
+  }
 }
 
 function onSelectionChange(rows) {
@@ -345,6 +396,11 @@ onUnmounted(() => {
 .doc-status--completed {
   color: var(--status-completed-text);
   background: var(--status-completed-bg);
+}
+
+.doc-status--degraded {
+  color: var(--status-degraded-text);
+  background: var(--status-degraded-bg);
 }
 
 .doc-status--failed {

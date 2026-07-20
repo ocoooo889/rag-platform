@@ -20,6 +20,9 @@ def ensure_rag_schema(conn: sqlite3.Connection) -> None:
         if "error_message" not in doc_names:
             conn.execute("ALTER TABLE documents ADD COLUMN error_message TEXT")
             conn.commit()
+        if "updated_at" not in doc_names:
+            conn.execute("ALTER TABLE documents ADD COLUMN updated_at TEXT")
+            conn.commit()
 
     rows = conn.execute("PRAGMA table_info(chunks)").fetchall()
     if rows:

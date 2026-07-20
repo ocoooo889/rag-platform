@@ -21,7 +21,11 @@ _STATUS_TEXT = {
     "pending": "等待处理",
     "processing": "正在处理中",
     "failed": "处理失败",
+    "degraded": "仅关键词可用（向量未就绪）",
 }
+
+# 可检索：completed / degraded；纯向量仅 completed
+_RETRIEVABLE = {"completed", "degraded"}
 
 
 def _resolve_doc_ids(req: HitTestRequest) -> list[str]:
@@ -59,14 +63,26 @@ async def _retrieve_one_doc(
     if not doc or doc["kb_id"] != kb_id:
         return fail(404, "文档不存在或不属于该知识库"), None
 
-    # V2：非 completed 不可检索 → 4002
-    if doc["status"] != "completed":
-        status_text = _STATUS_TEXT.get(doc["status"], "未就绪")
+    status = doc["status"]
+    # pending / processing / failed → 4002
+    if status not in _RETRIEVABLE:
+        status_text = _STATUS_TEXT.get(status, "未就绪")
         return (
             fail(
                 4002,
                 f"文档「{doc['filename']}」{status_text}，请等待处理完成后再试",
-                data={"doc_id": doc_id, "status": doc["status"]},
+                data={"doc_id": doc_id, "status": status},
+            ),
+            None,
+        )
+
+    # degraded + 纯向量 → 4004（4003 已用于白标配置）
+    if status == "degraded" and search_type == "vector":
+        return (
+            fail(
+                4004,
+                f"文档「{doc['filename']}」仅关键词可用，请改用关键词或混合检索，或重新向量化",
+                data={"doc_id": doc_id, "status": status},
             ),
             None,
         )

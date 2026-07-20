@@ -1,6 +1,6 @@
 /**
  * 前端 B Mock 双分支冒烟（mode=mock）
- * 覆盖：KB / Doc / 命中 / 会话 / SSE；正常、空数据、4002、延迟
+ * 覆盖：KB / Doc / 命中 / 会话 / SSE；正常、空数据、4002、4004(degraded)、延迟
  * 用法：npm run smoke:mock
  */
 import { MOCK_OPEN } from '../src/mock/flag.js'
@@ -52,13 +52,21 @@ async function main() {
   assert(docs.length > 0, 'doc list 应有数据')
   docs.forEach((d) => {
     assert(
-      ['pending', 'processing', 'completed', 'failed'].includes(d.status),
+      ['pending', 'processing', 'completed', 'degraded', 'failed'].includes(d.status),
       `非法 status=${d.status}`
     )
   })
   const completed = docs.find((d) => d.status === 'completed')
+  const degraded = docs.find((d) => d.status === 'degraded')
   const processing = docs.find((d) => d.status === 'processing' || d.status === 'pending')
-  console.log('[ok] doc list', docs.length, 'completed=', completed?.id)
+  console.log(
+    '[ok] doc list',
+    docs.length,
+    'completed=',
+    completed?.id,
+    'degraded=',
+    degraded?.id
+  )
 
   // 4) 空文档列表（无此库文档或空库）
   const emptyDoc = await fetchDocuments({ kb_id: 'kb_empty_smoke', page: 1, page_size: 10 }).catch(
@@ -120,6 +128,37 @@ async function main() {
     }
   } else {
     console.log('[skip] 无 processing/pending 文档，跳过 4002')
+  }
+
+  // 7b) degraded：关键词可命中，纯向量 4004
+  if (degraded) {
+    const degHit = await testRetrieve({
+      kb_id: kbId,
+      doc_id: degraded.id,
+      search_type: 'keyword',
+      query: '关键词检索',
+      top_n: 3
+    })
+    assert(
+      degHit.code === 0 && Array.isArray(degHit.data.hits) && degHit.data.hits.length > 0,
+      'degraded + keyword 应有 hits'
+    )
+    console.log('[ok] retrieve degraded keyword hits=', degHit.data.total_hits)
+    try {
+      await testRetrieve({
+        kb_id: kbId,
+        doc_id: degraded.id,
+        search_type: 'vector',
+        query: '任意问题',
+        top_n: 3
+      })
+      throw new Error('degraded 文档纯向量应 4004')
+    } catch (e) {
+      assert(e.code === 4004, `期望 4004，得到 ${e.code}`)
+      console.log('[ok] retrieve 4004 degraded+vector')
+    }
+  } else {
+    console.log('[skip] 无 degraded 文档，跳过 4004')
   }
 
   // 8) 会话 CRUD（Mock）

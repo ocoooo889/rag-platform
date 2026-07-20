@@ -2,7 +2,7 @@
  * 命中率测试（前端 B）— if (MOCK_OPEN()) 双分支
  * 后端 A：POST /api/rag/test_retrieve
  * 入参：kb_id, doc_id, search_type(vector|keyword|hybrid), query, top_n
- * 出参：search_type, total_hits, hits[{ chunk_id, content, score, source_doc, doc_id }]
+ * 出参：search_type, total_hits, hits[{ chunk_id, content, score, source_doc, doc_id, method }]
  */
 import request from '@/utils/request'
 import { MOCK_OPEN, mockResolve, mockReject } from '@/mock/flag'
@@ -43,12 +43,19 @@ export async function testRetrieve(data) {
     }
 
     const status = normalizeDocStatus(doc.status)
-    if (status !== DOC_STATUS.COMPLETED) {
+    if (status !== DOC_STATUS.COMPLETED && status !== DOC_STATUS.DEGRADED) {
       const tip =
         status === DOC_STATUS.FAILED
           ? `文档「${doc.filename}」处理失败，请等待处理完成后再试`
           : `文档「${doc.filename}」未就绪，请等待处理完成后再试`
       return mockReject(4002, tip, { doc_id: body.doc_id, status: doc.status })
+    }
+    if (status === DOC_STATUS.DEGRADED && searchType === 'vector') {
+      return mockReject(
+        4004,
+        `文档「${doc.filename}」仅关键词可用，请改用关键词或混合检索`,
+        { doc_id: body.doc_id, status: doc.status }
+      )
     }
 
     const mockData = buildRetrieveMockData({

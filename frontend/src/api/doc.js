@@ -4,7 +4,7 @@
  *   GET    /api/knowledge-bases/{kb_id}/documents
  *   POST   /api/knowledge-bases/{kb_id}/documents/upload
  *   DELETE /api/documents/{doc_id}
- * 枚举 status: pending | processing | completed | failed
+ * 枚举 status: pending | processing | completed | degraded | failed
  */
 import request from '@/utils/request'
 import { MOCK_OPEN, mockResolve, mockReject } from '@/mock/flag'
@@ -36,6 +36,7 @@ function normalizeDocRow(d = {}) {
     status: normalizeDocStatus(d.status),
     error_message: d.error_message || d.error || '',
     created_at: created,
+    updated_at: d.updated_at || '',
     uploaded_at: d.uploaded_at || created
   }
 }
@@ -168,4 +169,20 @@ export async function batchDeleteDocuments(ids = []) {
     return mockResolve({ deleted })
   }
   return request.post('/api/documents/batch-delete', { ids: list })
+}
+
+/** 重新向量化 / 重新入库 */
+export async function reprocessDocument(id) {
+  if (MOCK_OPEN()) {
+    const doc = mockDocList.find((d) => String(d.id) === String(id))
+    if (!doc) return mockReject(404, '文档不存在')
+    doc.status = DOC_STATUS.PENDING
+    doc.error_message = ''
+    doc.chunk_count = 0
+    setTimeout(() => {
+      doc.status = DOC_STATUS.COMPLETED
+    }, 1500)
+    return mockResolve(normalizeDocRow(doc))
+  }
+  return request.post(`/api/documents/${id}/reprocess`)
 }

@@ -70,6 +70,16 @@ scripts\restart_dev.bat
 bash scripts/restart_dev.sh
 ```
 
+## Docker 一键部署（对外端口 8520）
+
+```bash
+cp .env.example .env   # 填入 OPENAI_API_KEY 等
+docker compose up -d --build
+```
+
+浏览器打开：**http://localhost:8520**  
+详细说明见 [`docs/Docker部署说明.md`](docs/Docker部署说明.md)。
+
 ---
 
 ## 端口约定（勿混用）
@@ -98,6 +108,7 @@ cp .env.example .env
 | `OPENAI_API_KEY` | 必填真实 Key |
 | `CHROMA_HOST` | **固定 `127.0.0.1`**（与下方 chroma 启动参数一致） |
 | `CHROMA_PORT` | `8000` |
+| `CHAT_RETRIEVE_MODE` | 建议 `balanced`（真向量；默认已是）。`fast` 会让对话跳过向量直接 BM25 |
 
 ### 为什么以前会报「Chroma 未启动」
 
