@@ -91,3 +91,23 @@ class LLMConfigUpdate(BaseModel):
     dimension: Optional[int] = None
     is_active: Optional[bool] = None
     model_config = ConfigDict(protected_namespaces=())
+
+
+class RuntimeChatParamsUpdate(BaseModel):
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    max_tokens: Optional[int] = None
+    presence_penalty: Optional[float] = None
+    frequency_penalty: Optional[float] = None
+
+
+class RuntimeEmbeddingParamsUpdate(BaseModel):
+    dimension: Optional[int] = None
+
+
+class RuntimeModelConfigUpdate(BaseModel):
+    """大模型运行配置保存（/api/runtime-config/models）"""
+    chat_model_id: Optional[int] = None
+    embedding_model_id: Optional[int] = None
+    chat_params: Optional[RuntimeChatParamsUpdate] = None
+    embedding_params: Optional[RuntimeEmbeddingParamsUpdate] = None
