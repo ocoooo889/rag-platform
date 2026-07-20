@@ -33,7 +33,17 @@
               <span>文档总数：{{ item.document_count ?? item.doc_count ?? 0 }}</span>
               <span>分片总数：{{ item.chunk_count ?? 0 }}</span>
             </div>
+            <div class="kb-card__index">
+              <span class="kb-card__index-text" :title="indexSummary(item)">
+                {{ indexSummary(item) }}
+              </span>
+              <el-tag v-if="!hasLocalIndex(item.id)" size="small" type="info" effect="plain">
+                全局默认
+              </el-tag>
+              <el-tag v-else size="small" type="success" effect="plain">本地配置</el-tag>
+            </div>
             <div class="kb-card__actions" @click.stop>
+              <el-button text type="primary" @click="openIndexSettings(item)">索引配置</el-button>
               <el-button text @click="openEdit(item)">编辑</el-button>
               <el-button text type="danger" @click="openDelete(item)">删除</el-button>
             </div>
@@ -83,16 +93,44 @@
       :loading="submitting"
       @confirm="confirmDelete"
     />
+
+    <KbIndexSettingsDialog
+      v-model="indexVisible"
+      :kb-id="indexKb?.id || ''"
+      :kb-name="indexKb?.name || ''"
+      :api-index="indexApiMap[String(indexKb?.id || '')] || null"
+      @saved="onIndexSaved"
+      @rebuild="onIndexRebuild"
+      @synced="onIndexSynced"
+    />
+
+    <RebuildProgressDialog
+      v-model="rebuildVisible"
+      :kb-id="indexKb?.id || ''"
+      :kb-name="indexKb?.name || ''"
+      :config="rebuildConfig"
+      @done="onRebuildDone"
+    />
     </div>
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { defineAsyncComponent, onMounted, reactive, ref } from 'vue'
 import { useKbStore } from '@/stores/kb'
 import AppPagination from '@/components/AppPagination.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { fetchKbIndexConfig } from '@/api/kbIndex'
+import { formatKbIndexSummary, resolveKbIndexConfig } from '@/utils/kbIndex'
+import { loadKbIndexConfig, removeKbIndexConfig } from '@/utils/localCache'
+
+const KbIndexSettingsDialog = defineAsyncComponent(
+  () => import('@/components/KbIndexSettingsDialog.vue')
+)
+const RebuildProgressDialog = defineAsyncComponent(
+  () => import('@/components/RebuildProgressDialog.vue')
+)
 
 const kbStore = useKbStore()
 
@@ -103,6 +141,15 @@ const editingId = ref(null)
 const deletingId = ref(null)
 const formRef = ref(null)
 
+const indexVisible = ref(false)
+const rebuildVisible = ref(false)
+const indexKb = ref(null)
+const rebuildConfig = ref(null)
+/** 后端 GET 回写后的配置（按 kbId） */
+const indexApiMap = reactive({})
+/** 触发卡片索引摘要刷新 */
+const indexTick = ref(0)
+
 const form = reactive({
   name: '',
   description: ''
@@ -112,16 +159,91 @@ const rules = {
   name: [{ required: true, message: '请输入知识库名称', trigger: 'blur' }]
 }
 
+function indexOf(kbId) {
+  void indexTick.value
+  const api = indexApiMap[String(kbId)]
+  return resolveKbIndexConfig(kbId, api).config
+}
+
+function hasLocalIndex(kbId) {
+  void indexTick.value
+  try {
+    return !!loadKbIndexConfig(kbId)
+  } catch {
+    return false
+  }
+}
+
+function indexSummary(item) {
+  try {
+    return formatKbIndexSummary(indexOf(item?.id))
+  } catch {
+    return '索引配置暂不可用'
+  }
+}
+
+/** 强制从后端拉取并覆盖本地缓存 */
+async function syncIndexFromServer(kbId) {
+  if (kbId == null || kbId === '') return null
+  try {
+    const cfg = await fetchKbIndexConfig(kbId)
+    indexApiMap[String(kbId)] = cfg
+    indexTick.value += 1
+    return cfg
+  } catch {
+    return null
+  }
+}
+
+async function syncListedIndexes() {
+  const list = kbStore.list || []
+  await Promise.all(list.map((kb) => syncIndexFromServer(kb.id)))
+}
+
+async function openIndexSettings(item) {
+  indexKb.value = item
+  indexVisible.value = true
+  await syncIndexFromServer(item?.id)
+}
+
+function onIndexSaved(cfg) {
+  if (indexKb.value?.id != null && cfg) {
+    indexApiMap[String(indexKb.value.id)] = cfg
+  }
+  indexTick.value += 1
+}
+
+function onIndexSynced(cfg) {
+  if (indexKb.value?.id != null && cfg) {
+    indexApiMap[String(indexKb.value.id)] = cfg
+  }
+  indexTick.value += 1
+}
+
+function onIndexRebuild(cfg) {
+  rebuildConfig.value = cfg
+  rebuildVisible.value = true
+  indexTick.value += 1
+}
+
+function onRebuildDone() {
+  indexTick.value += 1
+  loadData()
+}
+
 async function loadData() {
   try {
     await kbStore.loadList()
+    // 列表就绪后强制拉各库索引配置（后端覆盖本地）
+    await syncListedIndexes()
   } catch (e) {
     // 异常交由全局 axios 统一处理，页面仅维持 loading 状态
   }
 }
 
-function selectKb(item) {
+async function selectKb(item) {
   kbStore.setSelectedKb(item.id)
+  await syncIndexFromServer(item.id)
 }
 
 function openCreate() {
@@ -175,7 +297,14 @@ async function confirmDelete() {
   if (!deletingId.value) return
   submitting.value = true
   try {
-    await kbStore.removeKb(deletingId.value)
+    const id = deletingId.value
+    await kbStore.removeKb(id)
+    try {
+      removeKbIndexConfig(id)
+    } catch {
+      /* ignore */
+    }
+    indexTick.value += 1
     deleteVisible.value = false
   } catch (e) {
     // 全局拦截已弹窗
@@ -250,6 +379,24 @@ onMounted(() => {
   color: var(--text-color-secondary);
   background: rgba(255, 255, 255, 0.04);
   border-radius: var(--radius-base);
+}
+
+.kb-card__index {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  min-width: 0;
+}
+
+.kb-card__index-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-color-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kb-card__actions {

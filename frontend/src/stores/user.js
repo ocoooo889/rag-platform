@@ -3,8 +3,7 @@
  */
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import request from '@/utils/request'
-import { fetchMeApi } from '@/api/auth'
+import { fetchMeApi, loginApi } from '@/api/auth'
 import { useChatStore } from '@/stores/chat'
 import { roleCodeToLabel, resolveRoleCode } from '@/utils/role'
 
@@ -80,27 +79,44 @@ export const useUserStore = defineStore('user', () => {
       if (me) setUserInfo(me)
       return userInfo.value
     } catch (e) {
-      console.error('fetch /api/auth/me failed', e)
+      const status = e?.response?.status || e?.code
+      // 会话失效时清本地态，避免路由因残留 token 把登录页踢回后台
+      if (status === 401) {
+        setSession('', null)
+      } else {
+        console.error('fetch /api/auth/me failed', e)
+      }
       return userInfo.value
     }
   }
 
   async function login(credentials) {
+    const prevUid = userInfo.value?.id ?? userInfo.value?.user_id ?? null
+    clearAccountScopedState()
+    // 必须走 loginApi：后端 /api/auth/login 要 OAuth2 表单，不能直接 POST JSON（会 422）
+    const data = await loginApi(credentials)
+    setSession(data.token, data.user)
+    const nextUid = userInfo.value?.id ?? userInfo.value?.user_id ?? null
+    // 切换账号时清理上一用户分区缓存（等待完成，避免首屏串读）
     try {
-      clearAccountScopedState()
-      const res = await request.post('/api/auth/login', credentials)
-      const data = res.data || {}
-      const nextToken = data.token || data.access_token || ''
-      const nextUser = data.user || data
-      setSession(nextToken, nextUser)
-      return data
-    } catch (error) {
-      throw error
+      const m = await import('@/utils/cacheLifecycle')
+      await m.onUserSwitch(
+        prevUid != null ? String(prevUid) : null,
+        nextUid != null ? String(nextUid) : null
+      )
+    } catch {
+      /* ignore */
     }
+    return data
   }
 
   function logout() {
+    const uid = userInfo.value?.id || userInfo.value?.user_id || null
     clearAccountScopedState()
+    // 退出登录清理对应用户分区缓存（异步，不阻塞跳转）
+    import('@/utils/cacheLifecycle')
+      .then((m) => m.onLogoutClear(uid != null ? String(uid) : null))
+      .catch(() => {})
     setSession('', null)
     localStorage.removeItem('currentRole')
     window.location.href = '/login'

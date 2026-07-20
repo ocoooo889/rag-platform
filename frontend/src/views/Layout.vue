@@ -183,6 +183,11 @@
             <span class="menu-label">大模型管理</span>
             <span v-if="isAdminOnlyPath('/models')" class="admin-badge">admin</span>
           </el-menu-item>
+          <el-menu-item v-if="canSeeMenu('/model-runtime')" index="/model-runtime">
+            <el-icon><Cpu /></el-icon>
+            <span class="menu-label">运行时模型配置</span>
+            <span v-if="isAdminOnlyPath('/model-runtime')" class="admin-badge">admin</span>
+          </el-menu-item>
           <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
             <el-icon><Setting /></el-icon>
             <span class="menu-label">自定义设置</span>
@@ -197,6 +202,11 @@
             <el-icon><Document /></el-icon>
             <span class="menu-label">知识文档库</span>
             <span v-if="isAdminOnlyPath('/documents')" class="admin-badge">admin</span>
+          </el-menu-item>
+          <el-menu-item v-if="canSeeMenu('/eval-tasks')" index="/eval-tasks">
+            <el-icon><DataAnalysis /></el-icon>
+            <span class="menu-label">评测任务</span>
+            <span v-if="isAdminOnlyPath('/eval-tasks')" class="admin-badge">admin</span>
           </el-menu-item>
           <el-menu-item v-if="canSeeMenu('/hit-test')" index="/hit-test">
             <el-icon><Search /></el-icon>
@@ -250,7 +260,9 @@ import {
   Document,
   Search,
   ChatDotRound,
-  Setting
+  Setting,
+  Cpu,
+  DataAnalysis
 } from '@element-plus/icons-vue'
 import EnvParticleField from '@/components/EnvParticleField.vue'
 import LogoCropDialog from '@/components/LogoCropDialog.vue'
@@ -456,9 +468,11 @@ const menuVisibility = {
   '/user-groups': (role) => isAdminRole(role),
   '/users': (role) => isAdminRole(role),
   '/models': (role) => isAdminRole(role),
+  '/model-runtime': (role) => isAdminRole(role),
   '/branding': () => true,
   '/knowledge-bases': (role) => isAdminRole(role),
   '/documents': (role) => isAdminRole(role),
+  '/eval-tasks': (role) => isAdminRole(role),
   '/hit-test': () => true
 }
 
@@ -468,8 +482,10 @@ const ADMIN_ONLY_PATHS = new Set([
   '/user-groups',
   '/users',
   '/models',
+  '/model-runtime',
   '/knowledge-bases',
-  '/documents'
+  '/documents',
+  '/eval-tasks'
 ])
 
 const canSeeMenu = (path) => {

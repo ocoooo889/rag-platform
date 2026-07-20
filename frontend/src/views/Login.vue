@@ -236,7 +236,6 @@ import { ref, reactive, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { useBrandingStore } from '@/stores/branding'
-import { loginApi } from '@/api/auth'
 import { isAdminRole } from '@/utils/role'
 import { ElMessage } from 'element-plus'
 import { View, Hide } from '@element-plus/icons-vue'
@@ -416,11 +415,10 @@ const handleLogin = async () => {
   await formRef.value.validate()
   loading.value = true
   try {
-    const data = await loginApi(form)
-    userStore.setToken(data.token)
-    userStore.setUserInfo(data.user)
-
-    const role = data.user.role
+    // 走 userStore.login：清上一账号态 + onUserSwitch，避免串会话/缓存
+    const data = await userStore.login(form)
+    const user = data.user || data
+    const role = user.role
 
     if (loginType.value === 'admin' && !isAdminRole(role)) {
       const tip = '当前账号无管理员权限，请使用员工登录'

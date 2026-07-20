@@ -16,8 +16,26 @@
       <span v-else>{{ roleFallback }}</span>
     </div>
     <div class="chat-bubble__body">
-      <div v-if="role === 'user'" class="chat-bubble__content">{{ content }}</div>
+      <!-- 用户气泡：DOM 使用转义后的 contentDisplay；原始 content 仅作数据保留 -->
+      <div
+        v-if="role === 'user'"
+        class="chat-bubble__content"
+        v-html="userDisplayHtml"
+      />
       <div v-else class="chat-bubble__content chat-bubble__content--assistant">
+        <div v-if="retrievalBadge" class="chat-bubble__meta">
+          <el-tag :type="retrievalBadge.type" size="small" effect="plain">
+            {{ retrievalBadge.label }}
+          </el-tag>
+          <el-tag
+            v-if="retrievalDegraded"
+            type="warning"
+            size="small"
+            effect="light"
+          >
+            已降级
+          </el-tag>
+        </div>
         <StreamText
           ref="streamRef"
           :content="content"
@@ -66,22 +84,40 @@ import { getScoreColor, formatScorePercent } from '@/utils/score'
 import StreamText from '@/components/StreamText.vue'
 import { useBrandingStore } from '@/stores/branding'
 import { useUserStore } from '@/stores/user'
+import { escapeHtml } from '@/utils/inputFilter'
+import {
+  getRetrievalModeLabel,
+  retrievalModeTagType
+} from '@/utils/retrievalMode'
 
 const props = defineProps({
   role: { type: String, default: 'assistant' },
+  /** 原始文本（raw）：提交/缓存用，不直接当未转义 HTML 插入 */
   content: { type: String, default: '' },
+  /** 展示文本（display）：已 HTML 转义，仅用于用户气泡 DOM */
+  contentDisplay: { type: String, default: '' },
   /** 后端/本地业务错误文案（非 HTTP 层） */
   error: { type: String, default: '' },
   sources: { type: Array, default: () => [] },
   /** 是否处于 SSE 追加中（页面/store 的 streaming 标记） */
   streaming: { type: Boolean, default: false },
-  loadingTip: { type: String, default: 'AI 思考中...' }
+  loadingTip: { type: String, default: 'AI 思考中...' },
+  /** 消息级检索模式：semantic | keyword | hybrid */
+  retrievalMode: { type: String, default: '' },
+  /** 本次是否发生向量→关键词降级 */
+  retrievalDegraded: { type: Boolean, default: false }
 })
 
 const brandingStore = useBrandingStore()
 const userStore = useUserStore()
 const streamRef = ref(null)
 const avatarBroken = ref(false)
+
+/** 用户气泡：优先用独立 display；缺省时对 raw 做一次转义兜底 */
+const userDisplayHtml = computed(() => {
+  if (props.contentDisplay) return props.contentDisplay
+  return escapeHtml(props.content || '')
+})
 
 const roleLabel = computed(() => (props.role === 'user' ? '我' : 'AI'))
 
@@ -110,8 +146,15 @@ const showSources = computed(
   () => !props.streaming && Array.isArray(props.sources) && props.sources.length > 0
 )
 
+const retrievalBadge = computed(() => {
+  if (props.role !== 'assistant') return null
+  const label = getRetrievalModeLabel(props.retrievalMode)
+  if (!label) return null
+  return { label, type: retrievalModeTagType(props.retrievalMode) }
+})
+
 const METHOD_LABEL = {
-  vector: '向量',
+  vector: '语义',
   bm25: '关键词',
   keyword: '关键词',
   hybrid: '混合'
@@ -195,6 +238,16 @@ defineExpose({
 .chat-bubble__content--assistant {
   background: var(--bg-color-ai-bubble);
   padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-bubble__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 
 .source-panel {

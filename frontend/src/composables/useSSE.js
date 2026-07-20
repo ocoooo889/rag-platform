@@ -86,12 +86,27 @@ function runMockSSE(options = {}) {
   const requestId = requestIdFactory()
   const pieces = splitStreamChunks(answerText, chunkSize)
   let idx = 0
+  const query = String(payload.query || payload.question || '')
+  const simulateDegrade = /__degrade__/i.test(query)
 
   try {
     onStart && onStart({ type: 'start', session_id: sessionId, request_id: requestId })
   } catch (e) {
     onError && onError(e)
     return { abort: abortHandler }
+  }
+
+  // 模拟向量→关键词降级 status（测试：问题含 __degrade__）
+  if (simulateDegrade && handlers.onStatus) {
+    try {
+      handlers.onStatus({
+        type: 'status',
+        stage: 'retrieve',
+        message: '向量检索加载中，已启用关键词检索兜底'
+      })
+    } catch {
+      /* ignore */
+    }
   }
 
   timer = setInterval(() => {
@@ -107,18 +122,24 @@ function runMockSSE(options = {}) {
     }
     cleanup()
     finished = true
-    const sources = (references || []).map((r) => ({
+    const refs = (references || []).map((r) =>
+      simulateDegrade
+        ? { ...r, method: r.method || 'bm25', retrieve_fallback: 'bm25' }
+        : r
+    )
+    const sources = refs.map((r) => ({
       chunk_id: r.chunk_id,
       content: r.content,
       score: r.score,
       source_doc: r.source_doc || '',
+      doc_id: r.doc_id || '',
       method: r.method || r.retrieve_fallback || ''
     }))
     onDone &&
       onDone({
         type: 'done',
         content: '',
-        references: references || [],
+        references: refs,
         sources
       })
   }, intervalMs)

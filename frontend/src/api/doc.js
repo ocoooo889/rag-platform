@@ -180,8 +180,20 @@ export async function reprocessDocument(id) {
     doc.error_message = ''
     doc.chunk_count = 0
     setTimeout(() => {
+      doc.status = DOC_STATUS.PROCESSING
+      doc.error_message = '向量化中 1/3'
+    }, 400)
+    setTimeout(() => {
+      doc.error_message = '向量化中 2/3'
+    }, 900)
+    setTimeout(() => {
+      doc.error_message = '向量化中 3/3'
+    }, 1400)
+    setTimeout(() => {
       doc.status = DOC_STATUS.COMPLETED
-    }, 1500)
+      doc.error_message = ''
+      doc.chunk_count = 3
+    }, 2000)
     return mockResolve(normalizeDocRow(doc))
   }
   return request.post(`/api/documents/${id}/reprocess`)

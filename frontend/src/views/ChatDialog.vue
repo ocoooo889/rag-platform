@@ -137,10 +137,13 @@
                 :key="msg.id || `${msg.role}-${index}`"
                 :role="msg.role"
                 :content="msg.content"
+                :content-display="msg.contentDisplay || ''"
                 :error="msg.error || ''"
                 :sources="msg.sources || []"
                 :streaming="isStreamingMessage(index)"
                 :loading-tip="chatStore.streamStatus || 'AI 思考中...'"
+                :retrieval-mode="msg.retrievalMode || ''"
+                :retrieval-degraded="!!msg.retrievalDegraded"
               />
             </div>
           </div>
@@ -163,13 +166,14 @@
               type="textarea"
               :rows="3"
               class="composer-input"
-              maxlength="1000"
+              :maxlength="1000"
               placeholder="给 RAG 智能助手发送消息"
               :disabled="chatStore.streaming || !chatStore.selectedKbId"
               @focus="composerActive = true"
               @blur="composerActive = false"
               @keydown.enter.exact.prevent="onSend"
             />
+            <p v-if="inputSafetyTip" class="composer-safety-tip">{{ inputSafetyTip }}</p>
             <div class="composer-toolbar">
               <div class="composer-toolbar__left">
                 <label class="kb-chip-label" for="composer-kb-select">知识库：</label>
@@ -255,13 +259,18 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElNotification } from 'element-plus'
 import { Search, Service, Top, MoreFilled, EditPen, Delete } from '@element-plus/icons-vue'
 import { useKbStore } from '@/stores/kb'
 import { useChatStore } from '@/stores/chat'
 import EmptyState from '@/components/EmptyState.vue'
 import ChatBubble from '@/components/ChatBubble.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import {
+  canSubmitInput,
+  processUserInput,
+  INPUT_MAX_LENGTH
+} from '@/utils/inputFilter'
 
 const kbStore = useKbStore()
 const chatStore = useChatStore()
@@ -329,6 +338,10 @@ const renameId = ref(null)
 const renameTitle = ref('')
 const messageListRef = ref(null)
 const pageError = ref('')
+/** 首屏校准时跳过 onKbSwitch，避免误清 IndexedDB */
+const suppressKbSwitchHook = ref(true)
+/** 降级通知幂等 */
+const lastDegradeAtShown = ref(0)
 /** 仅当用户贴近底部时才自动滚到底，避免流式输出抢滚动 */
 const stickToBottom = ref(true)
 let scrollRaf = null
@@ -352,20 +365,26 @@ const suggestions = [
   '如何管理分片规则？'
 ]
 
-const canSend = computed(
-  () =>
-    hasKb.value &&
-    !!chatStore.selectedKbId &&
-    !!question.value.trim() &&
-    !chatStore.streaming
-)
+const canSend = computed(() => {
+  if (!hasKb.value || !chatStore.selectedKbId || chatStore.streaming) return false
+  const check = canSubmitInput(question.value, INPUT_MAX_LENGTH)
+  return check.ok
+})
 
 const sendDisabledTip = computed(() => {
   if (chatStore.streaming) return 'AI 生成中'
   if (!hasKb.value) return '暂无可用知识库'
   if (!chatStore.selectedKbId) return '请先选择知识库'
+  const check = canSubmitInput(question.value, INPUT_MAX_LENGTH)
   if (!question.value.trim()) return '请输入问题'
+  if (!check.ok) return check.tip
   return '发送问题'
+})
+
+const inputSafetyTip = computed(() => {
+  const dual = processUserInput(question.value, INPUT_MAX_LENGTH)
+  if (dual.blocked || dual.overLimit) return dual.tip
+  return ''
 })
 
 function isStreamingMessage(index) {
@@ -426,30 +445,55 @@ watch(
 )
 
 watch(
+  () => chatStore.lastDegradeNotice,
+  (notice) => {
+    if (!notice?.at) return
+    // 同一轮降级只弹一次（用 at 作为幂等键）
+    if (lastDegradeAtShown.value === notice.at) return
+    lastDegradeAtShown.value = notice.at
+    ElNotification({
+      title: '检索已降级',
+      message:
+        notice.message ||
+        '向量检索失败，系统已自动切换为关键词检索。可在知识文档库对相关文档重新向量化。',
+      type: 'warning',
+      duration: 10000
+    })
+  }
+)
+
+watch(
   () => chatStore.selectedKbId,
-  (kbId) => {
+  (kbId, prevKbId) => {
+    if (String(kbId || '') === String(prevKbId || '')) return
+    if (!suppressKbSwitchHook.value) {
+      // 切换知识库：清空上一分区缓存（userId + kbId）
+      import('@/utils/cacheLifecycle')
+        .then((m) => {
+          const prev =
+            prevKbId != null && prevKbId !== '' ? m.buildCacheScope(prevKbId) : null
+          const next = kbId != null && kbId !== '' ? m.buildCacheScope(kbId) : null
+          return m.onKbSwitch(prev, next)
+        })
+        .catch(() => {})
+    }
     if (kbId) {
       kbStore.setSelectedKb(kbId)
-      // 后台预热，不挡交互
       chatStore.warmupSelectedKb()
+      // 手动切库后按当前库重载会话列表，避免串库会话留在侧栏
+      if (!suppressKbSwitchHook.value) {
+        chatStore.loadSessions().catch(() => {})
+      }
     }
   }
 )
 
 async function initPage() {
   pageError.value = ''
+  suppressKbSwitchHook.value = true
 
   // 1) 本地历史立刻上屏
   chatStore.hydrateFromLocal()
-  if (kbStore.selectedKbId) {
-    chatStore.selectedKbId = kbStore.selectedKbId
-  }
-  if (chatStore.currentSessionId) {
-    chatStore.bindMessagesToSession(chatStore.currentSessionId)
-  } else if (chatStore.sessions.length) {
-    chatStore.currentSessionId = String(chatStore.sessions[0].session_id)
-    chatStore.bindMessagesToSession(chatStore.currentSessionId)
-  }
 
   try {
     // 2) 无知识库列表时短等一次；已有列表则后台刷新
@@ -459,10 +503,25 @@ async function initPage() {
       kbStore.loadList({ page: 1, page_size: 100 }).catch(() => {})
     }
 
-    if (kbStore.selectedKbId) {
+    // 优先保留对话本地选中的库（若仍在列表中），避免被全局选择覆盖并误清缓存
+    const chatKb = chatStore.selectedKbId
+    const chatKbOk =
+      chatKb != null &&
+      kbStore.list.some((k) => String(k.id) === String(chatKb))
+    if (chatKbOk) {
+      kbStore.setSelectedKb(chatKb)
+    } else if (kbStore.selectedKbId) {
       chatStore.selectedKbId = kbStore.selectedKbId
     } else if (kbStore.list.length) {
       chatStore.selectedKbId = kbStore.list[0].id
+      kbStore.setSelectedKb(chatStore.selectedKbId)
+    }
+
+    if (chatStore.currentSessionId) {
+      chatStore.bindMessagesToSession(chatStore.currentSessionId)
+    } else if (chatStore.sessions.length) {
+      chatStore.currentSessionId = String(chatStore.sessions[0].session_id)
+      chatStore.bindMessagesToSession(chatStore.currentSessionId)
     }
 
     if (!hasKb.value) return
@@ -472,6 +531,11 @@ async function initPage() {
     chatStore.warmupSelectedKb()
   } catch (e) {
     pageError.value = e?.message || e?.msg || '对话页加载失败，请重试'
+  } finally {
+    // 下一拍再允许切库钩子，避开首屏赋值触发的误清
+    setTimeout(() => {
+      suppressKbSwitchHook.value = false
+    }, 0)
   }
 }
 
@@ -533,14 +597,15 @@ async function onSessionCommand(command, item) {
 }
 
 async function confirmRename() {
-  const title = renameTitle.value.trim()
-  if (!title) {
-    ElMessage.warning('请输入会话名称')
+  const check = canSubmitInput(renameTitle.value, 25)
+  if (!check.ok) {
+    ElMessage.warning(check.tip)
     return
   }
   if (!renameId.value) return
   try {
-    await chatStore.renameSession(renameId.value, title)
+    // 会话名原样提交（raw）
+    await chatStore.renameSession(renameId.value, check.dual.raw.trim())
     ElMessage.success('已重命名')
     renameVisible.value = false
   } catch (e) {
@@ -571,9 +636,14 @@ async function onSend() {
     ElMessage.warning(sendDisabledTip.value)
     return
   }
-  const text = question.value.trim()
+  // 双份隔离：校验后仅把原始 raw 交给后端；展示侧由气泡文本自然渲染
+  const check = canSubmitInput(question.value, INPUT_MAX_LENGTH)
+  if (!check.ok) {
+    ElMessage.warning(check.tip)
+    return
+  }
+  const text = check.dual.raw.trim()
   question.value = ''
-  // 不 await 整段流式：避免发送 Promise 挂起影响切页体感；错误由 store 落在气泡里
   chatStore.sendQuestion(text).catch(() => {})
 }
 
@@ -951,6 +1021,12 @@ defineExpose({
 .composer-input {
   flex: 1;
   min-height: 0;
+}
+
+.composer-safety-tip {
+  margin: 6px 12px 0;
+  font-size: 12px;
+  color: var(--el-color-warning);
 }
 
 .composer-input :deep(.el-textarea) {

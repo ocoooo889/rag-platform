@@ -79,6 +79,7 @@
               style="max-width: 640px"
               :disabled="hitStore.loading"
             />
+            <p v-if="querySafetyTip" class="input-safety-tip">{{ querySafetyTip }}</p>
           </el-form-item>
 
           <el-form-item label="TopN">
@@ -183,6 +184,7 @@ import {
   getDocStatusTagType,
   isDocSelectable
 } from '@/utils/docStatus'
+import { canSubmitInput, INPUT_MAX_LENGTH_SHORT, processUserInput } from '@/utils/inputFilter'
 import EmptyState from '@/components/EmptyState.vue'
 import RetrieveResultCard from '@/components/RetrieveResultCard.vue'
 
@@ -212,6 +214,8 @@ const docOptions = ref([])
 const bootLoading = ref(false)
 const docsLoading = ref(false)
 const pageError = ref('')
+/** 知识库切换前一值（v-model 更新后 @change 已拿不到旧值） */
+const hitKbPrev = ref(null)
 
 const hasKb = computed(() => kbStore.list.length > 0)
 const readyDocs = computed(() => docOptions.value.filter((d) => isDocSelectable(d.status)))
@@ -239,14 +243,20 @@ const canRun = computed(() => {
   if (!hasKb.value || !hitStore.kbId) return false
   if (!readyDocs.value.length) return false
   if (!hitStore.docIds.length) return false
-  if (!hitStore.query.trim()) return false
   if (hitStore.searchType === 'vector' && !vectorModeAllowed.value) return false
-  return true
+  const check = canSubmitInput(hitStore.query, INPUT_MAX_LENGTH_SHORT)
+  return check.ok
 })
 
 const canExport = computed(
   () => Array.isArray(hitStore.results) && hitStore.results.length > 0 && !hitStore.loading
 )
+
+const querySafetyTip = computed(() => {
+  const dual = processUserInput(hitStore.query, INPUT_MAX_LENGTH_SHORT)
+  if (dual.blocked || dual.overLimit) return dual.tip
+  return ''
+})
 
 const runDisabledTip = computed(() => {
   if (hitStore.loading) return '检索进行中'
@@ -255,6 +265,8 @@ const runDisabledTip = computed(() => {
   if (!readyDocs.value.length) return '暂无可用文档（completed / degraded 可测）'
   if (!hitStore.docIds.length) return '请选择至少一篇可用文档'
   if (!hitStore.query.trim()) return '请输入测试问题'
+  const check = canSubmitInput(hitStore.query, INPUT_MAX_LENGTH_SHORT)
+  if (!check.ok) return check.tip
   if (hitStore.searchType === 'vector' && !vectorModeAllowed.value) {
     return '所选文档含「仅关键词」状态，请切换检索模式'
   }
@@ -274,9 +286,11 @@ async function loadBase() {
     await kbStore.loadList({ page: 1, page_size: 100 })
     if (kbStore.selectedKbId) {
       hitStore.kbId = kbStore.selectedKbId
+      hitKbPrev.value = hitStore.kbId
       await loadDocs(hitStore.kbId)
     } else if (kbStore.list.length) {
       hitStore.kbId = kbStore.list[0].id
+      hitKbPrev.value = hitStore.kbId
       kbStore.setSelectedKb(hitStore.kbId)
       await loadDocs(hitStore.kbId)
     }
@@ -303,8 +317,21 @@ async function loadDocs(kbId) {
 }
 
 async function onKbChange(kbId) {
+  // @change 触发时 v-model 已更新，需用显式参数作为 next，上一值靠闭包缓存
+  const prevKbId = hitKbPrev.value
+  hitKbPrev.value = kbId || null
   hitStore.clearResults()
   kbStore.setSelectedKb(kbId || null)
+  import('@/utils/cacheLifecycle')
+    .then((m) => {
+      const prev =
+        prevKbId != null && prevKbId !== '' && String(prevKbId) !== String(kbId || '')
+          ? m.buildCacheScope(prevKbId)
+          : null
+      const next = kbId != null && kbId !== '' ? m.buildCacheScope(kbId) : null
+      return m.onKbSwitch(prev, next)
+    })
+    .catch(() => {})
   await loadDocs(kbId)
 }
 
@@ -323,6 +350,14 @@ async function onRunTest() {
     ElMessage.warning(runDisabledTip.value)
     return
   }
+
+  const check = canSubmitInput(hitStore.query, INPUT_MAX_LENGTH_SHORT)
+  if (!check.ok) {
+    ElMessage.warning(check.tip)
+    return
+  }
+  // 请求参数使用原始输入
+  hitStore.query = check.dual.raw
 
   try {
     await hitStore.runTest()
@@ -360,6 +395,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.input-safety-tip {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--el-color-warning);
+  max-width: 640px;
+}
 .hit-test {
   /* page-shell 由 admin.css 统一 */
 }

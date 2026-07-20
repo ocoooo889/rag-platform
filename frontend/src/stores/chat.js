@@ -19,6 +19,11 @@ import {
 } from '@/api/chat'
 import { MOCK_OPEN } from '@/mock/flag'
 import { mockMessagesBySession } from '@/mock/data'
+import {
+  isDegradeStatusMessage,
+  resolveRetrievalMode
+} from '@/utils/retrievalMode'
+import { readCurrentUserId } from '@/utils/cacheLifecycle'
 
 const SESSION_META_KEY = 'rag-chat-session-meta'
 const HISTORY_KEY_PREFIX = 'rag-chat-history'
@@ -42,13 +47,7 @@ function msgId() {
 }
 
 function currentUserScope() {
-  try {
-    const raw = localStorage.getItem('rag_user') || localStorage.getItem('userInfo')
-    const u = raw ? JSON.parse(raw) : null
-    return String(u?.id || u?.user_id || u?.username || 'guest')
-  } catch {
-    return 'guest'
-  }
+  return readCurrentUserId()
 }
 
 function historyStorageKey() {
@@ -133,6 +132,8 @@ export const useChatStore = defineStore('chat', () => {
   const selectedKbId = ref(null)
   /** 流式阶段提示：检索中 / 生成中 */
   const streamStatus = ref('')
+  /** 最近一次向量→关键词降级通知（供对话页弹窗消费，用过即清） */
+  const lastDegradeNotice = ref(null)
   /** 知识库后台预热中（不挡发送） */
   const kbWarming = ref(false)
   /** session_id -> 消息数组（与当前展示共用同一引用） */
@@ -170,12 +171,16 @@ export const useChatStore = defineStore('chat', () => {
       id: m.id || msgId(),
       role: m.role || 'assistant',
       content: m.content || '',
+      contentDisplay: m.contentDisplay || '',
       error: m.error || '',
       sources: Array.isArray(m.sources)
         ? m.sources
         : Array.isArray(m.references)
           ? m.references
-          : []
+          : [],
+      searchType: m.searchType || '',
+      retrievalMode: m.retrievalMode || '',
+      retrievalDegraded: !!m.retrievalDegraded
     }))
   }
 
@@ -217,8 +222,12 @@ export const useChatStore = defineStore('chat', () => {
               id: m.id,
               role: m.role,
               content: m.content || '',
+              contentDisplay: m.contentDisplay || '',
               error: m.error || '',
-              sources: Array.isArray(m.sources) ? m.sources : []
+              sources: Array.isArray(m.sources) ? m.sources : [],
+              searchType: m.searchType || '',
+              retrievalMode: m.retrievalMode || '',
+              retrievalDegraded: !!m.retrievalDegraded
             }))
           }
         }
@@ -230,8 +239,12 @@ export const useChatStore = defineStore('chat', () => {
               id: m.id,
               role: m.role,
               content: m.content || '',
+              contentDisplay: m.contentDisplay || '',
               error: m.error || '',
-              sources: Array.isArray(m.sources) ? m.sources : []
+              sources: Array.isArray(m.sources) ? m.sources : [],
+              searchType: m.searchType || '',
+              retrievalMode: m.retrievalMode || '',
+              retrievalDegraded: !!m.retrievalDegraded
             }))
         }
 
@@ -423,17 +436,18 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /** 新建空会话（开启新对话） */
-  async function ensureNewSession(title = '新会话') {
+  async function ensureNewSession(title = '新会话', extra = {}) {
+    const kbId = extra.kb_id ?? selectedKbId.value
     if (useRemoteSessions()) {
       try {
         const res = await createChatSession({
-          kb_id: selectedKbId.value,
+          kb_id: kbId,
           title
         })
         const sessionId = String(res.data?.session_id || res.data?.id || '')
         if (sessionId) {
           if (!messageCache.value[sessionId]) messageCache.value[sessionId] = []
-          upsertSession(sessionId, title)
+          upsertSession(sessionId, title, { kb_id: kbId })
           return sessionId
         }
       } catch {
@@ -442,7 +456,7 @@ export const useChatStore = defineStore('chat', () => {
     }
     const tempId = localId()
     messageCache.value[tempId] = []
-    upsertSession(tempId, title)
+    upsertSession(tempId, title, { kb_id: kbId })
     return tempId
   }
 
@@ -454,11 +468,25 @@ export const useChatStore = defineStore('chat', () => {
     loading.value = true
     try {
       if (!useRemoteSessions()) {
-        if (keepCurrent) {
+        // 纯本地：也按当前知识库过滤侧栏
+        if (selectedKbId.value != null && selectedKbId.value !== '') {
+          setSessions(
+            sessions.value.filter(
+              (s) =>
+                s.kb_id == null ||
+                s.kb_id === '' ||
+                String(s.kb_id) === String(selectedKbId.value)
+            )
+          )
+        }
+        if (keepCurrent && sessions.value.some((s) => String(s.session_id) === keepCurrent)) {
           bindMessagesToSession(keepCurrent)
         } else if (sessions.value.length) {
           currentSessionId.value = String(sessions.value[0].session_id)
           bindMessagesToSession(currentSessionId.value)
+        } else {
+          currentSessionId.value = null
+          messages.value = []
         }
         return sessions.value
       }
@@ -481,7 +509,17 @@ export const useChatStore = defineStore('chat', () => {
         const prev = byId.get(sid)
         byId.set(sid, prev ? { ...prev, ...s, title: s.title || prev.title } : { ...s })
       }
-      setSessions([...byId.values()])
+      // 增量合并后按当前知识库过滤，避免侧栏串库
+      let merged = [...byId.values()]
+      if (selectedKbId.value != null && selectedKbId.value !== '') {
+        merged = merged.filter(
+          (s) =>
+            s.kb_id == null ||
+            s.kb_id === '' ||
+            String(s.kb_id) === String(selectedKbId.value)
+        )
+      }
+      setSessions(merged)
 
       // 已有当前会话则不跳转；仅在空闲时选默认
       if (keepCurrent && byId.has(keepCurrent)) {
@@ -526,9 +564,11 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  async function createSession() {
+  async function createSession(extra = {}) {
     abortCurrentStream()
-    const sid = await ensureNewSession('新会话')
+    const sid = await ensureNewSession('新会话', {
+      kb_id: extra.kb_id ?? selectedKbId.value
+    })
     currentSessionId.value = sid
     bindMessagesToSession(sid)
     schedulePersist()
@@ -597,6 +637,49 @@ export const useChatStore = defineStore('chat', () => {
     abortCurrentStream()
     // 不要在每次发送时 hydrate：大历史 JSON.parse 会卡死整站主线程
 
+    // 高频重复提问：命中本地 QA 缓存则直接渲染，不发网络请求
+    try {
+      const { buildCacheScope } = await import('@/utils/cacheLifecycle')
+      const { loadQaCache, saveChatHistory } = await import('@/utils/indexedDbCache')
+      const scope = buildCacheScope(selectedKbId.value)
+      const cached = await loadQaCache(scope, text)
+      if (cached?.answer) {
+        const title = text.slice(0, 20) || '新会话'
+        let sessionId = currentSessionId.value ? String(currentSessionId.value) : null
+        if (!sessionId || !sessions.value.some((s) => String(s.session_id) === sessionId)) {
+          sessionId = await ensureNewSession(title)
+          currentSessionId.value = sessionId
+          bindMessagesToSession(sessionId)
+        } else {
+          upsertSession(sessionId, title)
+          bindMessagesToSession(sessionId)
+        }
+        const { escapeHtml } = await import('@/utils/inputFilter')
+        messages.value.push(
+          { id: msgId(), role: 'user', content: text, contentDisplay: escapeHtml(text) },
+          {
+            id: msgId(),
+            role: 'assistant',
+            content: cached.answer,
+            sources: cached.sources || [],
+            error: '',
+            searchType: 'vector',
+            retrievalMode: cached.retrievalMode || 'semantic',
+            retrievalDegraded: !!cached.retrievalDegraded
+          }
+        )
+        schedulePersist()
+        streamStatus.value = '已命中本地缓存回答'
+        setTimeout(() => {
+          if (streamStatus.value === '已命中本地缓存回答') streamStatus.value = ''
+        }, 1200)
+        void saveChatHistory(scope, String(sessionId), messages.value)
+        return
+      }
+    } catch {
+      /* IndexedDB 不可用时继续走网络 */
+    }
+
     const title = text.slice(0, 20) || '新会话'
     let sessionId = currentSessionId.value ? String(currentSessionId.value) : null
 
@@ -610,13 +693,23 @@ export const useChatStore = defineStore('chat', () => {
       bindMessagesToSession(sessionId)
     }
 
-    const userMsg = { id: msgId(), role: 'user', content: text }
+    const { escapeHtml } = await import('@/utils/inputFilter')
+    const requestedSearchType = 'vector'
+    const userMsg = {
+      id: msgId(),
+      role: 'user',
+      content: text,
+      contentDisplay: escapeHtml(text)
+    }
     const aiMessage = {
       id: msgId(),
       role: 'assistant',
       content: '',
       sources: [],
-      error: ''
+      error: '',
+      searchType: requestedSearchType,
+      retrievalMode: resolveRetrievalMode({ requested: requestedSearchType, degraded: false }),
+      retrievalDegraded: false
     }
     messages.value.push(userMsg, aiMessage)
     if (MOCK_OPEN()) {
@@ -642,7 +735,7 @@ export const useChatStore = defineStore('chat', () => {
     const payload = {
       kb_id: selectedKbId.value,
       query: text,
-      search_type: 'vector',
+      search_type: requestedSearchType,
       top_n: 3,
       // 始终带上会话 id，后端才能加载多轮上下文（含 local-*）
       session_id: String(sessionId)
@@ -662,9 +755,25 @@ export const useChatStore = defineStore('chat', () => {
         }
       },
       onStatus: (event) => {
-        if (event?.message) streamStatus.value = String(event.message)
+        const msg = event?.message ? String(event.message) : ''
+        if (msg) streamStatus.value = msg
         else if (event?.stage === 'generate') streamStatus.value = '正在生成回答...'
         else if (event?.stage === 'retrieve') streamStatus.value = '正在检索知识库...'
+
+        // 向量检索失败降级为关键词：写消息标识 + 供页面弹窗（只设一次）
+        if (isDegradeStatusMessage(msg) && !aiMessage.retrievalDegraded) {
+          aiMessage.retrievalDegraded = true
+          aiMessage.retrievalMode = resolveRetrievalMode({
+            requested: requestedSearchType,
+            degraded: true
+          })
+          lastDegradeNotice.value = {
+            at: Date.now(),
+            message: msg,
+            sessionId: String(currentSessionId.value || sessionId),
+            docIds: []
+          }
+        }
       },
       onMessage: (event) => {
         if (!event.content) return
@@ -682,12 +791,33 @@ export const useChatStore = defineStore('chat', () => {
           streaming.value = false
           streamStatus.value = ''
           sseController = null
-          // 中断时仍落盘已生成内容，但不做重排序等重活
           persistNow()
           return
         }
         stopUiTimer()
-        if (event?.sources?.length) aiMessage.sources = event.sources
+        if (event?.sources?.length) {
+          aiMessage.sources = event.sources
+          // 若后端将来回传 method，可补全降级态
+          const allKeyword = event.sources.every((s) => {
+            const m = String(s.method || '').toLowerCase()
+            return m === 'bm25' || m === 'keyword'
+          })
+          if (allKeyword && event.sources.some((s) => s.method)) {
+            aiMessage.retrievalDegraded = true
+            aiMessage.retrievalMode = resolveRetrievalMode({
+              requested: requestedSearchType,
+              degraded: true
+            })
+          }
+          if (aiMessage.retrievalDegraded && lastDegradeNotice.value) {
+            // 原地补 docIds，避免重新赋值触发二次通知
+            lastDegradeNotice.value.docIds = [
+              ...new Set(
+                event.sources.map((s) => s.doc_id).filter(Boolean).map(String)
+              )
+            ]
+          }
+        }
         if (event?.content) {
           rawContent += event.content
           aiMessage.content = rawContent
@@ -696,6 +826,25 @@ export const useChatStore = defineStore('chat', () => {
           aiMessage.content =
             '当前知识库暂无相关内容，请更换问题或补充文档后重试。'
         }
+        aiMessage.retrievalMode = resolveRetrievalMode({
+          requested: requestedSearchType,
+          degraded: !!aiMessage.retrievalDegraded
+        })
+        // 写入 QA 缓存与会话历史（userId + kbId 分区）
+        void import('@/utils/cacheLifecycle')
+          .then(async ({ buildCacheScope }) => {
+            const { saveQaCache, saveChatHistory } = await import('@/utils/indexedDbCache')
+            const scope = buildCacheScope(selectedKbId.value)
+            await saveQaCache(scope, text, {
+              question: text,
+              answer: aiMessage.content,
+              sources: aiMessage.sources || [],
+              retrievalMode: aiMessage.retrievalMode,
+              retrievalDegraded: !!aiMessage.retrievalDegraded
+            })
+            await saveChatHistory(scope, String(currentSessionId.value || sessionId), messages.value)
+          })
+          .catch(() => {})
         const row = sessions.value.find(
           (s) => String(s.session_id) === String(currentSessionId.value)
         )
@@ -747,6 +896,8 @@ export const useChatStore = defineStore('chat', () => {
     streaming.value = false
     loading.value = false
     selectedKbId.value = null
+    streamStatus.value = ''
+    lastDegradeNotice.value = null
     kbWarming.value = false
     warmupGeneration += 1
     hydrated = false
@@ -787,6 +938,7 @@ export const useChatStore = defineStore('chat', () => {
     loading,
     selectedKbId,
     streamStatus,
+    lastDegradeNotice,
     kbWarming,
     loadSessions,
     createSession,

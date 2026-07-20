@@ -73,6 +73,22 @@ const routes = [
         meta: { roles: ['admin', 'user'] }
       },
       {
+        path: 'chunk-strategy',
+        redirect: '/knowledge-bases'
+      },
+      {
+        path: 'model-runtime',
+        name: 'ModelRuntime',
+        component: () => import('@/views/ModelRuntimeConfig.vue'),
+        meta: { roles: ['admin'] }
+      },
+      {
+        path: 'eval-tasks',
+        name: 'EvalTasks',
+        component: () => import('@/views/EvalTaskManage.vue'),
+        meta: { roles: ['admin'] }
+      },
+      {
         path: 'chat',
         name: 'ChatDialog',
         component: () => import('@/views/ChatDialog.vue'),

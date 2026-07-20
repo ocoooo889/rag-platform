@@ -96,8 +96,7 @@
                   v-if="canReprocess(row)"
                   text
                   type="primary"
-                  :loading="reprocessingId === row.id"
-                  @click="onReprocess(row)"
+                  @click="openRevectorize(row)"
                 >
                   重新向量化
                 </el-button>
@@ -131,6 +130,15 @@
         :loading="deleting"
         @confirm="confirmDelete"
       />
+
+      <RevectorizeDialog
+        v-model="revectorizeVisible"
+        :doc-id="revectorizeDoc?.id || ''"
+        :kb-id="selectedKbId || ''"
+        :filename="revectorizeDoc?.filename || revectorizeDoc?.file_name || ''"
+        @done="onRevectorizeDone"
+        @failed="onRevectorizeFailed"
+      />
     </div>
   </div>
 </template>
@@ -147,12 +155,12 @@ import {
   getDocStatusClassSuffix,
   parseVectorProgress
 } from '@/utils/docStatus'
-import { reprocessDocument } from '@/api/doc'
 import AppTable from '@/components/AppTable.vue'
 import AppPagination from '@/components/AppPagination.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import FileUploader from '@/components/FileUploader.vue'
+import RevectorizeDialog from '@/components/RevectorizeDialog.vue'
 
 const kbStore = useKbStore()
 const docStore = useDocStore()
@@ -166,7 +174,8 @@ const deletingId = ref(null)
 const batchMode = ref(false)
 const selectedRows = ref([])
 const tableRef = ref(null)
-const reprocessingId = ref(null)
+const revectorizeVisible = ref(false)
+const revectorizeDoc = ref(null)
 
 const hasKb = computed(() => kbStore.list.length > 0)
 
@@ -199,19 +208,20 @@ function canReprocess(row) {
   )
 }
 
-async function onReprocess(row) {
-  if (!row?.id || reprocessingId.value) return
-  reprocessingId.value = row.id
-  try {
-    await reprocessDocument(row.id)
-    ElMessage.success('已开始重新向量化')
-    await reloadDocs()
-    if (selectedKbId.value) docStore.startPolling(selectedKbId.value)
-  } catch (e) {
-    // 全局 axios 已提示
-  } finally {
-    reprocessingId.value = null
-  }
+function openRevectorize(row) {
+  if (!row?.id) return
+  revectorizeDoc.value = row
+  revectorizeVisible.value = true
+}
+
+async function onRevectorizeDone() {
+  await reloadDocs()
+  if (selectedKbId.value) docStore.startPolling(selectedKbId.value)
+}
+
+async function onRevectorizeFailed() {
+  await reloadDocs()
+  if (selectedKbId.value) docStore.startPolling(selectedKbId.value)
 }
 
 function onSelectionChange(rows) {

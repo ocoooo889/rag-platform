@@ -92,7 +92,8 @@ export async function fetchMeApi() {
   if (isMockOpen()) {
     return null
   }
-  const response = await request.get('/api/auth/me')
+  // silent：由 ensureUserInfo / 全局 401 统一处理，避免重复弹窗
+  const response = await request.get('/api/auth/me', { silent: true })
   return normalizeUser(unwrap(response))
 }
 
