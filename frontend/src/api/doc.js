@@ -35,6 +35,9 @@ function normalizeDocRow(d = {}) {
     chunk_count: Number(d.chunk_count || 0),
     status: normalizeDocStatus(d.status),
     error_message: d.error_message || d.error || '',
+    split_strategy: d.split_strategy || '',
+    chunk_size: d.chunk_size ?? null,
+    chunk_overlap: d.chunk_overlap ?? null,
     created_at: created,
     uploaded_at: d.uploaded_at || created
   }
@@ -74,7 +77,7 @@ export async function fetchDocuments(params = {}) {
 
 /**
  * 上传文档
- * @param {FormData} formData 含 kb_id + file
+ * @param {FormData} formData 含 kb_id + file + 可选切分参数
  * @param {Function} onUploadProgress Axios 进度回调
  */
 export async function uploadDocument(formData, onUploadProgress) {
@@ -101,6 +104,9 @@ export async function uploadDocument(formData, onUploadProgress) {
       file_size: file.size || 1024,
       chunk_count: 0,
       status: DOC_STATUS.PENDING,
+      split_strategy: formData.get('split_strategy') || 'recursive',
+      chunk_size: Number(formData.get('chunk_size') || 500),
+      chunk_overlap: Number(formData.get('chunk_overlap') || 50),
       created_at: now
     })
     mockDocList.unshift({ ...row })
@@ -126,6 +132,24 @@ export async function uploadDocument(formData, onUploadProgress) {
   )
   const row = normalizeDocRow(res.data || {})
   return { ...res, data: { ...row, doc_id: row.id } }
+}
+
+/** 切分策略列表（上传下拉） */
+export async function fetchSplitStrategies() {
+  if (MOCK_OPEN()) {
+    return mockResolve({
+      items: [
+        { value: 'recursive', label: '递归切分（推荐）', desc: '优先按标题/段落/句子边界切' },
+        { value: 'fixed', label: '固定长度', desc: '按固定字符数硬切' },
+        { value: 'markdown_header', label: '按标题切分', desc: '按 Markdown 标题切' },
+        { value: 'paragraph', label: '按段落切分', desc: '按空行分段' },
+        { value: 'sentence', label: '按句子切分', desc: '按句号断句后拼块' },
+        { value: 'semantic', label: '语义切分', desc: '按语义相似度切（较慢）' },
+        { value: 'parent_child', label: '父子块切分', desc: '子块检索、父块上下文' }
+      ]
+    })
+  }
+  return request.get('/api/documents/split-strategies')
 }
 
 /** 删除单条文档 */

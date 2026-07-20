@@ -12,7 +12,7 @@ from pathlib import Path
 
 from app import config
 from app.rag_engine.embedder import VectorStoreError, delete_from_chroma, embed_and_store
-from app.rag_engine.splitter import split_file
+from app.rag_engine.splitter import SplitOptions, split_file_async
 from app.utils.ids import new_id
 from app.utils.llm_client import EmbeddingServiceError
 
@@ -50,6 +50,7 @@ async def ingest_document(
     doc_id: str,
     file_path: str,
     filename: str | None = None,
+    split_options: SplitOptions | None = None,
 ) -> int:
     """
     对已存在于 documents 表中的文档做切片入库。
@@ -62,8 +63,12 @@ async def ingest_document(
         return 0
 
     filename = filename or path.name
+    opts = split_options or SplitOptions()
     try:
-        texts = split_file(str(path))
+        split_result = await split_file_async(str(path), options=opts)
+        texts = split_result.texts
+        embed_texts = split_result.vectors_source()
+        split_meta = split_result.meta
     except Exception as e:
         _mark_failed(doc_id, _friendly_error(e))
         logger.exception("切片失败 doc_id=%s", doc_id)
@@ -73,15 +78,35 @@ async def ingest_document(
         _mark_failed(doc_id, "切片结果为空，请检查文档内容")
         return 0
 
+    if len(embed_texts) != len(texts):
+        # 防御：父子未对齐时回退为同一批文本
+        embed_texts = texts
+
     conn = sqlite3.connect(_db_path())
     cur = conn.cursor()
     try:
         from app.db.schema_compat import ensure_rag_schema
 
         ensure_rag_schema(conn)
+        import json
+
         cur.execute(
-            "UPDATE documents SET status=?, chunk_count=?, error_message=? WHERE id=?",
-            ("processing", 0, None, doc_id),
+            """
+            UPDATE documents
+            SET status=?, chunk_count=?, error_message=?,
+                split_strategy=?, chunk_size=?, chunk_overlap=?, split_meta=?
+            WHERE id=?
+            """,
+            (
+                "processing",
+                0,
+                None,
+                split_meta.get("strategy") or opts.normalized_strategy(),
+                int(split_meta.get("chunk_size") or opts.resolved_size()),
+                int(split_meta.get("chunk_overlap") or opts.resolved_overlap()),
+                json.dumps(split_meta, ensure_ascii=False),
+                doc_id,
+            ),
         )
         conn.commit()
 
@@ -106,12 +131,13 @@ async def ingest_document(
                 "doc_id": str(doc_id),
                 "kb_id": str(kb_id),
                 "source_doc": filename,
+                "split_strategy": str(split_meta.get("strategy") or ""),
             })
             rows.append((cid, doc_id, kb_id, i, content, cid, _now()))
 
         warn_msg = None
         try:
-            await embed_and_store(texts, chroma_ids, metadatas=metadatas)
+            await embed_and_store(embed_texts, chroma_ids, metadatas=metadatas)
         except EmbeddingServiceError as e:
             warn_msg = VECTOR_DEGRADED_MSG
             logger.warning("Embedding 不可用，降级仅写切片 doc_id=%s: %s", doc_id, e)

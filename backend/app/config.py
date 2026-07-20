@@ -25,11 +25,13 @@ EMBEDDING_TIMEOUT = int(os.getenv("EMBEDDING_TIMEOUT", "10"))
 EMBEDDING_BATCH_SIZE = int(os.getenv("EMBEDDING_BATCH_SIZE", "10"))
 
 # ============================================================
-# [定死] 切片参数（Day1 定死，不可改）
+# 切片参数（默认值；上传时可选手动覆盖策略与 size/overlap）
 # ============================================================
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 50
 SEPARATORS = ["\n## ", "\n### ", "\n", "。", ".", " "]
+# 默认切分策略：recursive（与 Day1 行为一致）
+DEFAULT_SPLIT_STRATEGY = os.getenv("DEFAULT_SPLIT_STRATEGY", "recursive")
 
 # ============================================================
 # [定死] 多轮对话历史限制

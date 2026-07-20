@@ -20,6 +20,18 @@ def ensure_rag_schema(conn: sqlite3.Connection) -> None:
         if "error_message" not in doc_names:
             conn.execute("ALTER TABLE documents ADD COLUMN error_message TEXT")
             conn.commit()
+        # 切分策略元数据（上传可选）
+        if "split_strategy" not in doc_names:
+            conn.execute(
+                "ALTER TABLE documents ADD COLUMN split_strategy TEXT DEFAULT 'recursive'"
+            )
+        if "chunk_size" not in doc_names:
+            conn.execute("ALTER TABLE documents ADD COLUMN chunk_size INTEGER")
+        if "chunk_overlap" not in doc_names:
+            conn.execute("ALTER TABLE documents ADD COLUMN chunk_overlap INTEGER")
+        if "split_meta" not in doc_names:
+            conn.execute("ALTER TABLE documents ADD COLUMN split_meta TEXT")
+        conn.commit()
 
     rows = conn.execute("PRAGMA table_info(chunks)").fetchall()
     if rows:
