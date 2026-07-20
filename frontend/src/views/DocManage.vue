@@ -150,6 +150,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { fetchSplitStrategies, labelOfStrategy } from '@/api/splitStrategies'
 import { ElMessage } from 'element-plus'
 import { useKbStore } from '@/stores/kb'
 import { useDocStore } from '@/stores/doc'
@@ -199,19 +200,8 @@ function statusClass(status) {
   return `doc-status doc-status--${getDocStatusClassSuffix(status)}`
 }
 
-const SPLIT_LABELS = {
-  recursive: '递归切分',
-  fixed: '固定长度',
-  markdown_header: '按标题',
-  paragraph: '按段落',
-  sentence: '按句子',
-  semantic: '语义切分',
-  parent_child: '父子块'
-}
-
 function splitStrategyLabel(strategy) {
-  if (!strategy) return '—'
-  return SPLIT_LABELS[strategy] || strategy
+  return labelOfStrategy(strategy)
 }
 
 function progressOf(row) {
@@ -341,6 +331,8 @@ async function confirmDelete() {
 
 onMounted(() => {
   loadKb()
+  // 预拉策略缓存，表格展示 label（失败不阻断页面）
+  fetchSplitStrategies().catch(() => {})
 })
 
 onUnmounted(() => {

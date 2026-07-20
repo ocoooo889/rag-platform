@@ -86,7 +86,7 @@
             <div class="topn-field">
               <el-slider
                 v-model="hitStore.topN"
-                :min="3"
+                :min="1"
                 :max="10"
                 :step="1"
                 show-stops
@@ -206,6 +206,7 @@ import { ElMessage } from 'element-plus'
 import { useKbStore } from '@/stores/kb'
 import { useDocStore } from '@/stores/doc'
 import { useHitTestStore } from '@/stores/hitTest'
+import { fetchKbIndexConfig } from '@/api/kbIndex'
 import { exportCSV } from '@/utils/exportCSV'
 import {
   canUseVectorSearch,
@@ -308,6 +309,26 @@ function formatDocLabel(doc) {
   return `${name}（${getDocStatusLabel(doc.status)}，不可测）`
 }
 
+async function applyKbIndexDefaults(kbId) {
+  if (!kbId) return
+  try {
+    const cfg = await fetchKbIndexConfig(kbId)
+    const top = Number(cfg.default_top_n)
+    if (Number.isFinite(top) && top >= 1 && top <= 10) {
+      hitStore.topN = top
+    }
+    if (typeof cfg.enable_rerank === 'boolean') {
+      hitStore.enableRerank = cfg.enable_rerank
+    }
+    const st = String(cfg.default_search_type || '').toLowerCase()
+    if (st === 'vector' || st === 'keyword' || st === 'hybrid') {
+      hitStore.setMode(st)
+    }
+  } catch {
+    /* 索引配置失败不阻断命中测试 */
+  }
+}
+
 async function loadBase() {
   pageError.value = ''
   bootLoading.value = true
@@ -316,11 +337,13 @@ async function loadBase() {
     if (kbStore.selectedKbId) {
       hitStore.kbId = kbStore.selectedKbId
       hitKbPrev.value = hitStore.kbId
+      await applyKbIndexDefaults(hitStore.kbId)
       await loadDocs(hitStore.kbId)
     } else if (kbStore.list.length) {
       hitStore.kbId = kbStore.list[0].id
       hitKbPrev.value = hitStore.kbId
       kbStore.setSelectedKb(hitStore.kbId)
+      await applyKbIndexDefaults(hitStore.kbId)
       await loadDocs(hitStore.kbId)
     }
   } catch (e) {
@@ -361,6 +384,7 @@ async function onKbChange(kbId) {
       return m.onKbSwitch(prev, next)
     })
     .catch(() => {})
+  await applyKbIndexDefaults(kbId)
   await loadDocs(kbId)
 }
 

@@ -9,7 +9,7 @@
         type="info"
         :closable="false"
         show-icon
-        title="模型列表与参数区间必须由后端接口下发；前端不硬编码模型名与上下限。保存时同步至后端配置接口。"
+        title="模型列表与参数区间必须由 GET /api/runtime-config/models 下发；保存走 PUT /api/runtime-config/models。前端不硬编码模型名与上下限。"
         class="mb16"
       />
       <el-empty v-if="!optionsReady && !loading" description="尚未拉取到可用模型配置" />
@@ -22,35 +22,60 @@
         class="cfg-form"
         :disabled="!optionsReady"
       >
-        <el-form-item label="向量模型" prop="embedding_model">
-          <el-select v-model="form.embedding_model" filterable style="width: 100%" @change="persistLocal">
-            <el-option v-for="m in embeddingModels" :key="m" :label="m" :value="m" />
+        <el-form-item label="向量模型" prop="embedding_model_id">
+          <el-select v-model="embKey" filterable style="width: 100%" @change="onEmbKeyChange">
+            <el-option
+              v-for="m in embeddingModels"
+              :key="modelKey(m)"
+              :label="m.id == null ? `${m.model_name} (env)` : m.model_name"
+              :value="modelKey(m)"
+            />
           </el-select>
         </el-form-item>
-        <el-form-item label="LLM 模型" prop="llm_model">
-          <el-select v-model="form.llm_model" filterable style="width: 100%" @change="persistLocal">
-            <el-option v-for="m in llmModels" :key="m" :label="m" :value="m" />
+        <el-form-item label="LLM 模型" prop="chat_model_id">
+          <el-select v-model="chatKey" filterable style="width: 100%" @change="onChatKeyChange">
+            <el-option
+              v-for="m in chatModels"
+              :key="modelKey(m)"
+              :label="m.id == null ? `${m.model_name} (env)` : m.model_name"
+              :value="modelKey(m)"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="温度" prop="temperature">
           <el-input-number
             v-model="form.temperature"
-            :min="bounds.temperature_min"
-            :max="bounds.temperature_max"
-            :step="0.1"
+            :min="limits.temperature.min"
+            :max="limits.temperature.max"
+            :step="limits.temperature.step || 0.1"
             @change="persistLocal"
           />
-          <span class="hint">合法区间：{{ bounds.temperature_min }} ~ {{ bounds.temperature_max }}</span>
+          <span class="hint">{{ limits.temperature.min }} ~ {{ limits.temperature.max }}</span>
+        </el-form-item>
+        <el-form-item label="Top P" prop="top_p">
+          <el-input-number
+            v-model="form.top_p"
+            :min="limits.top_p.min"
+            :max="limits.top_p.max"
+            :step="limits.top_p.step || 0.05"
+            @change="persistLocal"
+          />
+          <span class="hint">{{ limits.top_p.min }} ~ {{ limits.top_p.max }}</span>
         </el-form-item>
         <el-form-item label="最大输出 Token" prop="max_tokens">
           <el-input-number
             v-model="form.max_tokens"
-            :min="bounds.max_tokens_min"
-            :max="bounds.max_tokens_max"
-            :step="64"
+            :min="limits.max_tokens.min"
+            :max="limits.max_tokens.max"
+            :step="limits.max_tokens.step || 1"
             @change="persistLocal"
           />
-          <span class="hint">合法区间：{{ bounds.max_tokens_min }} ~ {{ bounds.max_tokens_max }}</span>
+          <span class="hint">{{ limits.max_tokens.min }} ~ {{ limits.max_tokens.max }}</span>
+        </el-form-item>
+        <el-form-item v-if="dimOptions.length" label="向量维度" prop="embedding_dimension">
+          <el-select v-model="form.embedding_dimension" style="width: 100%" @change="persistLocal">
+            <el-option v-for="d in dimOptions" :key="d" :label="String(d)" :value="d" />
+          </el-select>
         </el-form-item>
         <el-form-item>
           <el-button type="primary" :loading="saving" :disabled="!optionsReady" @click="onSave">
@@ -66,70 +91,108 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { fetchRuntimeModelOptions, syncRuntimeModelConfig } from '@/api/runtimeConfig'
+import {
+  fetchRuntimeModelOptions,
+  formToUpdate,
+  listModelsByType,
+  selectionToForm,
+  syncRuntimeModelConfig
+} from '@/api/runtimeConfig'
 import { loadRuntimeModelConfig, saveRuntimeModelConfig } from '@/utils/localCache'
 import { clearAllFrontendCache } from '@/utils/cacheLifecycle'
-import type { RuntimeModelBounds, RuntimeModelConfig } from '@/types'
+import type { RuntimeModelConfig, RuntimeModelItem, RuntimeParamLimit } from '@/types'
 
 const loading = ref(false)
 const saving = ref(false)
 const optionsReady = ref(false)
 const formRef = ref<FormInstance>()
-const embeddingModels = ref<string[]>([])
-const llmModels = ref<string[]>([])
+const embeddingModels = ref<RuntimeModelItem[]>([])
+const chatModels = ref<RuntimeModelItem[]>([])
+const embKey = ref<string | number>('')
+const chatKey = ref<string | number>('')
 
-/** 区间仅在接口返回后赋值，初始化为占位，禁止作为业务硬编码上下限使用 */
-const bounds = reactive<RuntimeModelBounds>({
-  temperature_min: Number.NaN,
-  temperature_max: Number.NaN,
-  max_tokens_min: Number.NaN,
-  max_tokens_max: Number.NaN
+const limits = reactive({
+  temperature: { min: Number.NaN, max: Number.NaN, step: 0.1 } as RuntimeParamLimit,
+  top_p: { min: Number.NaN, max: Number.NaN, step: 0.05 } as RuntimeParamLimit,
+  max_tokens: { min: Number.NaN, max: Number.NaN, step: 1 } as RuntimeParamLimit
 })
 
+const dimOptions = ref<number[]>([])
+
 const form = reactive<RuntimeModelConfig>({
-  embedding_model: '',
-  llm_model: '',
+  chat_model_id: null,
+  embedding_model_id: null,
   temperature: Number.NaN,
+  top_p: Number.NaN,
   max_tokens: Number.NaN
 })
 
 const rules: FormRules = {
-  embedding_model: [{ required: true, message: '请选择向量模型', trigger: 'change' }],
-  llm_model: [{ required: true, message: '请选择 LLM 模型', trigger: 'change' }],
   temperature: [{ required: true, message: '请填写温度', trigger: 'change' }],
+  top_p: [{ required: true, message: '请填写 Top P', trigger: 'change' }],
   max_tokens: [{ required: true, message: '请填写最大输出 Token', trigger: 'change' }]
+}
+
+function modelKey(m: RuntimeModelItem): string | number {
+  return m.id != null ? m.id : `env:${m.model_type}:${m.model_name}`
+}
+
+function findByKey(list: RuntimeModelItem[], key: string | number): RuntimeModelItem | undefined {
+  return list.find((m) => modelKey(m) === key)
 }
 
 function persistLocal() {
   if (!optionsReady.value) return
-  if (!form.embedding_model || !form.llm_model) return
-  if (Number.isNaN(form.temperature) || Number.isNaN(form.max_tokens)) return
+  if (
+    Number.isNaN(form.temperature) ||
+    Number.isNaN(form.top_p) ||
+    Number.isNaN(form.max_tokens)
+  ) {
+    return
+  }
   saveRuntimeModelConfig({ ...form })
 }
 
+function onEmbKeyChange(key: string | number) {
+  const m = findByKey(embeddingModels.value, key)
+  form.embedding_model_id = m?.id ?? null
+  form.embedding_model_name = m?.model_name
+  persistLocal()
+}
+
+function onChatKeyChange(key: string | number) {
+  const m = findByKey(chatModels.value, key)
+  form.chat_model_id = m?.id ?? null
+  form.chat_model_name = m?.model_name
+  persistLocal()
+}
+
 function applyBoundsCheck(): string | null {
-  if (!optionsReady.value || Number.isNaN(bounds.temperature_min)) {
+  if (!optionsReady.value || Number.isNaN(Number(limits.temperature.min))) {
     return '请先拉取后端下发的参数区间'
   }
-  if (form.temperature < bounds.temperature_min || form.temperature > bounds.temperature_max) {
-    return `温度需在 ${bounds.temperature_min} ~ ${bounds.temperature_max} 之间`
+  if (
+    form.temperature < Number(limits.temperature.min) ||
+    form.temperature > Number(limits.temperature.max)
+  ) {
+    return `温度需在 ${limits.temperature.min} ~ ${limits.temperature.max} 之间`
   }
-  if (form.max_tokens < bounds.max_tokens_min || form.max_tokens > bounds.max_tokens_max) {
-    return `最大输出 Token 需在 ${bounds.max_tokens_min} ~ ${bounds.max_tokens_max} 之间`
+  if (form.top_p < Number(limits.top_p.min) || form.top_p > Number(limits.top_p.max)) {
+    return `Top P 需在 ${limits.top_p.min} ~ ${limits.top_p.max} 之间`
   }
-  if (!embeddingModels.value.includes(form.embedding_model)) {
+  if (
+    form.max_tokens < Number(limits.max_tokens.min) ||
+    form.max_tokens > Number(limits.max_tokens.max)
+  ) {
+    return `最大输出 Token 需在 ${limits.max_tokens.min} ~ ${limits.max_tokens.max} 之间`
+  }
+  if (!embKey.value || !findByKey(embeddingModels.value, embKey.value)) {
     return '向量模型不在后端返回的可用列表中'
   }
-  if (!llmModels.value.includes(form.llm_model)) {
+  if (!chatKey.value || !findByKey(chatModels.value, chatKey.value)) {
     return 'LLM 模型不在后端返回的可用列表中'
   }
   return null
-}
-
-function pickFromLists(cachedName: string | undefined, list: string[], apiCurrent?: string): string {
-  if (cachedName && list.includes(cachedName)) return cachedName
-  if (apiCurrent && list.includes(apiCurrent)) return apiCurrent
-  return list[0] || ''
 }
 
 async function reload() {
@@ -137,42 +200,62 @@ async function reload() {
   optionsReady.value = false
   try {
     const data = await fetchRuntimeModelOptions()
-    const emb = data.embedding_models || []
-    const llms = data.llm_models || []
-    if (!emb.length || !llms.length || !data.bounds) {
+    const emb = listModelsByType(data, 'embedding')
+    const chats = listModelsByType(data, 'chat')
+    if (!emb.length || !chats.length || !data.parameter_limits?.chat) {
       ElMessage.error('后端返回的模型列表或参数区间不完整')
       return
     }
     embeddingModels.value = emb
-    llmModels.value = llms
-    Object.assign(bounds, data.bounds)
+    chatModels.value = chats
+    Object.assign(limits.temperature, data.parameter_limits.chat.temperature || {})
+    Object.assign(limits.top_p, data.parameter_limits.chat.top_p || {})
+    Object.assign(limits.max_tokens, data.parameter_limits.chat.max_tokens || {})
+    dimOptions.value = data.parameter_limits.embedding?.dimension?.options || []
+
+    const fromApi = selectionToForm(data)
+    Object.assign(form, fromApi)
+    const embPick =
+      emb.find((m) => m.id === fromApi.embedding_model_id) ||
+      emb.find((m) => m.model_name === fromApi.embedding_model_name) ||
+      emb[0]
+    const chatPick =
+      chats.find((m) => m.id === fromApi.chat_model_id) ||
+      chats.find((m) => m.model_name === fromApi.chat_model_name) ||
+      chats[0]
+    embKey.value = embPick ? modelKey(embPick) : ''
+    chatKey.value = chatPick ? modelKey(chatPick) : ''
+    onEmbKeyChange(embKey.value)
+    onChatKeyChange(chatKey.value)
 
     const cached = loadRuntimeModelConfig()
-    const apiCurrent = data.current
-    form.embedding_model = pickFromLists(cached?.embedding_model, emb, apiCurrent?.embedding_model)
-    form.llm_model = pickFromLists(cached?.llm_model, llms, apiCurrent?.llm_model)
-
-    const tempCandidate = cached?.temperature ?? apiCurrent?.temperature
-    const tokenCandidate = cached?.max_tokens ?? apiCurrent?.max_tokens
-    if (tempCandidate == null || tokenCandidate == null) {
-      ElMessage.error('后端未返回温度或最大 Token 默认值，无法初始化表单')
-      return
+    if (
+      cached &&
+      !Number.isNaN(cached.temperature) &&
+      cached.temperature >= Number(limits.temperature.min) &&
+      cached.temperature <= Number(limits.temperature.max) &&
+      (cached.top_p == null ||
+        (Number(cached.top_p) >= Number(limits.top_p.min) &&
+          Number(cached.top_p) <= Number(limits.top_p.max))) &&
+      (cached.max_tokens == null ||
+        (Number(cached.max_tokens) >= Number(limits.max_tokens.min) &&
+          Number(cached.max_tokens) <= Number(limits.max_tokens.max)))
+    ) {
+      form.temperature = cached.temperature
+      if (cached.top_p != null) form.top_p = cached.top_p
+      if (cached.max_tokens != null) form.max_tokens = cached.max_tokens
     }
-    form.temperature = Number(tempCandidate)
-    form.max_tokens = Number(tokenCandidate)
 
-    // 缓存值若越界，回退到接口 current
     if (applyBoundsCheck()) {
-      if (apiCurrent?.temperature != null) form.temperature = Number(apiCurrent.temperature)
-      if (apiCurrent?.max_tokens != null) form.max_tokens = Number(apiCurrent.max_tokens)
-      form.embedding_model = pickFromLists(undefined, emb, apiCurrent?.embedding_model)
-      form.llm_model = pickFromLists(undefined, llms, apiCurrent?.llm_model)
+      Object.assign(form, fromApi)
+      onEmbKeyChange(embKey.value)
+      onChatKeyChange(chatKey.value)
     }
 
     optionsReady.value = true
     persistLocal()
   } catch {
-    ElMessage.error('拉取模型配置失败，请确认后端接口已就绪')
+    ElMessage.error('拉取模型配置失败，请确认 GET /api/runtime-config/models 已就绪')
   } finally {
     loading.value = false
   }
@@ -197,10 +280,10 @@ async function onSave() {
   saving.value = true
   try {
     persistLocal()
-    await syncRuntimeModelConfig({ ...form })
+    await syncRuntimeModelConfig(formToUpdate({ ...form }))
     ElMessage.success('配置已保存并同步')
   } catch {
-    ElMessage.error('同步失败：需后端实现 PUT /api/runtime-config')
+    ElMessage.error('同步失败：PUT /api/runtime-config/models')
   } finally {
     saving.value = false
   }

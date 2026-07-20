@@ -2,7 +2,7 @@
  * LocalStorage 轻量缓存（仅配置类数据）
  * 大容量数据请用 indexedDbCache
  */
-import type { ChunkStrategyConfig, KbIndexConfig, RuntimeModelConfig } from '@/types'
+import type { KbIndexConfig, RuntimeModelConfig } from '@/types'
 
 const PREFIX = 'rag-fe-b:'
 
@@ -51,7 +51,6 @@ export function lsClearFrontendB(): void {
 }
 
 const RUNTIME_MODEL_KEY = 'runtime-model-config'
-const CHUNK_STRATEGY_KEY = 'chunk-strategy-config'
 const UI_PREF_EXTRA_KEY = 'page-prefs'
 
 export function loadRuntimeModelConfig(): RuntimeModelConfig | null {
@@ -62,12 +61,9 @@ export function saveRuntimeModelConfig(cfg: RuntimeModelConfig): void {
   lsSet(RUNTIME_MODEL_KEY, cfg)
 }
 
-export function loadChunkStrategyConfig(): ChunkStrategyConfig | null {
-  return lsGet<ChunkStrategyConfig | null>(CHUNK_STRATEGY_KEY, null)
-}
-
-export function saveChunkStrategyConfig(cfg: ChunkStrategyConfig): void {
-  lsSet(CHUNK_STRATEGY_KEY, cfg)
+/** @deprecated 切分策略改由 /api/split-strategies 下发；清理旧本地键 */
+export function clearLegacyChunkStrategyCache(): void {
+  lsRemove('chunk-strategy-config')
 }
 
 export function loadPagePrefs<T extends Record<string, unknown>>(fallback: T): T {

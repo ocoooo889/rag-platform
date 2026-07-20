@@ -1,19 +1,17 @@
 /**
- * 知识库索引配置 / 重建 API（前端契约）
- *
- * 【后端待实现】建议：
- *   GET  /api/knowledge-bases/{id}/index-config
- *   PUT  /api/knowledge-bases/{id}/index-config
- *   POST /api/knowledge-bases/{id}/rebuild
- *   GET  /api/knowledge-bases/{id}/rebuild/{job_id}
- *
- * 当前：配置落 LocalStorage；重建在 Mock 下模拟进度；
- * 真实环境 force_all 可临时逐文档调用已有 reprocess（见 rebuildKnowledgeBase）。
+ * 知识库索引配置 / 重建 API
+ * GET/PUT /api/knowledge-bases/{id}/index-config
+ * POST /api/knowledge-bases/{id}/rebuild  （返回排队摘要，无 job 轮询）
  */
 import request from '@/utils/request'
 import { MOCK_OPEN, mockResolve } from '@/mock/flag'
 import { saveKbIndexConfig, loadKbIndexConfig, removeKbIndexConfig } from '@/utils/localCache'
-import { normalizeKbIndexConfig, KB_INDEX_DEFAULTS, resolveKbIndexConfig } from '@/utils/kbIndex'
+import {
+  normalizeKbIndexConfig,
+  resolveKbIndexConfig,
+  toKbIndexConfigPayload,
+  getKbIndexDefaults
+} from '@/utils/kbIndex'
 import { reprocessDocument, fetchDocuments } from '@/api/doc'
 import { DOC_STATUS } from '@/utils/docStatus'
 import type { ApiResponse, KbIndexConfig, KbRebuildJob } from '@/types'
@@ -30,43 +28,63 @@ const mockJobs = new Map<string, KbRebuildJob>()
 export { resolveKbIndexConfig }
 
 /**
- * 保存索引配置
- * 时序：PUT 成功后再写 LocalStorage；422/网络错误清除本地脏缓存并抛错
+ * 保存索引配置：仅提交 BE 接受字段；成功后再写 LocalStorage
  */
 export async function updateKbIndexConfig(
   kbId: string | number,
   config: KbIndexConfig
 ): Promise<KbIndexConfig> {
   const normalized = normalizeKbIndexConfig(config)
+  const payload = toKbIndexConfigPayload(normalized)
 
   if (MOCK_OPEN()) {
-    const saved = unwrap(await mockResolve(normalized))
+    const saved = unwrap(await mockResolve({ ...normalized, ...payload, kb_id: String(kbId) }))
     const next = normalizeKbIndexConfig(saved || normalized)
     saveKbIndexConfig(kbId, next)
     return next
   }
 
   try {
-    // 【后端待实现】
-    const res = (await request.put(`/api/knowledge-bases/${kbId}/index-config`, normalized, {
+    const res = (await request.put(`/api/knowledge-bases/${kbId}/index-config`, payload, {
       silent: true
     })) as ApiResponse<KbIndexConfig>
     const remote = unwrap(res)
-    const next = normalizeKbIndexConfig(remote || normalized)
-    // PUT 成功后再同步本地
+    const next = normalizeKbIndexConfig({
+      ...normalized,
+      ...(remote || {}),
+      create_snapshot: normalized.create_snapshot,
+      sync_mode: normalized.sync_mode
+    })
     saveKbIndexConfig(kbId, next)
     return next
   } catch (e) {
-    // 422 / 网络错误：清掉本地脏数据，交给页面弹失败提示
     removeKbIndexConfig(kbId)
     throw e
   }
 }
 
+/** 将 BE rebuild 摘要映射为前端 job（同步完成，无轮询路由） */
+function mapRebuildSummary(kbId: string | number, data: Record<string, unknown>): KbRebuildJob {
+  const queued = Number(data.queued ?? 0)
+  const total = Number(data.total ?? 0)
+  const skippedP = Number(data.skipped_processing ?? 0)
+  const skippedF = Number(data.skipped_missing_file ?? 0)
+  const ok = queued > 0 || total === 0
+  return {
+    job_id: `rebuild-sync-${kbId}-${Date.now()}`,
+    kb_id: String(kbId),
+    status: ok ? 'completed' : 'failed',
+    progress: 100,
+    total,
+    queued,
+    message: ok
+      ? `已排队 ${queued}/${total} 篇文档重建（跳过 processing ${skippedP}，缺文件 ${skippedF}）`
+      : `未能排队任何文档（跳过 processing ${skippedP}，缺文件 ${skippedF}）`
+  }
+}
+
 /**
  * 触发知识库重建
- * Mock：返回 job 并在内存推进进度
- * Real：先尝试 POST rebuild；失败则按 sync_mode 降级为逐文档 reprocess
  */
 export async function rebuildKnowledgeBase(
   kbId: string | number,
@@ -106,23 +124,21 @@ export async function rebuildKnowledgeBase(
   }
 
   try {
-    // 【后端待实现】优先走库级重建
-    const res = (await request.post(`/api/knowledge-bases/${kbId}/rebuild`, {
-      ...normalized,
-      create_snapshot: normalized.create_snapshot,
-      sync_mode: normalized.sync_mode
-    })) as ApiResponse<KbRebuildJob>
-    return unwrap(res)
+    // BE 不接受 body；先确保配置已 PUT
+    await updateKbIndexConfig(kbId, normalized)
+    const res = (await request.post(
+      `/api/knowledge-bases/${kbId}/rebuild`
+    )) as ApiResponse<Record<string, unknown>>
+    const data = unwrap(res) || {}
+    return mapRebuildSummary(kbId, data as Record<string, unknown>)
   } catch {
-    // 降级：仅 force_all 时用已有文档 reprocess 模拟「强制全部」
     if (normalized.sync_mode !== 'force_all') {
       return {
         job_id: `local-pending-${kbId}`,
         kb_id: String(kbId),
         status: 'failed',
         progress: 0,
-        message:
-          '索引配置已保存到本地，但后端按库重建接口未就绪。「仅待处理」无法在前端完成同步。'
+        message: '库级重建接口调用失败；「仅待处理」无法在前端完成同步。'
       }
     }
 
@@ -165,7 +181,7 @@ export async function rebuildKnowledgeBase(
       kb_id: String(kbId),
       status: done > 0 ? 'completed' : 'failed',
       progress: done > 0 ? 100 : 0,
-      message: `已对 ${done}/${reprocessTargets.length} 个文档提交重新向量化（临时方案，待库级 rebuild 接口）`
+      message: `已对 ${done}/${reprocessTargets.length} 个文档提交重新向量化（降级方案）`
     }
   }
 }
@@ -179,24 +195,16 @@ export async function fetchRebuildStatus(
     if (!job) return null
     return unwrap(await mockResolve({ ...job }, { delay: 80 }))
   }
-
-  try {
-    const res = (await request.get(`/api/knowledge-bases/${kbId}/rebuild/${jobId}`, {
-      silent: true
-    })) as ApiResponse<KbRebuildJob>
-    return unwrap(res)
-  } catch {
-    return null
-  }
+  // BE 无 GET .../rebuild/{job_id}；同步 rebuild 已返回终态
+  return null
 }
 
 /**
- * 拉取后端真实索引配置，成功后覆盖 LocalStorage（缓存仅作二次加速）
- * 失败时回退本地缓存 / 默认值，不抛错阻断页面
+ * 拉取后端真实索引配置，成功后覆盖 LocalStorage
  */
 export async function fetchKbIndexConfig(kbId: string | number): Promise<KbIndexConfig> {
   if (kbId == null || kbId === '') {
-    return normalizeKbIndexConfig(KB_INDEX_DEFAULTS)
+    return normalizeKbIndexConfig(getKbIndexDefaults())
   }
 
   if (MOCK_OPEN()) {
@@ -213,13 +221,11 @@ export async function fetchKbIndexConfig(kbId: string | number): Promise<KbIndex
     })) as ApiResponse<KbIndexConfig>
     const remote = unwrap(res)
     const normalized = normalizeKbIndexConfig(remote)
-    // 后端为准：覆盖本地缓存
     saveKbIndexConfig(kbId, normalized)
     return normalized
   } catch {
-    // 二次加速：接口失败再用本地缓存
     const cached = loadKbIndexConfig(kbId)
     if (cached) return normalizeKbIndexConfig(cached)
-    return normalizeKbIndexConfig(KB_INDEX_DEFAULTS)
+    return normalizeKbIndexConfig(getKbIndexDefaults())
   }
 }

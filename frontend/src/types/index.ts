@@ -1,6 +1,6 @@
 /**
  * 全局业务类型定义（前端 B）
- * 约定：业务代码禁止 any；后端未就绪字段以注释标注。
+ * 约定：业务代码禁止 any；字段与 backend schema 对齐。
  */
 
 /** 统一 API 响应外壳 */
@@ -33,30 +33,92 @@ export interface DualTextInput {
   tip: string
 }
 
-/** 运行时大模型配置（对话侧参数，非模型 CRUD） */
-export interface RuntimeModelConfig {
-  embedding_model: string
-  llm_model: string
+/** 运行时可选模型（来自 GET /api/runtime-config/models → models[]） */
+export interface RuntimeModelItem {
+  id: number | null
+  model_type: 'chat' | 'embedding' | string
+  model_name: string
+  api_base_url?: string
+  dimension?: number | null
+  is_active?: boolean
+  source?: string
+}
+
+export interface RuntimeParamLimit {
+  label?: string
+  type?: string
+  min?: number
+  max?: number
+  default?: number
+  step?: number
+  options?: number[]
+}
+
+export interface RuntimeParameterLimits {
+  chat: {
+    temperature: RuntimeParamLimit
+    top_p: RuntimeParamLimit
+    max_tokens: RuntimeParamLimit
+    presence_penalty?: RuntimeParamLimit
+    frequency_penalty?: RuntimeParamLimit
+  }
+  embedding: {
+    dimension: RuntimeParamLimit
+  }
+}
+
+export interface RuntimeChatParams {
   temperature: number
+  top_p: number
   max_tokens: number
+  presence_penalty?: number
+  frequency_penalty?: number
 }
 
-/** 后端返回的参数合法区间 */
-export interface RuntimeModelBounds {
-  temperature_min: number
-  temperature_max: number
-  max_tokens_min: number
-  max_tokens_max: number
+export interface RuntimeEmbeddingParams {
+  dimension?: number
 }
 
+/** 当前选中项（与后端 selection 对齐） */
+export interface RuntimeModelSelection {
+  chat_model_id: number | null
+  embedding_model_id: number | null
+  chat_params: RuntimeChatParams
+  embedding_params: RuntimeEmbeddingParams
+  updated_at?: string | null
+}
+
+/** GET /api/runtime-config/models 原始载荷 */
 export interface RuntimeModelOptionsPayload {
-  embedding_models: string[]
-  llm_models: string[]
-  bounds: RuntimeModelBounds
-  current?: Partial<RuntimeModelConfig>
+  models: RuntimeModelItem[]
+  parameter_limits: RuntimeParameterLimits
+  selection: RuntimeModelSelection
 }
 
-/** 文档切分可视化配置 */
+/** PUT /api/runtime-config/models 请求体 */
+export interface RuntimeModelConfigUpdate {
+  chat_model_id?: number | null
+  embedding_model_id?: number | null
+  chat_params?: Partial<RuntimeChatParams>
+  embedding_params?: Partial<RuntimeEmbeddingParams>
+}
+
+/** 本地缓存 / 表单视图（由 models + selection 派生，不含硬编码模型名） */
+export interface RuntimeModelConfig {
+  chat_model_id: number | null
+  embedding_model_id: number | null
+  /** 仅展示用，来自 models 列表 */
+  chat_model_name?: string
+  embedding_model_name?: string
+  temperature: number
+  top_p: number
+  max_tokens: number
+  presence_penalty?: number
+  frequency_penalty?: number
+  embedding_dimension?: number
+}
+
+/** 文档切分可视化配置（本地预览 / 上传侧） */
 export interface ChunkStrategyConfig {
   chunk_size: number
   chunk_overlap: number
@@ -70,23 +132,34 @@ export interface ChunkPreviewItem {
   char_count: number
 }
 
-/** 知识库级索引配置（前端展示/本地缓存；后端按库生效待对接） */
-export type KbChunkMode = 'recursive' | 'fixed'
+/** 知识库级索引配置 — 对齐 KbIndexConfigOut / KbIndexConfigUpdate */
+export type KbSearchType = 'vector' | 'keyword' | 'hybrid'
 export type KbSyncMode = 'pending' | 'force_all'
 
+/** BE 权威字段 */
 export interface KbIndexConfig {
+  kb_id?: string
   chunk_size: number
   chunk_overlap: number
-  chunk_mode: KbChunkMode
-  /** 分割符号，多个用 | 分隔（切分策略并入索引配置） */
-  separators: string
-  /** 文本清洗开关 */
-  clean_enabled: boolean
-  embedding_model: string
-  /** 变更时先建快照，问答继续用旧索引直至重建完成 */
-  create_snapshot: boolean
-  sync_mode: KbSyncMode
+  hybrid_alpha: number
+  default_search_type: KbSearchType
+  enable_rerank: boolean
+  default_top_n: number
+  updated_at?: string | null
+  /** 前端重建意图（不落 BE index-config） */
+  create_snapshot?: boolean
+  sync_mode?: KbSyncMode
 }
+
+/** 评测/上传仍可能使用的切分方式（与 documents/split-strategies 对齐） */
+export type KbChunkMode =
+  | 'recursive'
+  | 'fixed'
+  | 'markdown_header'
+  | 'paragraph'
+  | 'sentence'
+  | 'semantic'
+  | 'parent_child'
 
 export interface KbRebuildJob {
   job_id: string
@@ -94,6 +167,9 @@ export interface KbRebuildJob {
   status: 'pending' | 'running' | 'completed' | 'failed'
   progress: number
   message?: string
+  /** BE rebuild 摘要字段（可选） */
+  total?: number
+  queued?: number
 }
 
 /** 评测任务 */
@@ -103,6 +179,7 @@ export type EvalTaskStatus = 'pending' | 'running' | 'completed' | 'failed'
 export interface EvalRunParams {
   kb_id: string | number
   kb_name?: string
+  /** 必须来自 runtime-config 模型列表，禁止硬编码 */
   embedding_model: string
   chunk_size: number
   chunk_overlap: number

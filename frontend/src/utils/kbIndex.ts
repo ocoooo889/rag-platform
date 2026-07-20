@@ -1,44 +1,52 @@
 /**
- * 知识库索引配置（展示默认值对齐后端全局 config）
- * 后端当前为全局 CHUNK_SIZE/CHUNK_OVERLAP/EMBEDDING_MODEL，按库配置接口待对接。
+ * 知识库索引配置 — 对齐 backend KbIndexConfigOut / 校验区间
+ * 分块策略名称/默认块大小：请用 GET /api/split-strategies，勿在此写死。
  */
-import type { KbChunkMode, KbIndexConfig, KbSyncMode } from '@/types'
+import type { KbIndexConfig, KbSearchType, KbSyncMode } from '@/types'
 import { loadKbIndexConfig } from '@/utils/localCache'
+import { getCachedSplitStrategies, pickDefaultStrategy } from '@/api/splitStrategies'
 
-/** 与 backend/app/config.py 默认一致（.env 可能覆盖 embedding） */
-export const KB_INDEX_DEFAULTS: KbIndexConfig = {
-  chunk_size: 500,
-  chunk_overlap: 50,
-  chunk_mode: 'recursive',
-  separators: '\\n## |\\n### |\\n|。|.',
-  clean_enabled: true,
-  embedding_model: 'text-embedding-v4',
-  create_snapshot: true,
-  sync_mode: 'pending'
+/** 与 backend/app/api/kb.py 校验一致；数值仅作区间钳制兜底，默认值优先取 split-strategies */
+export const KB_CHUNK_SIZE_MIN = 100
+export const KB_CHUNK_SIZE_MAX = 2000
+
+function serverPreferredChunkDefaults(): Pick<KbIndexConfig, 'chunk_size' | 'chunk_overlap'> {
+  const d = pickDefaultStrategy(getCachedSplitStrategies()?.items || [])
+  if (d) {
+    return {
+      chunk_size: d.default_chunk_size,
+      chunk_overlap: d.default_chunk_overlap
+    }
+  }
+  // 缓存未就绪时的中性占位（仍落在后端合法区间），页面应尽快拉取 split-strategies / index-config
+  return {
+    chunk_size: KB_CHUNK_SIZE_MIN,
+    chunk_overlap: 0
+  }
 }
 
-export const CHUNK_MODE_OPTIONS: Array<{
-  value: KbChunkMode
-  label: string
-  tip: string
-  disabled?: boolean
-}> = [
-  {
-    value: 'recursive',
-    label: '递归分块（Recursive）',
-    tip: '按标题/段落/句子递归切分，当前后端默认方式'
-  },
-  {
-    value: 'fixed',
-    label: '固定长度',
-    tip: '按固定字符窗口切分（需后端支持）',
-    disabled: true
+export function getKbIndexDefaults(): KbIndexConfig {
+  const chunk = serverPreferredChunkDefaults()
+  return {
+    chunk_size: chunk.chunk_size,
+    chunk_overlap: chunk.chunk_overlap,
+    hybrid_alpha: 0.7,
+    default_search_type: 'hybrid',
+    enable_rerank: false,
+    default_top_n: 3,
+    create_snapshot: true,
+    sync_mode: 'pending'
   }
-]
+}
 
-export const CHUNK_MODE_LABEL: Record<string, string> = Object.fromEntries(
-  CHUNK_MODE_OPTIONS.map((o) => [o.value, o.label])
-)
+/** @deprecated 使用 getKbIndexDefaults()；模块常量会在首次 import 时冻结，请勿依赖其 chunk 数值 */
+export const KB_INDEX_DEFAULTS: KbIndexConfig = getKbIndexDefaults()
+
+export const SEARCH_TYPE_OPTIONS: Array<{ value: KbSearchType; label: string }> = [
+  { value: 'hybrid', label: '混合检索' },
+  { value: 'vector', label: '向量检索' },
+  { value: 'keyword', label: '关键词检索' }
+]
 
 export const SYNC_MODE = {
   PENDING: 'pending' as KbSyncMode,
@@ -58,61 +66,98 @@ export const SYNC_MODE_OPTIONS: Array<{ value: KbSyncMode; label: string; tip: s
   }
 ]
 
+function clampChunkSize(n: number): number {
+  const fallback = serverPreferredChunkDefaults().chunk_size
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(KB_CHUNK_SIZE_MAX, Math.max(KB_CHUNK_SIZE_MIN, Math.round(n)))
+}
+
 export function normalizeKbIndexConfig(raw: Partial<KbIndexConfig> | null | undefined): KbIndexConfig {
+  const defaults = getKbIndexDefaults()
   const src = raw || {}
-  const chunk_size = Math.max(50, Number(src.chunk_size) || KB_INDEX_DEFAULTS.chunk_size)
-  let chunk_overlap = Math.max(0, Number(src.chunk_overlap) || KB_INDEX_DEFAULTS.chunk_overlap)
+  const chunk_size = clampChunkSize(Number(src.chunk_size) || defaults.chunk_size)
+  let chunk_overlap = Math.max(0, Number(src.chunk_overlap))
+  if (!Number.isFinite(Number(src.chunk_overlap))) {
+    chunk_overlap = defaults.chunk_overlap
+  }
   if (chunk_overlap >= chunk_size) chunk_overlap = Math.max(0, chunk_size - 1)
-  const mode = String(src.chunk_mode || KB_INDEX_DEFAULTS.chunk_mode).toLowerCase()
-  const chunk_mode: KbChunkMode = mode === 'fixed' ? 'fixed' : 'recursive'
-  const sync = String(src.sync_mode || KB_INDEX_DEFAULTS.sync_mode).toLowerCase()
+
+  const st = String(src.default_search_type || defaults.default_search_type).toLowerCase()
+  const default_search_type: KbSearchType =
+    st === 'vector' || st === 'keyword' || st === 'hybrid' ? st : 'hybrid'
+
+  let hybrid_alpha = Number(src.hybrid_alpha)
+  if (!Number.isFinite(hybrid_alpha)) hybrid_alpha = defaults.hybrid_alpha
+  hybrid_alpha = Math.min(1, Math.max(0, hybrid_alpha))
+
+  let default_top_n = Number(src.default_top_n)
+  if (!Number.isFinite(default_top_n) || default_top_n < 1) {
+    default_top_n = defaults.default_top_n
+  }
+  default_top_n = Math.min(10, Math.max(1, Math.round(default_top_n)))
+
+  const sync = String(src.sync_mode || defaults.sync_mode || 'pending').toLowerCase()
   const sync_mode: KbSyncMode = sync === 'force_all' ? 'force_all' : 'pending'
-  const separators =
-    src.separators != null && String(src.separators).trim() !== ''
-      ? String(src.separators)
-      : KB_INDEX_DEFAULTS.separators
+
   return {
+    kb_id: src.kb_id,
     chunk_size,
     chunk_overlap,
-    chunk_mode,
-    separators,
-    clean_enabled: src.clean_enabled !== false,
-    embedding_model: String(src.embedding_model || KB_INDEX_DEFAULTS.embedding_model).trim(),
+    hybrid_alpha,
+    default_search_type,
+    enable_rerank: src.enable_rerank === true,
+    default_top_n,
+    updated_at: src.updated_at ?? null,
     create_snapshot: src.create_snapshot !== false,
     sync_mode
   }
 }
 
+/** PUT 只提交后端接受的字段 */
+export function toKbIndexConfigPayload(cfg: KbIndexConfig): Record<string, unknown> {
+  return {
+    chunk_size: cfg.chunk_size,
+    chunk_overlap: cfg.chunk_overlap,
+    hybrid_alpha: cfg.hybrid_alpha,
+    default_search_type: cfg.default_search_type,
+    enable_rerank: cfg.enable_rerank,
+    default_top_n: cfg.default_top_n
+  }
+}
+
 export function formatKbIndexSummary(cfg: KbIndexConfig): string {
-  const mode = CHUNK_MODE_LABEL[cfg.chunk_mode] || cfg.chunk_mode
-  return `${cfg.chunk_size}/${cfg.chunk_overlap} · ${mode} · ${cfg.embedding_model}`
+  const st =
+    SEARCH_TYPE_OPTIONS.find((o) => o.value === cfg.default_search_type)?.label ||
+    cfg.default_search_type
+  const rerank = cfg.enable_rerank ? 'rerank开' : 'rerank关'
+  return `${cfg.chunk_size}/${cfg.chunk_overlap} · ${st} · α${cfg.hybrid_alpha} · top${cfg.default_top_n} · ${rerank}`
 }
 
 export function validateKbIndexConfig(cfg: KbIndexConfig): string | null {
-  if (cfg.chunk_overlap >= cfg.chunk_size) {
-    return '切片重叠必须小于文本块大小'
+  if (cfg.chunk_size < KB_CHUNK_SIZE_MIN || cfg.chunk_size > KB_CHUNK_SIZE_MAX) {
+    return `文本块大小须在 ${KB_CHUNK_SIZE_MIN}~${KB_CHUNK_SIZE_MAX} 之间`
   }
-  if (!cfg.embedding_model) return '请选择向量模型'
-  if (cfg.chunk_mode === 'fixed') {
-    return '固定长度分块后端尚未支持，请使用递归分块'
+  if (cfg.chunk_overlap < 0 || cfg.chunk_overlap >= cfg.chunk_size) {
+    return '切片重叠必须小于文本块大小且 ≥ 0'
+  }
+  if (cfg.hybrid_alpha < 0 || cfg.hybrid_alpha > 1) {
+    return '混合检索权重 hybrid_alpha 须在 0~1 之间'
+  }
+  if (cfg.default_top_n < 1 || cfg.default_top_n > 10) {
+    return 'default_top_n 须在 1~10 之间'
   }
   return null
 }
 
-/**
- * 解析某知识库索引配置（同步读缓存，仅作展示加速）
- * 优先使用调用方传入的 apiRow（通常来自 GET 回写），其次 LocalStorage，最后默认值。
- * 页面初始化 / 切库应主动调用 fetchKbIndexConfig，勿仅依赖本函数。
- */
 export function resolveKbIndexConfig(
   kbId: string | number | null | undefined,
   apiRow?: Partial<KbIndexConfig> | null
 ): { config: KbIndexConfig; fromLocal: boolean } {
   if (kbId == null || kbId === '') {
-    return { config: normalizeKbIndexConfig(KB_INDEX_DEFAULTS), fromLocal: false }
+    return { config: normalizeKbIndexConfig(getKbIndexDefaults()), fromLocal: false }
   }
   try {
-    if (apiRow && (apiRow.chunk_size != null || apiRow.embedding_model || apiRow.separators != null)) {
+    if (apiRow && (apiRow.chunk_size != null || apiRow.default_search_type != null)) {
       return { config: normalizeKbIndexConfig(apiRow), fromLocal: false }
     }
     const local = loadKbIndexConfig(kbId)
@@ -120,5 +165,5 @@ export function resolveKbIndexConfig(
   } catch {
     /* localStorage 异常时回退默认 */
   }
-  return { config: normalizeKbIndexConfig(KB_INDEX_DEFAULTS), fromLocal: false }
+  return { config: normalizeKbIndexConfig(getKbIndexDefaults()), fromLocal: false }
 }

@@ -139,23 +139,8 @@ export async function uploadDocument(formData, onUploadProgress) {
   return { ...res, data: { ...row, doc_id: row.id } }
 }
 
-/** 切分策略列表（上传下拉） */
-export async function fetchSplitStrategies() {
-  if (MOCK_OPEN()) {
-    return mockResolve({
-      items: [
-        { value: 'recursive', label: '递归切分', desc: '优先按标题/段落/句子边界切' },
-        { value: 'fixed', label: '固定长度', desc: '按固定字符数硬切' },
-        { value: 'markdown_header', label: '按标题切分', desc: '按 Markdown 标题切' },
-        { value: 'paragraph', label: '按段落切分', desc: '按空行分段' },
-        { value: 'sentence', label: '按句子切分', desc: '按句号断句后拼块' },
-        { value: 'semantic', label: '语义切分', desc: '按语义相似度切（较慢）' },
-        { value: 'parent_child', label: '父子块切分', desc: '子块检索、父块上下文' }
-      ]
-    })
-  }
-  return request.get('/api/documents/split-strategies')
-}
+/** 切分策略列表 — 统一走 /api/split-strategies（见 api/splitStrategies.ts） */
+export { fetchSplitStrategies, clearSplitStrategiesCache, labelOfStrategy } from '@/api/splitStrategies'
 
 /** 删除单条文档 */
 export async function deleteDocument(id) {

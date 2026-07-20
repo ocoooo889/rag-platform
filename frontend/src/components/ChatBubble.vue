@@ -153,9 +153,16 @@ watch(avatarSrc, () => {
   avatarBroken.value = false
 })
 
-const showSources = computed(
-  () => !props.streaming && Array.isArray(props.sources) && props.sources.length > 0
-)
+const EMPTY_KB_ANSWER_RE = /未查询到相关内容|暂无相关内容/
+
+/** 无相关答案时不展示溯源（即便后端仍返回了低相关 hits） */
+const showSources = computed(() => {
+  if (props.streaming) return false
+  if (!Array.isArray(props.sources) || props.sources.length === 0) return false
+  const text = String(props.content || '').replace(/\s+/g, '')
+  if (EMPTY_KB_ANSWER_RE.test(text)) return false
+  return true
+})
 
 const retrievalBadge = computed(() => {
   if (props.role !== 'assistant') return null

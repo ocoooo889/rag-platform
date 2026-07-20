@@ -21,8 +21,9 @@ export function previewChunkSplit(
   sourceText: string,
   config: ChunkStrategyConfig
 ): ChunkPreviewItem[] {
-  const size = Math.max(20, Number(config.chunk_size) || 500)
-  const overlap = Math.min(Math.max(0, Number(config.chunk_overlap) || 0), size - 1)
+  const size = Math.max(20, Number(config.chunk_size))
+  if (!Number.isFinite(size)) return []
+  const overlap = Math.min(Math.max(0, Number(config.chunk_overlap) || 0), Math.max(size - 1, 0))
   const cleaned = applyClean(String(sourceText || ''), !!config.clean_enabled)
   if (!cleaned) return []
 

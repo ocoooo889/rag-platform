@@ -200,30 +200,45 @@
           <el-select
             v-model="createForm.embedding_model"
             filterable
-            allow-create
-            default-first-option
             style="width: 100%"
             :loading="modelsLoading"
+            placeholder="从运行配置接口加载"
           >
             <el-option v-for="m in embeddingModels" :key="m" :label="m" :value="m" />
           </el-select>
         </el-form-item>
         <el-form-item label="文本块大小">
-          <el-input-number v-model="createForm.chunk_size" :min="50" :max="4000" :step="50" />
+          <el-input-number
+            v-model="createForm.chunk_size"
+            :min="chunkSizeMin"
+            :max="chunkSizeMax"
+            :step="50"
+          />
         </el-form-item>
         <el-form-item label="切片重叠">
-          <el-input-number v-model="createForm.chunk_overlap" :min="0" :max="2000" :step="10" />
+          <el-input-number
+            v-model="createForm.chunk_overlap"
+            :min="0"
+            :max="Math.max(0, createForm.chunk_size - 1)"
+            :step="10"
+          />
         </el-form-item>
         <el-form-item label="分块方式">
-          <el-select v-model="createForm.chunk_mode" style="width: 100%">
+          <el-select
+            v-model="createForm.chunk_mode"
+            style="width: 100%"
+            :loading="splitLoading"
+            placeholder="从 split-strategies 加载"
+            @change="onChunkModeChange"
+          >
             <el-option
-              v-for="opt in CHUNK_MODE_OPTIONS"
+              v-for="opt in splitItems"
               :key="opt.value"
-              :label="opt.label"
+              :label="opt.is_default ? `${opt.label}（默认）` : opt.label"
               :value="opt.value"
-              :disabled="opt.disabled"
             />
           </el-select>
+          <p v-if="splitError" class="hint">{{ splitError }}</p>
         </el-form-item>
         <el-form-item label="分割符号">
           <el-input v-model="createForm.separators" placeholder="多个用 | 分隔" />
@@ -475,7 +490,6 @@ import {
   startEvalTask,
   uploadEvalDataset
 } from '@/api/eval'
-import { fetchRuntimeModelOptions } from '@/api/runtimeConfig'
 import { fetchKbIndexConfig } from '@/api/kbIndex'
 import EvalDatasetUploader from '@/components/EvalDatasetUploader.vue'
 import { useKbStore } from '@/stores/kb'
@@ -493,10 +507,12 @@ import {
   saveEvalSampleDraft
 } from '@/utils/localCache'
 import {
-  CHUNK_MODE_OPTIONS,
-  KB_INDEX_DEFAULTS,
+  KB_CHUNK_SIZE_MIN,
+  KB_CHUNK_SIZE_MAX,
   resolveKbIndexConfig
 } from '@/utils/kbIndex'
+import { useSplitStrategies } from '@/composables/useSplitStrategies'
+import { embeddingModelNames, fetchRuntimeModelOptions } from '@/api/runtimeConfig'
 import {
   getRetrievalModeLabel,
   retrievalModeTagType
@@ -532,20 +548,51 @@ const uploaderReset = ref(0)
 const datasetFile = ref<File | null>(null)
 const kbLoading = ref(false)
 const modelsLoading = ref(false)
-const embeddingModels = ref<string[]>([KB_INDEX_DEFAULTS.embedding_model])
-const kbList = computed(() => kbStore.list || [])
+const embeddingModels = ref<string[]>([])
+const kbList = computed(() => (kbStore.list || []) as Array<{ id: string | number; name: string }>)
+
+const {
+  loading: splitLoading,
+  error: splitError,
+  items: splitItems,
+  defaultItem: splitDefault,
+  load: loadSplitStrategies,
+  findByValue: findSplit
+} = useSplitStrategies()
+
+const chunkSizeMin = computed(
+  () => findSplit(createForm.chunk_mode)?.chunk_size_min ?? KB_CHUNK_SIZE_MIN
+)
+const chunkSizeMax = computed(
+  () => findSplit(createForm.chunk_mode)?.chunk_size_max ?? KB_CHUNK_SIZE_MAX
+)
 
 const createForm = reactive({
   name: '',
   kb_id: null as string | number | null,
-  embedding_model: KB_INDEX_DEFAULTS.embedding_model,
-  chunk_size: KB_INDEX_DEFAULTS.chunk_size,
-  chunk_overlap: KB_INDEX_DEFAULTS.chunk_overlap,
-  chunk_mode: KB_INDEX_DEFAULTS.chunk_mode,
-  separators: KB_INDEX_DEFAULTS.separators,
-  clean_enabled: KB_INDEX_DEFAULTS.clean_enabled,
+  embedding_model: '',
+  chunk_size: Number.NaN as number,
+  chunk_overlap: Number.NaN as number,
+  chunk_mode: '',
+  separators: '',
+  clean_enabled: true,
   rule_json: ''
 })
+
+function applySplitDefaults(strategyValue?: string) {
+  const item = (strategyValue && findSplit(strategyValue)) || splitDefault.value
+  if (!item) return
+  createForm.chunk_mode = item.value
+  createForm.chunk_size = item.default_chunk_size
+  createForm.chunk_overlap = item.default_chunk_overlap
+}
+
+function onChunkModeChange(val: string) {
+  const item = findSplit(val)
+  if (!item) return
+  createForm.chunk_size = item.default_chunk_size
+  createForm.chunk_overlap = item.default_chunk_overlap
+}
 
 const sampleVisible = ref(false)
 const currentTaskId = ref('')
@@ -763,13 +810,26 @@ async function loadKbAndModels() {
     kbLoading.value = false
   }
   try {
+    await loadSplitStrategies()
+    if (!createForm.chunk_mode) applySplitDefaults()
+  } catch {
+    /* splitError 已展示 */
+  }
+  try {
     const data = await fetchRuntimeModelOptions()
-    const list = data?.embedding_models || []
+    const list = embeddingModelNames(data)
     if (list.length) {
-      embeddingModels.value = [...new Set([createForm.embedding_model, ...list].filter(Boolean))]
+      embeddingModels.value = list
+      if (!createForm.embedding_model || !list.includes(createForm.embedding_model)) {
+        createForm.embedding_model = list[0]
+      }
+    } else {
+      embeddingModels.value = []
+      ElMessage.warning('后端未返回可用向量模型，请先在「大模型运行配置」配置')
     }
   } catch {
-    /* 默认列表 */
+    embeddingModels.value = []
+    ElMessage.error('拉取向量模型列表失败')
   } finally {
     modelsLoading.value = false
   }
@@ -777,24 +837,17 @@ async function loadKbAndModels() {
 
 async function onKbChange(kbId: string | number) {
   const kb = kbList.value.find((k) => String(k.id) === String(kbId))
-  // 切换知识库：强制 GET 后端索引配置并覆盖本地，再填入表单
   try {
     const config = await fetchKbIndexConfig(kbId)
-    createForm.chunk_size = config.chunk_size
-    createForm.chunk_overlap = config.chunk_overlap
-    createForm.chunk_mode = config.chunk_mode
-    createForm.separators = config.separators
-    createForm.clean_enabled = config.clean_enabled
-    createForm.embedding_model = config.embedding_model
+    // 块参数以 index-config 为准；策略默认仍来自 split-strategies
+    if (Number.isFinite(config.chunk_size)) createForm.chunk_size = config.chunk_size
+    if (Number.isFinite(config.chunk_overlap)) createForm.chunk_overlap = config.chunk_overlap
   } catch {
     const { config } = resolveKbIndexConfig(kbId)
-    createForm.chunk_size = config.chunk_size
-    createForm.chunk_overlap = config.chunk_overlap
-    createForm.chunk_mode = config.chunk_mode
-    createForm.separators = config.separators
-    createForm.clean_enabled = config.clean_enabled
-    createForm.embedding_model = config.embedding_model
+    if (Number.isFinite(config.chunk_size)) createForm.chunk_size = config.chunk_size
+    if (Number.isFinite(config.chunk_overlap)) createForm.chunk_overlap = config.chunk_overlap
   }
+  if (!createForm.chunk_mode) applySplitDefaults()
   if (kb && !createForm.name) {
     createForm.name = `${kb.name}-评测`
   }
@@ -809,14 +862,10 @@ function openCreate() {
   uploaderReset.value += 1
   if (createForm.kb_id != null) onKbChange(createForm.kb_id)
   else {
-    Object.assign(createForm, {
-      embedding_model: KB_INDEX_DEFAULTS.embedding_model,
-      chunk_size: KB_INDEX_DEFAULTS.chunk_size,
-      chunk_overlap: KB_INDEX_DEFAULTS.chunk_overlap,
-      chunk_mode: KB_INDEX_DEFAULTS.chunk_mode,
-      separators: KB_INDEX_DEFAULTS.separators,
-      clean_enabled: KB_INDEX_DEFAULTS.clean_enabled
-    })
+    applySplitDefaults()
+    createForm.separators = ''
+    createForm.clean_enabled = true
+    createForm.embedding_model = embeddingModels.value[0] || ''
   }
   createVisible.value = true
   loadKbAndModels()
@@ -864,8 +913,20 @@ async function submitCreate() {
     ElMessage.warning('请选择知识库')
     return
   }
-  if (createForm.chunk_overlap >= createForm.chunk_size) {
-    ElMessage.warning('切片重叠必须小于文本块大小')
+  if (!createForm.chunk_mode || !splitItems.value.some((s) => s.value === createForm.chunk_mode)) {
+    ElMessage.warning('请选择后端下发的分块策略')
+    return
+  }
+  if (!createForm.embedding_model) {
+    ElMessage.warning('请选择向量模型')
+    return
+  }
+  if (
+    !Number.isFinite(createForm.chunk_size) ||
+    !Number.isFinite(createForm.chunk_overlap) ||
+    createForm.chunk_overlap >= createForm.chunk_size
+  ) {
+    ElMessage.warning('切片参数不合法：请先加载 split-strategies 默认值')
     return
   }
 

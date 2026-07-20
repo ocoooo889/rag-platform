@@ -1,10 +1,19 @@
 <template>
-  <!-- 支持批量：md/txt/pdf/docx/html/csv、单文件 10MB、切分策略可选、点击+拖拽、进度条 -->
+  <!-- 多格式上传 + 切分策略来自 GET /api/split-strategies（无本地假列表兜底） -->
   <div
     class="file-uploader"
-    v-loading="uploading"
-    element-loading-text="文档上传中，请稍候"
+    v-loading="uploading || strategiesLoading"
+    :element-loading-text="strategiesLoading ? '加载切分策略…' : '文档上传中，请稍候'"
   >
+    <el-alert
+      v-if="strategiesError"
+      type="error"
+      :closable="false"
+      show-icon
+      class="mb8"
+      :title="strategiesError"
+    />
+
     <div class="split-panel">
       <div class="split-row">
         <span class="split-label">切分方式</span>
@@ -12,7 +21,8 @@
           v-model="splitStrategy"
           placeholder="选择切分方式"
           style="width: 260px"
-          :disabled="disabled || uploading"
+          :disabled="disabled || uploading || !strategyOptions.length"
+          @change="onStrategyChange"
         >
           <el-option
             v-for="item in strategyOptions"
@@ -20,7 +30,10 @@
             :label="item.label"
             :value="item.value"
           >
-            <div class="opt-main">{{ item.label }}</div>
+            <div class="opt-main">
+              {{ item.label }}
+              <span v-if="item.is_default" class="opt-default">默认</span>
+            </div>
             <div class="opt-desc">{{ item.desc }}</div>
           </el-option>
         </el-select>
@@ -30,18 +43,18 @@
         <span class="split-label">块大小</span>
         <el-input-number
           v-model="chunkSize"
-          :min="100"
-          :max="4000"
+          :min="sizeMin"
+          :max="sizeMax"
           :step="50"
-          :disabled="disabled || uploading"
+          :disabled="disabled || uploading || !currentStrategy"
         />
         <span class="split-label">重叠</span>
         <el-input-number
           v-model="chunkOverlap"
-          :min="0"
-          :max="1000"
+          :min="overlapMin"
+          :max="Math.max(overlapMin, (chunkSize || 1) - 1)"
           :step="10"
-          :disabled="disabled || uploading"
+          :disabled="disabled || uploading || !currentStrategy"
         />
       </div>
 
@@ -49,8 +62,8 @@
         <span class="split-label">父块大小</span>
         <el-input-number
           v-model="parentChunkSize"
-          :min="300"
-          :max="8000"
+          :min="parentSizeMin"
+          :max="parentSizeMax"
           :step="100"
           :disabled="disabled || uploading"
         />
@@ -58,7 +71,7 @@
         <el-input-number
           v-model="parentChunkOverlap"
           :min="0"
-          :max="2000"
+          :max="Math.max(0, (parentChunkSize || 1) - 1)"
           :step="20"
           :disabled="disabled || uploading"
         />
@@ -68,8 +81,8 @@
         <span class="split-label">语义阈值</span>
         <el-input-number
           v-model="semanticThreshold"
-          :min="0.1"
-          :max="0.95"
+          :min="semanticMin"
+          :max="semanticMax"
           :step="0.05"
           :precision="2"
           :disabled="disabled || uploading"
@@ -85,7 +98,7 @@
       multiple
       :auto-upload="false"
       :show-file-list="true"
-      :disabled="disabled || uploading || !kbId"
+      :disabled="disabled || uploading || !kbId || !strategyOptions.length"
       accept=".md,.markdown,.txt,.pdf,.docx,.html,.htm,.csv"
       :on-change="onFileChange"
       :on-remove="onRemove"
@@ -93,7 +106,7 @@
     >
       <div class="upload-tip">
         <p>点击或拖拽文件到此处上传（支持多选）</p>
-        <p class="sub">支持 .md / .txt / .pdf / .docx / .html / .csv，单文件不超过 10MB</p>
+        <p class="sub">支持 {{ ALLOWED_LABEL }}，单文件不超过 10MB</p>
       </div>
     </el-upload>
 
@@ -101,7 +114,7 @@
       <el-button
         type="primary"
         :loading="uploading"
-        :disabled="disabled || !kbId || uploading"
+        :disabled="disabled || !kbId || uploading || !splitStrategy"
         @click="startUpload"
       >
         开始上传（{{ pendingCount }} 个文件）
@@ -120,7 +133,8 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { fetchSplitStrategies, uploadDocument } from '@/api/doc'
+import { uploadDocument } from '@/api/doc'
+import { useSplitStrategies } from '@/composables/useSplitStrategies'
 
 const props = defineProps({
   kbId: { type: [Number, String], default: null },
@@ -135,42 +149,64 @@ const MAX_SIZE = 10 * 1024 * 1024
 const ALLOWED_EXT = ['md', 'markdown', 'txt', 'pdf', 'docx', 'html', 'htm', 'csv']
 const ALLOWED_LABEL = '.md / .txt / .pdf / .docx / .html / .csv'
 
-const DEFAULT_STRATEGIES = [
-  { value: 'recursive', label: '递归切分', desc: '优先按标题/段落/句子边界切，默认兼容 Day1' },
-  { value: 'fixed', label: '固定长度', desc: '按固定字符数硬切，适合快速对比实验' },
-  { value: 'markdown_header', label: '按标题切分', desc: '按 # / ## / ### 章节切，适合手册、规范' },
-  { value: 'paragraph', label: '按段落切分', desc: '按空行分段，过长段落再二次切' },
-  { value: 'sentence', label: '按句子切分', desc: '按句号等断句后拼到目标长度' },
-  { value: 'semantic', label: '语义切分', desc: '按句子语义相似度找主题边界（入库较慢）' },
-  { value: 'parent_child', label: '父子块切分', desc: '子块向量检索，入库内容用父块上下文' }
-]
+const {
+  loading: strategiesLoading,
+  error: strategiesError,
+  items: strategyOptions,
+  defaultItem,
+  load: loadStrategies,
+  findByValue
+} = useSplitStrategies()
 
-const strategyOptions = ref([...DEFAULT_STRATEGIES])
-const splitStrategy = ref('recursive')
-const chunkSize = ref(500)
-const chunkOverlap = ref(50)
-const parentChunkSize = ref(1500)
-const parentChunkOverlap = ref(100)
-const semanticThreshold = ref(0.55)
+const splitStrategy = ref('')
+const chunkSize = ref(Number.NaN)
+const chunkOverlap = ref(Number.NaN)
+const parentChunkSize = ref(Number.NaN)
+const parentChunkOverlap = ref(Number.NaN)
+const semanticThreshold = ref(Number.NaN)
 
 const fileList = ref([])
 const queue = ref([])
 
 const pendingCount = computed(() => queue.value.length)
-const currentStrategyDesc = computed(() => {
-  const hit = strategyOptions.value.find((s) => s.value === splitStrategy.value)
-  return hit?.desc || ''
-})
+const currentStrategy = computed(() => findByValue(splitStrategy.value) || defaultItem.value)
+const currentStrategyDesc = computed(() => currentStrategy.value?.desc || '')
+
+const sizeMin = computed(() => currentStrategy.value?.chunk_size_min ?? 100)
+const sizeMax = computed(() => currentStrategy.value?.chunk_size_max ?? 2000)
+const overlapMin = computed(() => currentStrategy.value?.chunk_overlap_min ?? 0)
+const parentSizeMin = computed(() => currentStrategy.value?.parent_chunk_size_min ?? 300)
+const parentSizeMax = computed(() => currentStrategy.value?.parent_chunk_size_max ?? 8000)
+const semanticMin = computed(() => currentStrategy.value?.semantic_threshold_min ?? 0.1)
+const semanticMax = computed(() => currentStrategy.value?.semantic_threshold_max ?? 0.95)
+
+function applyStrategyParams(item) {
+  if (!item) return
+  splitStrategy.value = item.value
+  chunkSize.value = item.default_chunk_size
+  chunkOverlap.value = item.default_chunk_overlap
+  if (item.default_parent_chunk_size != null) {
+    parentChunkSize.value = item.default_parent_chunk_size
+  }
+  if (item.default_parent_chunk_overlap != null) {
+    parentChunkOverlap.value = item.default_parent_chunk_overlap
+  }
+  if (item.default_semantic_threshold != null) {
+    semanticThreshold.value = item.default_semantic_threshold
+  }
+}
+
+function onStrategyChange(val) {
+  const item = findByValue(val)
+  if (item) applyStrategyParams(item)
+}
 
 onMounted(async () => {
   try {
-    const res = await fetchSplitStrategies()
-    const items = res?.data?.items || res?.data || []
-    if (Array.isArray(items) && items.length) {
-      strategyOptions.value = items
-    }
+    await loadStrategies()
+    applyStrategyParams(defaultItem.value)
   } catch {
-    // 后端未就绪时用本地默认列表
+    /* strategiesError 已展示 */
   }
 })
 
@@ -200,57 +236,67 @@ function onFileChange(uploadFile, uploadFiles) {
   }
 }
 
-function onRemove(uploadFile) {
+function onRemove(uploadFile, uploadFiles) {
+  fileList.value = uploadFiles
   queue.value = queue.value.filter((f) => f.uid !== uploadFile.uid)
 }
 
-function buildFormData(raw) {
-  const formData = new FormData()
-  formData.append('kb_id', String(props.kbId))
-  formData.append('file', raw)
-  formData.append('split_strategy', splitStrategy.value || 'recursive')
-  formData.append('chunk_size', String(chunkSize.value || 500))
-  formData.append('chunk_overlap', String(chunkOverlap.value ?? 50))
-  if (splitStrategy.value === 'parent_child') {
-    formData.append('parent_chunk_size', String(parentChunkSize.value || 1500))
-    formData.append('parent_chunk_overlap', String(parentChunkOverlap.value ?? 100))
-  }
-  if (splitStrategy.value === 'semantic') {
-    formData.append('semantic_threshold', String(semanticThreshold.value ?? 0.55))
-  }
-  return formData
-}
-
-async function uploadOne(uploadFile) {
-  const formData = buildFormData(uploadFile.raw)
-  return uploadDocument(formData, (evt) => {
-    if (!evt.total) return
-  })
-}
-
 async function startUpload() {
-  if (props.disabled || props.uploading || !props.kbId || !queue.value.length) return
+  if (!props.kbId) {
+    ElMessage.warning('请先选择知识库')
+    return
+  }
+  if (!splitStrategy.value || Number.isNaN(chunkSize.value)) {
+    ElMessage.warning('请等待切分策略加载完成')
+    return
+  }
+  if (chunkOverlap.value >= chunkSize.value) {
+    ElMessage.warning('切片重叠必须小于文本块大小')
+    return
+  }
+
+  const files = [...queue.value]
+  if (!files.length) return
 
   emit('update:uploading', true)
   emit('update:progress', 0)
 
-  const files = [...queue.value]
   let ok = 0
   let fail = 0
-
   try {
     for (let i = 0; i < files.length; i++) {
       const item = files[i]
+      const formData = new FormData()
+      formData.append('kb_id', String(props.kbId))
+      formData.append('file', item.raw)
+      formData.append('split_strategy', splitStrategy.value)
+      formData.append('chunk_size', String(chunkSize.value))
+      formData.append('chunk_overlap', String(chunkOverlap.value))
+      if (splitStrategy.value === 'parent_child' && !Number.isNaN(parentChunkSize.value)) {
+        formData.append('parent_chunk_size', String(parentChunkSize.value))
+        formData.append('parent_chunk_overlap', String(parentChunkOverlap.value || 0))
+      }
+      if (splitStrategy.value === 'semantic' && !Number.isNaN(semanticThreshold.value)) {
+        formData.append('semantic_threshold', String(semanticThreshold.value))
+      }
+
       try {
-        const res = await uploadOne(item)
+        const res = await uploadDocument(formData, (evt) => {
+          if (!evt.total) return
+          const base = (i / files.length) * 100
+          const part = (evt.loaded / evt.total) * (100 / files.length)
+          const p = Math.min(99, Math.round(base + part))
+          emit('update:progress', p)
+          emit('progress', p)
+        })
         ok += 1
-        emit('success', res.data)
-      } catch (error) {
+        emit('success', res?.data)
+      } catch (e) {
         fail += 1
-        emit('fail', error)
+        emit('fail', e)
+        ElMessage.error(e?.msg || e?.message || `「${item.name}」上传失败`)
       }
       emit('update:progress', Math.round(((i + 1) / files.length) * 100))
-      emit('progress', Math.round(((i + 1) / files.length) * 100))
     }
 
     if (ok > 0 && fail === 0) {
@@ -270,50 +316,46 @@ async function startUpload() {
 </script>
 
 <style scoped>
+.mb8 {
+  margin-bottom: 8px;
+}
 .file-uploader {
   width: 100%;
 }
-
 .split-panel {
   margin-bottom: 14px;
   padding: 12px 14px;
   border: 1px solid var(--border-color);
   border-radius: var(--radius-card, 8px);
-  /* 优先主题 secondary；未定义时回退 page-soft，避免夜间白底 */
   background: var(--bg-color-secondary, var(--bg-color-page-soft, transparent));
   color: var(--text-color-primary);
 }
-
 .split-row {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
   margin-bottom: 8px;
+  flex-wrap: wrap;
 }
-
-.split-row.params {
-  margin-top: 4px;
-}
-
 .split-label {
   font-size: 13px;
   color: var(--text-color-secondary);
   min-width: 64px;
 }
-
-.strategy-hint,
-.hint-inline {
-  margin: 0;
-  font-size: 12px;
-  color: var(--text-color-secondary);
+.params .split-label {
+  min-width: 56px;
 }
-
 .opt-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   color: var(--text-color-primary);
 }
-
+.opt-default {
+  font-size: 11px;
+  color: var(--el-color-primary);
+}
 .opt-desc {
   font-size: 11px;
   color: var(--text-color-secondary);
@@ -321,18 +363,21 @@ async function startUpload() {
   max-width: 320px;
   white-space: normal;
 }
-
+.strategy-hint,
+.hint-inline {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-color-secondary);
+}
 .upload-tip p {
   margin: 0;
   color: var(--text-color-primary);
 }
-
 .upload-tip .sub {
   margin-top: 6px;
   font-size: 12px;
   color: var(--text-color-secondary);
 }
-
 .actions {
   margin-top: 12px;
 }

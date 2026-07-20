@@ -171,9 +171,14 @@
               :disabled="chatStore.streaming || !chatStore.selectedKbId"
               @focus="composerActive = true"
               @blur="composerActive = false"
+              @input="onComposerInput"
               @keydown.enter.exact.prevent="onSend"
             />
-            <p v-if="inputSafetyTip" class="composer-safety-tip">{{ inputSafetyTip }}</p>
+            <!-- 【增量】敏感词体验缓冲提示（非安全兜底） -->
+            <p v-if="showSensitiveTip" class="composer-sensitive-tip">
+              输入内容包含违规词汇，请修改后再发送
+            </p>
+            <p v-else-if="inputSafetyTip" class="composer-safety-tip">{{ inputSafetyTip }}</p>
             <div class="composer-toolbar">
               <div class="composer-toolbar__left">
                 <label class="kb-chip-label" for="composer-kb-select">知识库：</label>
@@ -272,6 +277,7 @@ import { ElMessage, ElNotification } from 'element-plus'
 import { Search, Service, Top, MoreFilled, EditPen, Delete } from '@element-plus/icons-vue'
 import { useKbStore } from '@/stores/kb'
 import { useChatStore } from '@/stores/chat'
+import { fetchKbIndexConfig } from '@/api/kbIndex'
 import EmptyState from '@/components/EmptyState.vue'
 import ChatBubble from '@/components/ChatBubble.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -281,6 +287,54 @@ import {
   INPUT_MAX_LENGTH
 } from '@/utils/inputFilter'
 
+/**
+ * 【增量】前端敏感词表（仅直白基础违规词，页面内统一维护）
+ * 定位：交互体验缓冲层，不承担安全兜底；谐音/隐晦语义交由后端管线处理。
+ */
+const sensitiveWords = [
+  '傻逼',
+  '傻叉',
+  '操你',
+  '操你妈',
+  '草泥马',
+  '他妈的',
+  '妈的',
+  '去死',
+  '滚蛋',
+  '混蛋',
+  '王八蛋',
+  '狗屎',
+  '贱人',
+  '婊子',
+  '智障',
+  '脑残',
+  'fuck',
+  'fucking',
+  'shit',
+  'bitch',
+  'asshole',
+  'damn',
+  'bastard'
+]
+
+/**
+ * 【增量】纯同步敏感词检测：true=存在敏感词。
+ * 忽略大小写；英文按词边界完整匹配，中文按整词精确出现（不做模糊片段匹配）。
+ */
+function checkSensitiveText(text) {
+  const raw = String(text ?? '')
+  if (!raw.trim()) return false
+  return sensitiveWords.some((word) => {
+    const w = String(word || '').trim()
+    if (!w) return false
+    const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    if (/[a-zA-Z]/.test(w)) {
+      return new RegExp(`\\b${escaped}\\b`, 'i').test(raw)
+    }
+    return new RegExp(escaped, 'i').test(raw)
+  })
+}
+
 const kbStore = useKbStore()
 const chatStore = useChatStore()
 
@@ -288,6 +342,20 @@ const question = ref('')
 const sessionKeyword = ref('')
 const composerActive = ref(false)
 const creating = ref(false)
+
+/** 【增量】敏感词红色提示显隐 */
+const showSensitiveTip = ref(false)
+/** 【增量】敏感词 / 空文本 / 纯空格 → 发送按钮禁用 */
+const sendBlockedBySensitive = ref(true)
+
+/** 【增量】输入实时检测：同步提示与发送阻断状态 */
+function onComposerInput(val) {
+  // Element Plus @input 会传入最新字符串；优先用事件值，避免与 v-model 时序竞态
+  const text = typeof val === 'string' ? val : String(question.value ?? '')
+  const hasSensitive = checkSensitiveText(text)
+  showSensitiveTip.value = hasSensitive
+  sendBlockedBySensitive.value = hasSensitive || !text.trim()
+}
 
 const panelWidth = ref(260)
 const resizing = ref(false)
@@ -376,6 +444,8 @@ const suggestions = [
 
 const canSend = computed(() => {
   if (!hasKb.value || !chatStore.selectedKbId || chatStore.streaming) return false
+  // 【增量】敏感词 / 空内容前置阻断，不发起请求
+  if (sendBlockedBySensitive.value || showSensitiveTip.value) return false
   const check = canSubmitInput(question.value, INPUT_MAX_LENGTH)
   return check.ok
 })
@@ -384,6 +454,9 @@ const sendDisabledTip = computed(() => {
   if (chatStore.streaming) return 'AI 生成中'
   if (!hasKb.value) return '暂无可用知识库'
   if (!chatStore.selectedKbId) return '请先选择知识库'
+  if (showSensitiveTip.value || checkSensitiveText(question.value)) {
+    return '输入内容包含违规词汇，请修改后再发送'
+  }
   const check = canSubmitInput(question.value, INPUT_MAX_LENGTH)
   if (!question.value.trim()) return '请输入问题'
   if (!check.ok) return check.tip
@@ -489,6 +562,14 @@ watch(
     if (kbId) {
       kbStore.setSelectedKb(kbId)
       chatStore.warmupSelectedKb()
+      // 索引配置驱动 Rerank 默认开关（可被用户再改）
+      fetchKbIndexConfig(kbId)
+        .then((cfg) => {
+          if (typeof cfg.enable_rerank === 'boolean') {
+            chatStore.enableRerank = cfg.enable_rerank
+          }
+        })
+        .catch(() => {})
       // 手动切库后按当前库重载会话列表，避免串库会话留在侧栏
       if (!suppressKbSwitchHook.value) {
         chatStore.loadSessions().catch(() => {})
@@ -538,6 +619,16 @@ async function initPage() {
     // 3) 远端会话 + 预热全部后台，不挡首屏
     chatStore.loadSessions().catch(() => {})
     chatStore.warmupSelectedKb()
+    // 首屏 selectedKbId 可能未变化，watch 不触发；主动同步索引配置中的 Rerank 默认值
+    if (chatStore.selectedKbId) {
+      fetchKbIndexConfig(chatStore.selectedKbId)
+        .then((cfg) => {
+          if (typeof cfg.enable_rerank === 'boolean') {
+            chatStore.enableRerank = cfg.enable_rerank
+          }
+        })
+        .catch(() => {})
+    }
   } catch (e) {
     pageError.value = e?.message || e?.msg || '对话页加载失败，请重试'
   } finally {
@@ -641,6 +732,13 @@ function onStopStream() {
 }
 
 async function onSend() {
+  // 【增量】敏感词体验层二次阻断（与按钮 disabled 双保险，非安全兜底），不发起对话请求
+  if (showSensitiveTip.value || checkSensitiveText(question.value)) {
+    showSensitiveTip.value = true
+    sendBlockedBySensitive.value = true
+    ElMessage.warning('输入内容包含违规词汇，请修改后再发送')
+    return
+  }
   if (!canSend.value) {
     ElMessage.warning(sendDisabledTip.value)
     return
@@ -653,11 +751,13 @@ async function onSend() {
   }
   const text = check.dual.raw.trim()
   question.value = ''
+  onComposerInput()
   chatStore.sendQuestion(text).catch(() => {})
 }
 
 function useSuggestion(text) {
   question.value = text
+  onComposerInput()
   onSend()
 }
 
@@ -1036,6 +1136,14 @@ defineExpose({
   margin: 6px 12px 0;
   font-size: 12px;
   color: var(--el-color-warning);
+}
+
+/* 【增量】敏感词红色静态提示 */
+.composer-sensitive-tip {
+  margin: 6px 12px 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--el-color-danger);
 }
 
 .composer-input :deep(.el-textarea) {

@@ -74,7 +74,13 @@ const routes = [
       },
       {
         path: 'chunk-strategy',
-        redirect: '/knowledge-bases'
+        name: 'ChunkStrategy',
+        component: () => import('@/views/ChunkStrategyConfig.vue'),
+        meta: { roles: ['admin'] }
+      },
+      {
+        path: 'split-strategies',
+        redirect: '/chunk-strategy'
       },
       {
         path: 'model-runtime',

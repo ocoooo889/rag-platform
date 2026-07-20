@@ -171,6 +171,10 @@ export async function streamChat(payload, handlers = {}) {
   if (payload.session_id) {
     body.session_id = String(payload.session_id)
   }
+  // 与 ChatRequest.enable_rerank 对齐；undefined 时不传，由服务端默认决定
+  if (typeof payload.enable_rerank === 'boolean') {
+    body.enable_rerank = payload.enable_rerank
+  }
 
   const scenario = MOCK_OPEN() ? matchMockScenario(body.query) : null
   let errorScenario = null

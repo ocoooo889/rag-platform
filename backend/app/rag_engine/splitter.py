@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -114,12 +115,51 @@ class SplitResult:
         return self.embed_texts if self.embed_texts is not None else self.texts
 
 
-def list_split_strategies() -> list[dict[str, str]]:
-    """供前端下拉：[{value,label,desc}, ...]"""
-    return [
-        {"value": key, "label": info["label"], "desc": info["desc"]}
-        for key, info in SPLIT_STRATEGIES.items()
-    ]
+def list_split_strategies() -> list[dict[str, Any]]:
+    """
+    供前端下拉：含 is_default 与推荐块参数（来自服务端 config，禁止前端写死）。
+    兼容字段：value/key、desc/description。
+    """
+    default_key = str(getattr(config, "DEFAULT_SPLIT_STRATEGY", None) or DEFAULT_STRATEGY)
+    if default_key not in SPLIT_STRATEGIES:
+        default_key = DEFAULT_STRATEGY
+
+    chunk_size = int(getattr(config, "CHUNK_SIZE", None) or 500)
+    chunk_overlap = int(getattr(config, "CHUNK_OVERLAP", None) or 50)
+    # 与 kb index-config / 上传校验对齐
+    size_min, size_max = 100, 2000
+
+    items: list[dict[str, Any]] = []
+    for key, info in SPLIT_STRATEGIES.items():
+        row: dict[str, Any] = {
+            "value": key,
+            "key": key,
+            "label": info["label"],
+            "desc": info["desc"],
+            "description": info["desc"],
+            "is_default": key == default_key,
+            "default_chunk_size": chunk_size,
+            "default_chunk_overlap": min(chunk_overlap, max(chunk_size - 1, 0)),
+            "chunk_size_min": size_min,
+            "chunk_size_max": size_max,
+            "chunk_overlap_min": 0,
+        }
+        if key == "parent_child":
+            parent_size = int(os.getenv("PARENT_CHUNK_SIZE", "1500"))
+            parent_ov = int(os.getenv("PARENT_CHUNK_OVERLAP", "100"))
+            row["default_parent_chunk_size"] = parent_size
+            row["default_parent_chunk_overlap"] = parent_ov
+            row["parent_chunk_size_min"] = 300
+            row["parent_chunk_size_max"] = 8000
+        if key == "semantic":
+            row["default_semantic_threshold"] = float(
+                os.getenv("SEMANTIC_SPLIT_THRESHOLD", "0.55")
+            )
+            row["semantic_threshold_min"] = 0.1
+            row["semantic_threshold_max"] = 0.95
+        items.append(row)
+    return items
+
 
 
 def parse_split_options(

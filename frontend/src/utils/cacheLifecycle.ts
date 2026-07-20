@@ -49,6 +49,18 @@ export function clearRequestDebounceCache(): void {
 export async function clearAllFrontendCache(): Promise<void> {
   lsClearFrontendB()
   clearRequestDebounceCache()
+  try {
+    const { clearSplitStrategiesCache } = await import('@/api/splitStrategies')
+    clearSplitStrategiesCache()
+  } catch {
+    /* ignore */
+  }
+  try {
+    const { clearLegacyChunkStrategyCache } = await import('@/utils/localCache')
+    clearLegacyChunkStrategyCache()
+  } catch {
+    /* ignore */
+  }
   await clearAllIndexedDb()
 }
 

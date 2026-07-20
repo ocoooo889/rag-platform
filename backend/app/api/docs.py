@@ -122,6 +122,18 @@ async def get_split_strategies(
     return ResponseModel(data={"items": list_split_strategies()})
 
 
+@router.get("/split-strategies", response_model=ResponseModel)
+async def get_split_strategies_alias(
+    current_user: User = Depends(get_current_user),
+):
+    """
+    切分策略列表别名：GET /api/split-strategies
+    与 /api/documents/split-strategies 同载荷，供前端统一契约。
+    """
+    _ = current_user
+    return ResponseModel(data={"items": list_split_strategies()})
+
+
 @router.post("/knowledge-bases/{kb_id}/documents/upload", response_model=ResponseModel)
 async def upload_document(
     kb_id: str,

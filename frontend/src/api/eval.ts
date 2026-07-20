@@ -37,11 +37,11 @@ const mockTasks: EvalTask[] = [
     params: {
       kb_id: 1,
       kb_name: '演示知识库',
-      embedding_model: 'text-embedding-v4',
-      chunk_size: 500,
-      chunk_overlap: 50,
-      chunk_mode: 'recursive',
-      separators: '\\n## |\\n### |\\n|。|.',
+      embedding_model: 'mock-embedding',
+      chunk_size: Number.NaN,
+      chunk_overlap: Number.NaN,
+      chunk_mode: '',
+      separators: '',
       clean_enabled: true
     }
   }
@@ -290,7 +290,7 @@ export async function uploadEvalDataset(
   const form = new FormData()
   form.append('file', file)
   const res = (await request.post(`/api/eval/tasks/${taskId}/samples/import`, form, {
-    onUploadProgress: (evt) => {
+    onUploadProgress: (evt: { loaded: number; total?: number }) => {
       if (!onProgress || !evt.total) return
       onProgress(Math.round((evt.loaded / evt.total) * 100))
     }
