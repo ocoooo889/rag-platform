@@ -188,11 +188,6 @@
             <span class="menu-label">运行时模型配置</span>
             <span v-if="isAdminOnlyPath('/model-runtime')" class="admin-badge">admin</span>
           </el-menu-item>
-          <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
-            <el-icon><Setting /></el-icon>
-            <span class="menu-label">自定义设置</span>
-            <span v-if="isAdminOnlyPath('/branding')" class="admin-badge">admin</span>
-          </el-menu-item>
           <el-menu-item v-if="canSeeMenu('/knowledge-bases')" index="/knowledge-bases">
             <el-icon><Folder /></el-icon>
             <span class="menu-label">知识库管理</span>
@@ -211,6 +206,11 @@
           <el-menu-item v-if="canSeeMenu('/hit-test')" index="/hit-test">
             <el-icon><Search /></el-icon>
             <span class="menu-label">命中率测试</span>
+          </el-menu-item>
+          <el-menu-item v-if="canSeeMenu('/branding')" index="/branding">
+            <el-icon><Setting /></el-icon>
+            <span class="menu-label">自定义设置</span>
+            <span v-if="isAdminOnlyPath('/branding')" class="admin-badge">admin</span>
           </el-menu-item>
         </el-menu>
         <div v-if="showSidebarStatus" class="aside-status">
