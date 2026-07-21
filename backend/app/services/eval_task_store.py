@@ -16,7 +16,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
-from app.services.rag_eval_service import _retrieve_for_eval, resolve_kb_doc
+from app.services.rag_eval_service import _retrieve_for_eval, resolve_eval_scope
 from app.utils.ids import new_id
 
 logger = logging.getLogger(__name__)
@@ -55,6 +55,16 @@ def _progress_view(task: dict[str, Any]) -> dict[str, Any]:
         "progress": int(task.get("progress") or 0),
         "message": task.get("progress_message") or "",
     }
+
+
+def _doc_id_from_params(params: dict[str, Any] | None) -> str | None:
+    if not params:
+        return None
+    raw = params.get("doc_id")
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    return text or None
 
 
 def _kb_id_from_params(params: dict[str, Any] | None) -> str:
@@ -318,20 +328,50 @@ def _token_set(text: str) -> set[str]:
     return {p for p in parts if p}
 
 
-def _overlap_score(expected: str, actual: str) -> float:
+def _overlap_parts(expected: str, actual: str) -> tuple[float, float, float]:
+    """相对 expected 的精确率 / 召回率 / F1（词重叠）。"""
     e = _token_set(expected)
     a = _token_set(actual)
-    if not e:
-        return 0.0
-    if not a:
-        return 0.0
+    if not e or not a:
+        return 0.0, 0.0, 0.0
     inter = len(e & a)
     precision = inter / max(len(a), 1)
     recall = inter / max(len(e), 1)
     if precision + recall <= 0:
-        return 0.0
+        return round(precision, 4), round(recall, 4), 0.0
     f1 = 2 * precision * recall / (precision + recall)
-    return round(f1, 4)
+    return round(precision, 4), round(recall, 4), round(f1, 4)
+
+
+def _overlap_score(expected: str, actual: str) -> float:
+    return _overlap_parts(expected, actual)[2]
+
+
+def _groundedness(answer: str, context: str) -> float:
+    """生成忠实度：回答中的词有多少能在检索上下文中找到（防胡编近似）。"""
+    a = _token_set(answer)
+    c = _token_set(context)
+    if not a:
+        return 0.0
+    if not c:
+        return 0.0
+    return round(len(a & c) / max(len(a), 1), 4)
+
+
+def _harmonic_mean(a: float, b: float) -> float:
+    if a + b <= 0:
+        return 0.0
+    return round(2 * a * b / (a + b), 4)
+
+
+# 对比接口暴露的指标顺序：检索 → 生成 → 端到端
+COMPARE_METRICS: tuple[str, ...] = (
+    "retrieval_score",
+    "retrieval_recall",
+    "generation_score",
+    "faithfulness",
+    "score",
+)
 
 
 async def start_run(task_id: str) -> dict[str, Any]:
@@ -348,6 +388,8 @@ async def start_run(task_id: str) -> dict[str, Any]:
         kb_id = _kb_id_from_params(task.get("params"))
         if not kb_id:
             raise ValueError("任务缺少 params.kb_id")
+        # 启动前校验评测范围（整库或指定文档）
+        resolve_eval_scope(kb_id, _doc_id_from_params(task.get("params")))
         task["_cancel"] = False
         task["status"] = "running"
         task["progress"] = 1
@@ -387,12 +429,12 @@ async def compare_tasks(task_ids: list[str]) -> list[dict[str, Any]]:
             continue
         name = task.get("name") or tid
         if not rows:
-            for metric in ("score", "precision", "recall", "faithfulness"):
+            for metric in COMPARE_METRICS:
                 points.append(
                     {"task_id": tid, "task_name": name, "metric": metric, "value": 0.0}
                 )
             continue
-        for metric in ("score", "precision", "recall", "faithfulness"):
+        for metric in COMPARE_METRICS:
             vals = [float(r.get(metric) or 0) for r in rows]
             avg = round(sum(vals) / max(len(vals), 1), 4)
             points.append(
@@ -409,9 +451,24 @@ async def _run_eval(task_id: str) -> None:
         samples = list(_SAMPLES.get(task_id) or [])
         params = dict(task.get("params") or {})
         kb_id = _kb_id_from_params(params)
+        param_doc_id = _doc_id_from_params(params)
 
     try:
-        _kb, doc_id = resolve_kb_doc(kb_id, None)
+        scope = resolve_eval_scope(kb_id, param_doc_id)
+        _kb = scope["kb_id"]
+        eval_doc_id = scope["doc_id"]
+        scope_label = scope["label"]
+        # 回写到任务 params，前端列表/结果可展示实际评测范围
+        async with _LOCK:
+            t = _TASKS.get(task_id)
+            if t:
+                p = dict(t.get("params") or {})
+                p["eval_scope"] = scope["scope"]
+                p["eval_scope_label"] = scope_label
+                p["doc_id"] = eval_doc_id or ""
+                p["doc_name"] = scope.get("doc_name") or ""
+                t["params"] = p
+                t["progress_message"] = f"评测范围：{scope_label}"
     except Exception as e:  # noqa: BLE001
         async with _LOCK:
             t = _TASKS.get(task_id)
@@ -438,14 +495,16 @@ async def _run_eval(task_id: str) -> None:
                     return
                 pct = max(1, int((i / total) * 100))
                 t["progress"] = min(99, pct)
-                t["progress_message"] = f"评测进行中 {pct}%（{i + 1}/{total}）"
+                t["progress_message"] = (
+                    f"评测中 {pct}%（{i + 1}/{total} · {scope_label}）"
+                )
 
             question = sample.get("question") or ""
             expected = sample.get("expected_answer") or ""
             try:
                 hits, meta = await _retrieve_for_eval(
                     kb_id=_kb,
-                    doc_id=doc_id,
+                    doc_id=eval_doc_id,
                     query=question,
                     search_type=search_type,
                     top_n=3,
@@ -454,14 +513,34 @@ async def _run_eval(task_id: str) -> None:
                 hits, meta = [], {"fallback": str(e)}
 
             joined = "\n".join(str(h.get("content") or "") for h in (hits or []))
-            # 无 LLM 时用检索拼接作为 answer 近似
-            answer = joined[:800] if joined.strip() else ""
-            score = _overlap_score(expected, answer or joined)
-            e_set, a_set = _token_set(expected), _token_set(answer or joined)
-            inter = len(e_set & a_set)
-            precision = round(inter / max(len(a_set), 1), 4) if a_set else 0.0
-            recall = round(inter / max(len(e_set), 1), 4) if e_set else 0.0
-            faithfulness = round(min(1.0, score + 0.05), 4) if answer else 0.0
+
+            # —— 1) 检索质量：期望答案 ↔ TopK 检索片段 ——
+            retrieval_precision, retrieval_recall, retrieval_score = _overlap_parts(
+                expected, joined
+            )
+
+            # —— 2) 生成质量：期望答案 ↔ LLM 回答；忠实度=回答相对检索上下文 ——
+            answer = ""
+            gen_note = ""
+            try:
+                from app.rag_engine.generator import generate_answer
+
+                if hits:
+                    answer = (await generate_answer(hits, question) or "").strip()
+                else:
+                    gen_note = "无检索命中，跳过生成"
+            except Exception as e:  # noqa: BLE001
+                gen_note = f"生成失败: {e}"
+                logger.warning("评测生成失败 task=%s: %s", task_id, e)
+
+            generation_precision, generation_recall, generation_score = _overlap_parts(
+                expected, answer
+            )
+            faithfulness = _groundedness(answer, joined) if answer else 0.0
+
+            # —— 3) 端到端：检索分与生成分的调和平均 ——
+            score = _harmonic_mean(retrieval_score, generation_score)
+
             degraded = (meta or {}).get("fallback") in ("bm25",) or str(
                 (meta or {}).get("effective_search_type") or ""
             ).endswith("bm25")
@@ -476,19 +555,46 @@ async def _run_eval(task_id: str) -> None:
                 }
                 for h in (hits or [])[:3]
             ]
+
+            if score >= 0.5:
+                detail = "端到端表现较好"
+            elif retrieval_score < 0.35 and generation_score < 0.35:
+                detail = "检索与生成均偏弱"
+            elif retrieval_score < 0.35:
+                detail = "检索偏弱（期望要点未进片段）"
+            elif generation_score < 0.35:
+                detail = "生成偏弱（回答未覆盖期望）" + (f"；{gen_note}" if gen_note else "")
+            else:
+                detail = "部分命中期望要点"
+            if gen_note and "生成偏弱" not in detail:
+                detail = f"{detail}；{gen_note}"
+
             rows_out.append(
                 {
                     "sample_id": sample.get("id"),
                     "question": question,
                     "answer": answer,
                     "expected_answer": expected,
+                    # 端到端
                     "score": score,
-                    "precision": precision,
-                    "recall": recall,
+                    # 检索（并保留旧字段别名，兼容旧前端）
+                    "retrieval_score": retrieval_score,
+                    "retrieval_precision": retrieval_precision,
+                    "retrieval_recall": retrieval_recall,
+                    "precision": retrieval_precision,
+                    "recall": retrieval_recall,
+                    # 生成
+                    "generation_score": generation_score,
+                    "generation_precision": generation_precision,
+                    "generation_recall": generation_recall,
                     "faithfulness": faithfulness,
-                    "detail": "命中期望关键词" if score >= 0.5 else "部分/未命中期望要点",
+                    "detail": detail,
                     "retrieval_mode": mode,
                     "retrieval_degraded": bool(degraded),
+                    "eval_scope": scope["scope"],
+                    "eval_scope_label": scope_label,
+                    "eval_doc_id": eval_doc_id or "",
+                    "eval_doc_name": scope.get("doc_name") or "",
                     "sources": sources,
                 }
             )

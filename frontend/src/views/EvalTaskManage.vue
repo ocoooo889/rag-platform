@@ -36,6 +36,7 @@
             <div class="params-cell">
               <span>{{ row.params?.kb_name || row.params?.kb_id || '—' }}</span>
               <span class="muted">{{ row.params?.embedding_model || '—' }}</span>
+              <span class="muted">{{ evalScopeText(row) }}</span>
             </div>
           </template>
         </el-table-column>
@@ -112,7 +113,9 @@
         <div class="panel-head">
           <div class="panel-head__text">
             <div class="panel-title">多任务指标对比</div>
-            <p class="panel-sub">已选 {{ compareIds.length }} 个任务 · 指标范围 0～1，越高越好</p>
+            <p class="panel-sub">
+              已选 {{ compareIds.length }} 个任务 · 口径：检索质量 → 生成质量 → 端到端（0～1，越高越好）
+            </p>
           </div>
           <el-button type="primary" :loading="compareLoading" @click="runCompare">
             生成对比
@@ -127,7 +130,14 @@
         <div v-if="compareTable.length" class="compare-body">
           <div ref="lineChartRef" class="chart chart--compare" />
           <el-table :data="compareTable" size="small" class="compare-table table-cols-auto" stripe>
-            <el-table-column label="指标" min-width="110">
+            <el-table-column label="阶段" width="88" align="center">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain" :type="stageTagType(row.stage)">
+                  {{ row.stageLabel }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="指标" min-width="120">
               <template #default="{ row }">
                 <span class="metric-cell">
                   <span class="metric-cell__cn">{{ metricCn(row.metric) }}</span>
@@ -148,19 +158,30 @@
         <div v-else class="compare-empty muted">点击右上角「生成对比」查看图表与数值</div>
 
         <el-collapse v-model="metricGuideOpen" class="metric-collapse">
-          <el-collapse-item title="指标说明（点击展开）" name="guide">
-            <div class="metric-list">
-              <div v-for="item in METRIC_GUIDE" :key="item.key" class="metric-list__row">
-                <div class="metric-list__label">
-                  <span class="metric-list__cn">{{ item.label }}</span>
-                  <code>{{ item.key }}</code>
+          <el-collapse-item title="三阶段指标说明（点击展开）" name="guide">
+            <div class="stage-guide">
+              <div v-for="stage in METRIC_STAGES" :key="stage.key" class="stage-guide__block">
+                <div class="stage-guide__head">
+                  <span class="stage-guide__idx">{{ stage.order }}</span>
+                  <div>
+                    <div class="stage-guide__title">{{ stage.title }}</div>
+                    <p class="stage-guide__sub">{{ stage.subtitle }}</p>
+                  </div>
                 </div>
-                <p class="metric-list__desc">{{ item.desc }}</p>
-                <p class="metric-list__tip">{{ item.tip }}</p>
+                <div class="metric-list metric-list--stage">
+                  <div v-for="item in stage.metrics" :key="item.key" class="metric-list__row">
+                    <div class="metric-list__label">
+                      <span class="metric-list__cn">{{ item.label }}</span>
+                      <code>{{ item.key }}</code>
+                    </div>
+                    <p class="metric-list__desc">{{ item.desc }}</p>
+                    <p class="metric-list__tip">{{ item.tip }}</p>
+                  </div>
+                </div>
               </div>
             </div>
             <p class="metric-foot muted">
-              计算口径：样本「期望答案」与检索/回答文本的词重叠估算，便于任务间相对对比。
+              口径：检索=期望答案↔命中片段；生成=期望答案↔模型回答；忠实度=回答词落在检索上下文比例；端到端=检索分与生成分调和平均。
             </p>
           </el-collapse-item>
         </el-collapse>
@@ -195,6 +216,28 @@
               :value="kb.id"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item label="评测文档">
+          <el-select
+            v-model="createForm.doc_id"
+            filterable
+            clearable
+            placeholder="默认：整库检索（推荐）"
+            style="width: 100%"
+            :loading="docsLoading"
+            :disabled="!createForm.kb_id"
+          >
+            <el-option label="整库检索（推荐，避免样本与单篇文档错配）" value="" />
+            <el-option
+              v-for="doc in createDocOptions"
+              :key="doc.id"
+              :label="`${doc.filename}（${doc.status}）`"
+              :value="doc.id"
+            />
+          </el-select>
+          <p class="hint mt8">
+            信息安全样本请选「整库」或对应制度文档；测 pdf2 备件表时再指定单文档。
+          </p>
         </el-form-item>
         <el-form-item label="向量模型">
           <el-select
@@ -353,6 +396,7 @@
     >
       <div v-if="resultTask?.params" class="result-params muted mb12">
         知识库 {{ resultTask.params.kb_name || resultTask.params.kb_id }} ·
+        {{ evalScopeText(resultTask) }} ·
         {{ resultTask.params.embedding_model }} ·
         切分 {{ resultTask.params.chunk_size }}/{{ resultTask.params.chunk_overlap }}
       </div>
@@ -361,17 +405,17 @@
 
       <el-table :data="resultRows" max-height="280" class="mt12" @row-click="openDetail">
         <el-table-column prop="question" label="问题" min-width="160" show-overflow-tooltip />
-        <el-table-column prop="score" label="综合分" width="90">
-          <template #default="{ row }">{{ fmtScore(row.score) }}</template>
+        <el-table-column label="检索分" width="88">
+          <template #default="{ row }">{{ fmtScore(row.retrieval_score ?? row.score) }}</template>
         </el-table-column>
-        <el-table-column prop="precision" label="精确率" width="90">
-          <template #default="{ row }">{{ fmtScore(row.precision) }}</template>
+        <el-table-column label="生成分" width="88">
+          <template #default="{ row }">{{ fmtScore(row.generation_score) }}</template>
         </el-table-column>
-        <el-table-column prop="recall" label="召回率" width="90">
-          <template #default="{ row }">{{ fmtScore(row.recall) }}</template>
-        </el-table-column>
-        <el-table-column prop="faithfulness" label="忠实度" width="90">
+        <el-table-column label="忠实度" width="88">
           <template #default="{ row }">{{ fmtScore(row.faithfulness) }}</template>
+        </el-table-column>
+        <el-table-column label="端到端" width="88">
+          <template #default="{ row }">{{ fmtScore(row.score) }}</template>
         </el-table-column>
         <el-table-column label="检索" width="130">
           <template #default="{ row }">
@@ -400,7 +444,7 @@
           </template>
         </el-table-column>
       </el-table>
-      <p class="hint mt12">点击行可查看单条问答详情、参考片段与降级标识</p>
+      <p class="hint mt12">口径：检索→生成→端到端；点击行可查看问答详情与参考片段</p>
     </el-dialog>
 
     <!-- 单条问答详情 -->
@@ -419,12 +463,13 @@
           <div class="detail-body">{{ detailRow.answer || '—' }}</div>
         </div>
         <div class="detail-block">
-          <div class="detail-label">指标</div>
+          <div class="detail-label">指标（检索 → 生成 → 端到端）</div>
           <div class="detail-metrics">
-            <span>综合 {{ fmtScore(detailRow.score) }}</span>
-            <span>精确 {{ fmtScore(detailRow.precision) }}</span>
-            <span>召回 {{ fmtScore(detailRow.recall) }}</span>
+            <span>检索 {{ fmtScore(detailRow.retrieval_score ?? detailRow.score) }}</span>
+            <span>召回 {{ fmtScore(detailRow.retrieval_recall ?? detailRow.recall) }}</span>
+            <span>生成 {{ fmtScore(detailRow.generation_score) }}</span>
             <span>忠实 {{ fmtScore(detailRow.faithfulness) }}</span>
+            <span>端到端 {{ fmtScore(detailRow.score) }}</span>
           </div>
         </div>
         <div class="detail-block">
@@ -491,6 +536,7 @@ import {
   uploadEvalDataset
 } from '@/api/eval'
 import { fetchKbIndexConfig } from '@/api/kbIndex'
+import { fetchDocuments } from '@/api/doc'
 import EvalDatasetUploader from '@/components/EvalDatasetUploader.vue'
 import { useKbStore } from '@/stores/kb'
 import { canSubmitInput, INPUT_MAX_LENGTH, processUserInput } from '@/utils/inputFilter'
@@ -547,8 +593,10 @@ const uploadProgress = ref(0)
 const uploaderReset = ref(0)
 const datasetFile = ref<File | null>(null)
 const kbLoading = ref(false)
+const docsLoading = ref(false)
 const modelsLoading = ref(false)
 const embeddingModels = ref<string[]>([])
+const createDocOptions = ref<{ id: string; filename: string; status: string }[]>([])
 const kbList = computed(() => (kbStore.list || []) as Array<{ id: string | number; name: string }>)
 
 const {
@@ -570,6 +618,8 @@ const chunkSizeMax = computed(
 const createForm = reactive({
   name: '',
   kb_id: null as string | number | null,
+  /** 空字符串 = 整库检索 */
+  doc_id: '' as string,
   embedding_model: '',
   chunk_size: Number.NaN as number,
   chunk_overlap: Number.NaN as number,
@@ -632,57 +682,132 @@ const compareTaskCols = computed(() =>
   Array.from(new Set(comparePoints.value.map((p) => p.task_name)))
 )
 
+/** 对比图/表固定顺序：检索 → 生成 → 端到端 */
+const COMPARE_METRIC_ORDER = [
+  'retrieval_score',
+  'retrieval_recall',
+  'generation_score',
+  'faithfulness',
+  'score'
+] as const
+
+const METRIC_STAGE_META: Record<string, { stage: string; stageLabel: string }> = {
+  retrieval_score: { stage: 'retrieval', stageLabel: '检索' },
+  retrieval_recall: { stage: 'retrieval', stageLabel: '检索' },
+  retrieval_precision: { stage: 'retrieval', stageLabel: '检索' },
+  precision: { stage: 'retrieval', stageLabel: '检索' },
+  recall: { stage: 'retrieval', stageLabel: '检索' },
+  generation_score: { stage: 'generation', stageLabel: '生成' },
+  faithfulness: { stage: 'generation', stageLabel: '生成' },
+  score: { stage: 'e2e', stageLabel: '端到端' }
+}
+
 const compareTable = computed(() => {
-  const metrics = Array.from(new Set(comparePoints.value.map((p) => p.metric)))
-  return metrics.map((metric) => {
-    const row: Record<string, string | number> = { metric }
+  const present = new Set(comparePoints.value.map((p) => p.metric))
+  const metrics = COMPARE_METRIC_ORDER.filter((m) => present.has(m))
+  // 旧任务只有 score/precision/recall/faithfulness 时回退
+  const fallback =
+    metrics.length > 0
+      ? metrics
+      : Array.from(present).filter((m) =>
+          ['score', 'precision', 'recall', 'faithfulness'].includes(m)
+        )
+  return fallback.map((metric) => {
+    const meta = METRIC_STAGE_META[metric] || { stage: 'e2e', stageLabel: '其他' }
+    const row: Record<string, string | number> = {
+      metric,
+      stage: meta.stage,
+      stageLabel: meta.stageLabel
+    }
     for (const name of compareTaskCols.value) {
       const hit = comparePoints.value.find((p) => p.task_name === name && p.metric === metric)
-      // value 可能是 number 或字符串，统一转数字后再格式化
       row[name] = hit ? Number(Number(hit.value).toFixed(3)) : '—'
     }
     return row
   })
 })
 
-/** 四项指标的静态说明（与后端词重叠计算口径对齐） */
-const METRIC_GUIDE = [
+/** 三阶段指标说明 */
+const METRIC_STAGES = [
   {
-    key: 'score',
-    label: '综合分',
-    desc: '精确率与召回率的调和平均（F1），综合衡量「找得全」和「找得准」。',
-    tip: '优先看这个；低于 0.4 通常说明期望答案与实际文本重合不足。'
+    key: 'retrieval',
+    order: '1',
+    title: '检索质量',
+    subtitle: '期望答案 ↔ TopK 命中片段（不含 LLM）',
+    metrics: [
+      {
+        key: 'retrieval_score',
+        label: '检索综合分',
+        desc: '期望要点与检索片段的 F1，衡量「片段里有没有该有的信息」。',
+        tip: '偏低优先查切分、向量/混合检索、Rerank，而不是怪生成模型。'
+      },
+      {
+        key: 'retrieval_recall',
+        label: '检索召回',
+        desc: '期望答案中的词，有多少出现在检索片段里。',
+        tip: '召回低说明相关段落没被找回来。'
+      }
+    ]
   },
   {
-    key: 'precision',
-    label: '精确率',
-    desc: '实际命中词里，有多少落在期望答案中。偏高表示答案更「干净」、少废话。',
-    tip: '过低常见于回答过长、掺入大量无关词，或检索片段噪声大。'
+    key: 'generation',
+    order: '2',
+    title: '生成质量',
+    subtitle: '期望答案 ↔ 模型回答；忠实度看是否贴检索上下文',
+    metrics: [
+      {
+        key: 'generation_score',
+        label: '生成综合分',
+        desc: '期望要点与模型回答的 F1，衡量「答得全不全、准不准」。',
+        tip: '检索分高但生成分低：提示词或模型未把片段写成答案。'
+      },
+      {
+        key: 'faithfulness',
+        label: '忠实度',
+        desc: '回答中的词有多少能在检索上下文中找到，近似衡量是否胡编。',
+        tip: '忠实度低而生成分高：可能在背训练知识，而非依据知识库。'
+      }
+    ]
   },
   {
-    key: 'recall',
-    label: '召回率',
-    desc: '期望答案里的词，有多少被实际文本覆盖到。偏高表示要点覆盖更全。',
-    tip: '单独很高、精确率却很低时，多半是「覆盖到了但混进很多杂质」。'
-  },
-  {
-    key: 'faithfulness',
-    label: '忠实度',
-    desc: '当前实现为基于综合分的近似估计，反映回答相对期望要点的贴近程度。',
-    tip: '用于辅助观察；与学术 RAG 忠实度不完全等同，对比任务时看相对高低即可。'
+    key: 'e2e',
+    order: '3',
+    title: '端到端质量',
+    subtitle: '检索分与生成分的调和平均',
+    metrics: [
+      {
+        key: 'score',
+        label: '端到端综合分',
+        desc: '同时要求检索与生成都不差；一项很低会显著拉低总分。',
+        tip: '比赛对比优先看这一列，再下钻是检索问题还是生成问题。'
+      }
+    ]
   }
 ] as const
 
 const METRIC_CN: Record<string, string> = {
-  score: '综合分',
-  precision: '精确率',
-  recall: '召回率',
-  faithfulness: '忠实度'
+  score: '端到端综合分',
+  retrieval_score: '检索综合分',
+  retrieval_recall: '检索召回',
+  retrieval_precision: '检索精确率',
+  generation_score: '生成综合分',
+  generation_precision: '生成精确率',
+  generation_recall: '生成召回',
+  faithfulness: '忠实度',
+  precision: '检索精确率',
+  recall: '检索召回'
 }
 
 function metricCn(key: unknown): string {
   const k = String(key || '')
   return METRIC_CN[k] || k
+}
+
+function stageTagType(stage: unknown): '' | 'success' | 'warning' | 'info' | 'danger' {
+  if (stage === 'retrieval') return 'info'
+  if (stage === 'generation') return 'warning'
+  if (stage === 'e2e') return 'success'
+  return ''
 }
 
 /** 根据当前对比数值生成一句可读结论 */
@@ -696,30 +821,34 @@ const compareInsight = computed(() => {
     if (!vals.length) return null
     return vals.reduce((a, b) => a + b, 0) / vals.length
   }
-  const score = avg('score')
-  const precision = avg('precision')
-  const recall = avg('recall')
-  if (score == null || precision == null || recall == null) return null
+  const e2e = avg('score')
+  const retrieval = avg('retrieval_score') ?? avg('recall')
+  const generation = avg('generation_score')
+  const faith = avg('faithfulness')
+  if (e2e == null) return null
 
   let title = '本轮对比结论'
   let detail = ''
-  if (recall >= 0.8 && precision < 0.35) {
-    title = '召回高、精确率偏低'
-    detail =
-      '期望要点大多被覆盖到了，但答案或检索文本里无关词偏多，把精确率和综合分拉低。可尝试：收紧期望答案关键词、提高检索质量（向量/混合、开启 Rerank）、或检查切分是否过碎/过噪。'
-  } else if (precision >= 0.6 && recall < 0.4) {
-    title = '精确率尚可、召回不足'
-    detail =
-      '命中的词比较准，但期望答案里不少要点没命中。可检查样本期望是否写得过细，或检索/生成是否漏掉关键句。'
-  } else if (score >= 0.6) {
-    title = '整体表现较好'
-    detail = `综合分约 ${score.toFixed(2)}，精确率 ${precision.toFixed(2)}、召回率 ${recall.toFixed(2)}。可继续用多任务对比验证切分或模型改动是否带来提升。`
-  } else if (score < 0.35) {
-    title = '整体偏低，建议先排查样本与检索'
-    detail = `综合分约 ${score.toFixed(2)}。常见原因：期望答案与文档用语不一致、知识库未向量化完成、或检索降级为关键词导致语义问句命中差。建议先用命中测试单条验证，再重跑评测。`
+  if (retrieval != null && generation != null && retrieval < 0.35 && generation >= 0.45) {
+    title = '生成尚可，检索偏弱'
+    detail = `检索分约 ${retrieval.toFixed(2)}、生成分约 ${generation.toFixed(2)}。建议先优化切分/检索/Rerank，再谈提示词。`
+  } else if (retrieval != null && generation != null && retrieval >= 0.5 && generation < 0.35) {
+    title = '检索尚可，生成偏弱'
+    detail = `检索分约 ${retrieval.toFixed(2)}、生成分约 ${generation.toFixed(2)}。片段里已有要点，但回答未写全；可检查生成模型与提示词。`
+  } else if (faith != null && faith < 0.4 && (generation ?? 0) >= 0.45) {
+    title = '回答可能未贴检索上下文'
+    detail = `忠实度约 ${faith.toFixed(2)}。生成分不低但上下文重合少，注意是否在「背答案」而非依据知识库。`
+  } else if (e2e >= 0.6) {
+    title = '端到端表现较好'
+    detail = `端到端约 ${e2e.toFixed(2)}` +
+      (retrieval != null ? `（检索 ${retrieval.toFixed(2)}` : '') +
+      (generation != null ? ` / 生成 ${generation.toFixed(2)}）` : retrieval != null ? '）' : '。')
+  } else if (e2e < 0.35) {
+    title = '端到端偏低，建议先拆检索与生成'
+    detail = `端到端约 ${e2e.toFixed(2)}。先看检索分是否覆盖期望要点，再看生成是否把片段写成答案。`
   } else {
     title = '中等水平，仍有优化空间'
-    detail = `综合分约 ${score.toFixed(2)}（精确率 ${precision.toFixed(2)} / 召回 ${recall.toFixed(2)}）。可对比不同切分参数或是否开启 Rerank，观察四项指标是否同步上升。`
+    detail = `端到端约 ${e2e.toFixed(2)}。可用多任务对比切分参数或是否开启 Rerank，观察三阶段是否同步上升。`
   }
   return { title, detail }
 })
@@ -835,7 +964,45 @@ async function loadKbAndModels() {
   }
 }
 
+async function loadDocsForKb(kbId: string | number | null | undefined) {
+  createDocOptions.value = []
+  if (kbId == null || kbId === '') return
+  docsLoading.value = true
+  try {
+    const res = await fetchDocuments({ kb_id: kbId, page: 1, page_size: 200 })
+    const items = res?.data?.items || []
+    createDocOptions.value = items
+      .filter((d: { status?: string }) =>
+        ['completed', 'degraded'].includes(String(d.status || ''))
+      )
+      .map((d: { id: string | number; filename?: string; status?: string }) => ({
+        id: String(d.id),
+        filename: String(d.filename || d.id),
+        status: String(d.status || '')
+      }))
+  } catch {
+    createDocOptions.value = []
+    ElMessage.warning('拉取知识库文档列表失败，仍可使用整库评测')
+  } finally {
+    docsLoading.value = false
+  }
+}
+
+function evalScopeText(row: EvalTask | null | undefined): string {
+  if (!row?.params) return '评测范围未记录'
+  const p = row.params
+  if (p.eval_scope_label) return String(p.eval_scope_label)
+  // 仅当明确指定了非空 doc_id 时视为单文档；空串表示整库
+  const docId = p.doc_id != null ? String(p.doc_id).trim() : ''
+  if (docId) return `单文档 · ${p.doc_name || docId}`
+  if (p.eval_scope === 'knowledge_base' || p.eval_scope === 'document') {
+    return p.eval_scope === 'document' ? `单文档 · ${p.doc_name || '未命名'}` : '整库检索'
+  }
+  return '整库检索（默认）'
+}
+
 async function onKbChange(kbId: string | number) {
+  createForm.doc_id = ''
   const kb = kbList.value.find((k) => String(k.id) === String(kbId))
   try {
     const config = await fetchKbIndexConfig(kbId)
@@ -851,15 +1018,18 @@ async function onKbChange(kbId: string | number) {
   if (kb && !createForm.name) {
     createForm.name = `${kb.name}-评测`
   }
+  await loadDocsForKb(kbId)
 }
 
 function openCreate() {
   createForm.name = ''
   createForm.kb_id = kbStore.selectedKbId ?? null
+  createForm.doc_id = ''
   createForm.rule_json = ''
   datasetFile.value = null
   uploadProgress.value = 0
   uploaderReset.value += 1
+  createDocOptions.value = []
   if (createForm.kb_id != null) onKbChange(createForm.kb_id)
   else {
     applySplitDefaults()
@@ -950,6 +1120,7 @@ async function submitCreate() {
   }
 
   const kb = kbList.value.find((k) => String(k.id) === String(createForm.kb_id))
+  const selectedDoc = createDocOptions.value.find((d) => d.id === String(createForm.doc_id || ''))
   const taskName = check.dual.raw.trim()
 
   creating.value = true
@@ -966,6 +1137,12 @@ async function submitCreate() {
       params: {
         kb_id: createForm.kb_id,
         kb_name: kb?.name,
+        doc_id: createForm.doc_id || '',
+        doc_name: selectedDoc?.filename || '',
+        eval_scope: createForm.doc_id ? 'document' : 'knowledge_base',
+        eval_scope_label: createForm.doc_id
+          ? `单文档 · ${selectedDoc?.filename || createForm.doc_id}`
+          : '整库检索',
         embedding_model: createForm.embedding_model,
         chunk_size: createForm.chunk_size,
         chunk_overlap: createForm.chunk_overlap,
@@ -1215,14 +1392,14 @@ function renderScoreChart() {
   if (!scoreChart) return
   const labels = resultRows.value.map((r, i) => `#${i + 1}`)
   scoreChart.setOption({
-    title: { text: '样本综合得分折线', left: 'center', textStyle: { fontSize: 13 } },
+    title: { text: '样本端到端得分折线', left: 'center', textStyle: { fontSize: 13 } },
     tooltip: { trigger: 'axis' },
     grid: { left: 40, right: 20, top: 40, bottom: 30 },
     xAxis: { type: 'category', data: labels },
     yAxis: { type: 'value', min: 0, max: 1 },
     series: [
       {
-        name: 'score',
+        name: '端到端',
         type: 'line',
         smooth: true,
         data: resultRows.value.map((r) => Number(r.score) || 0),
@@ -1274,9 +1451,14 @@ async function runCompare() {
     lineChart = ensureChart(lineChart, lineChartRef.value)
     if (!lineChart) return
 
-    const metrics = Array.from(new Set(comparePoints.value.map((p) => p.metric)))
+    const present = new Set(comparePoints.value.map((p) => p.metric))
+    const metrics = COMPARE_METRIC_ORDER.filter((m) => present.has(m))
+    const ordered =
+      metrics.length > 0
+        ? [...metrics]
+        : Array.from(present)
     const names = Array.from(new Set(comparePoints.value.map((p) => p.task_name)))
-    const metricLabels = metrics.map((m) => METRIC_CN[m] || m)
+    const metricLabels = ordered.map((m) => METRIC_CN[m] || m)
     const isDark = document.documentElement.classList.contains('admin-theme')
       && document.documentElement.getAttribute('data-color-mode') !== 'light'
     const axisColor = isDark ? 'rgba(210,210,215,0.72)' : '#64748b'
@@ -1285,7 +1467,7 @@ async function runCompare() {
       {
         color: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'],
         title: {
-          text: '指标对比',
+          text: '三阶段指标对比',
           left: 'center',
           textStyle: { fontSize: 13, fontWeight: 600, color: axisColor }
         },
@@ -1301,7 +1483,7 @@ async function runCompare() {
         xAxis: {
           type: 'category',
           data: metricLabels,
-          axisLabel: { color: axisColor, fontSize: 12 },
+          axisLabel: { color: axisColor, fontSize: 11, rotate: ordered.length > 4 ? 20 : 0 },
           axisLine: { lineStyle: { color: splitColor } }
         },
         yAxis: {
@@ -1318,7 +1500,7 @@ async function runCompare() {
           symbol: 'circle',
           symbolSize: 8,
           lineStyle: { width: 2.5 },
-          data: metrics.map((m) => {
+          data: ordered.map((m) => {
             const hit = comparePoints.value.find((p) => p.task_name === name && p.metric === m)
             return hit ? Number(Number(hit.value).toFixed(3)) : 0
           })
@@ -1505,6 +1687,49 @@ onBeforeUnmount(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 16px;
 }
+.metric-list--stage {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 8px;
+}
+.stage-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.stage-guide__block {
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--glass-border, #ccc) 70%, transparent);
+  background: color-mix(in srgb, var(--el-color-primary) 4%, transparent);
+}
+.stage-guide__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+.stage-guide__idx {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--el-color-primary);
+  background: color-mix(in srgb, var(--el-color-primary) 16%, transparent);
+}
+.stage-guide__title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.stage-guide__sub {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--admin-text-muted, #909399);
+}
 .metric-list__row {
   padding: 12px 14px;
   border-radius: 10px;
@@ -1568,6 +1793,9 @@ onBeforeUnmount(() => {
     height: 240px;
   }
   .metric-list {
+    grid-template-columns: 1fr;
+  }
+  .metric-list--stage {
     grid-template-columns: 1fr;
   }
 }

@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from app.db.sqlite_helper import get_conn, get_document, kb_exists, load_chunks_by_doc
+from app.db.sqlite_helper import get_conn, get_document, kb_exists, load_chunks_by_doc, load_chunks_by_kb
 from app.rag_engine.rag_pipeline import RAGPipeline
 
 # 黄金集：问句 + 命中判定关键词
@@ -43,7 +43,11 @@ def _hits_ok(hits: list[dict], keywords: list[str]) -> str:
 
 
 def resolve_kb_doc(kb_id: str | None, doc_id: str | None) -> tuple[str, str]:
-    """解析评测目标 kb/doc；未指定时自动挑选首个 completed 文档。"""
+    """
+    解析评测目标 kb/doc（强制落到某一文档）。
+    注意：任务评测请优先用 resolve_eval_scope；本函数保留给黄金集等「指定单文档」场景。
+    未指定 doc_id 时自动挑选最新 completed 文档。
+    """
     if kb_id and doc_id:
         doc = get_document(doc_id)
         if not doc or doc["kb_id"] != kb_id:
@@ -67,28 +71,89 @@ def resolve_kb_doc(kb_id: str | None, doc_id: str | None) -> tuple[str, str]:
             return kb_id, str(row["id"])
         raise ValueError("该知识库下无 completed 文档")
 
-    # 遍历所有 KB（由调用方保证权限后传入 kb_id 更常见）
     raise ValueError("请指定 kb_id（及可选 doc_id）")
+
+
+def resolve_eval_scope(kb_id: str | None, doc_id: str | None) -> dict[str, Any]:
+    """
+    任务评测范围：
+    - 未传 doc_id → 整库（所有 completed/degraded 文档的切片）
+    - 传了 doc_id → 仅该文档
+    返回 {kb_id, doc_id|None, scope, doc_name, label}
+    """
+    if not kb_id:
+        raise ValueError("请指定 kb_id")
+    if not kb_exists(kb_id):
+        raise ValueError("知识库不存在")
+
+    raw_doc = (doc_id or "").strip() or None
+    if raw_doc:
+        doc = get_document(raw_doc)
+        if not doc or str(doc["kb_id"]) != str(kb_id):
+            raise ValueError("文档不存在或不属于该知识库")
+        status = str(doc["status"] or "")
+        if status not in ("completed", "degraded"):
+            raise ValueError(f"文档状态为 {status}，需 completed/degraded 后再评测")
+        name = str(doc["filename"] or raw_doc)
+        return {
+            "kb_id": str(kb_id),
+            "doc_id": raw_doc,
+            "scope": "document",
+            "doc_name": name,
+            "label": f"单文档 · {name}",
+        }
+
+    with get_conn() as conn:
+        n = conn.execute(
+            """
+            SELECT COUNT(1) AS c FROM documents
+            WHERE kb_id=? AND status IN ('completed', 'degraded')
+            """,
+            (kb_id,),
+        ).fetchone()
+        count = int(n["c"] if n else 0)
+    if count <= 0:
+        raise ValueError("该知识库下无可用文档（需 completed/degraded）")
+
+    return {
+        "kb_id": str(kb_id),
+        "doc_id": None,
+        "scope": "knowledge_base",
+        "doc_name": "",
+        "label": f"整库 · {count} 篇文档",
+    }
 
 
 async def _retrieve_for_eval(
     *,
     kb_id: str,
-    doc_id: str,
+    doc_id: str | None,
     query: str,
     search_type: str,
     top_n: int,
 ) -> tuple[list[dict], dict[str, Any]]:
-    rows = load_chunks_by_doc(doc_id)
-    if not rows:
-        return [], {"search_type": search_type, "hits_count": 0}
-
-    texts = [r["content"] for r in rows]
-    ids = [r["chroma_id"] or r["id"] for r in rows]
-    doc = get_document(doc_id)
-    filename = str(doc["filename"]) if doc else ""
-    source_docs = [filename] * len(rows)
-    doc_ids = [doc_id] * len(rows)
+    """doc_id 为空时按整库切片检索，避免误绑到「最新一篇文档」。"""
+    if doc_id:
+        rows = load_chunks_by_doc(doc_id)
+        if not rows:
+            return [], {"search_type": search_type, "hits_count": 0, "eval_scope": "document"}
+        texts = [r["content"] for r in rows]
+        ids = [r["chroma_id"] or r["id"] for r in rows]
+        doc = get_document(doc_id)
+        filename = str(doc["filename"]) if doc else ""
+        source_docs = [filename] * len(rows)
+        doc_ids = [doc_id] * len(rows)
+        scope = "document"
+    else:
+        rows = load_chunks_by_kb(kb_id)
+        if not rows:
+            return [], {"search_type": search_type, "hits_count": 0, "eval_scope": "knowledge_base"}
+        texts = [r["content"] for r in rows]
+        ids = [r["chroma_id"] or r["id"] for r in rows]
+        source_docs = [str(r["filename"] or "") for r in rows]
+        doc_ids = [str(r["doc_id"] or "") for r in rows]
+        scope = "knowledge_base"
+        doc_id = None
 
     hits, retrieve_meta = await RAGPipeline.retrieve_only(
         query=query,
@@ -101,7 +166,12 @@ async def _retrieve_for_eval(
         source_docs=source_docs,
         doc_ids=doc_ids,
     )
-    meta = {"search_type": search_type, "hits_count": len(hits), **(retrieve_meta or {})}
+    meta = {
+        "search_type": search_type,
+        "hits_count": len(hits),
+        "eval_scope": scope,
+        **(retrieve_meta or {}),
+    }
     return hits, meta
 
 
@@ -119,7 +189,9 @@ async def run_golden_eval(
     if not kb_exists(kb_id):
         raise ValueError("知识库不存在")
 
-    resolved_kb, resolved_doc = resolve_kb_doc(kb_id, doc_id)
+    scope = resolve_eval_scope(kb_id, doc_id)
+    resolved_kb = scope["kb_id"]
+    resolved_doc = scope["doc_id"]
     valid_modes = {"keyword", "vector", "hybrid"}
     run_modes = [m.strip().lower() for m in (modes or ["keyword", "vector", "hybrid"])]
     for m in run_modes:
@@ -159,6 +231,8 @@ async def run_golden_eval(
     summary = {
         "kb_id": resolved_kb,
         "doc_id": resolved_doc,
+        "eval_scope": scope["scope"],
+        "eval_scope_label": scope["label"],
         "top_n": top_n,
         "modes": run_modes,
         "total_questions": len(GOLDEN_QUERIES),

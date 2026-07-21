@@ -179,6 +179,12 @@ export type EvalTaskStatus = 'pending' | 'running' | 'completed' | 'failed'
 export interface EvalRunParams {
   kb_id: string | number
   kb_name?: string
+  /** 空/不传 = 整库检索；指定则只评该文档 */
+  doc_id?: string | number | null
+  doc_name?: string
+  /** knowledge_base | document，运行后由后端回写 */
+  eval_scope?: string
+  eval_scope_label?: string
   /** 必须来自 runtime-config 模型列表，禁止硬编码 */
   embedding_model: string
   chunk_size: number
@@ -226,11 +232,28 @@ export interface EvalMetricRow {
   /** 模型实际回答 */
   answer?: string
   expected_answer?: string
+  /** 端到端综合分（检索分与生成分调和平均） */
   score: number
+  /** @deprecated 兼容旧字段：等同 retrieval_precision */
   precision?: number
+  /** @deprecated 兼容旧字段：等同 retrieval_recall */
   recall?: number
+  /** 检索质量 F1：期望答案 ↔ 检索片段 */
+  retrieval_score?: number
+  retrieval_precision?: number
+  retrieval_recall?: number
+  /** 生成质量 F1：期望答案 ↔ 模型回答 */
+  generation_score?: number
+  generation_precision?: number
+  generation_recall?: number
+  /** 忠实度：回答词落在检索上下文的比例 */
   faithfulness?: number
   detail?: string
+  /** 评测范围：整库 / 单文档 */
+  eval_scope?: string
+  eval_scope_label?: string
+  eval_doc_id?: string
+  eval_doc_name?: string
   /** 检索模式：semantic / keyword / hybrid */
   retrieval_mode?: string
   retrieval_degraded?: boolean
