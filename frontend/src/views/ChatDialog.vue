@@ -288,12 +288,14 @@ import {
 } from '@/utils/inputFilter'
 
 /**
- * 【增量】前端敏感词表（仅直白基础违规词，页面内统一维护）
- * 定位：交互体验缓冲层，不承担安全兜底；谐音/隐晦语义交由后端管线处理。
+ * 【增量】前端敏感词表（直白违规词；与后端 content_moderation 对齐）
+ * 定位：交互体验缓冲层；真正兜底仍靠后端二次校验。
  */
 const sensitiveWords = [
   '傻逼',
   '傻叉',
+  '傻B',
+  '傻b',
   '操你',
   '操你妈',
   '草泥马',
@@ -308,28 +310,64 @@ const sensitiveWords = [
   '婊子',
   '智障',
   '脑残',
+  '蠢猪',
+  '笨猪',
+  '猪狗',
+  '狗东西',
+  '狗日的',
+  '畜生',
+  '废物',
+  '白痴',
+  '蠢材',
+  '蠢货',
+  '一坨屎',
+  '屎',
+  '放屁',
+  '恶心',
+  '找死',
+  '神经病',
+  '疯子',
+  '去死吧',
+  '滚开',
+  '滚吧',
+  'sb',
+  '2b',
+  'cnm',
+  'cnmb',
+  'nmsl',
+  'wdnmd',
+  'tmd',
   'fuck',
   'fucking',
   'shit',
   'bitch',
   'asshole',
   'damn',
-  'bastard'
+  'bastard',
+  'idiot',
+  'stupid'
 ]
 
 /**
  * 【增量】纯同步敏感词检测：true=存在敏感词。
- * 忽略大小写；英文按词边界完整匹配，中文按整词精确出现（不做模糊片段匹配）。
+ * 忽略大小写；英文/数字缩写按词边界；中文子串匹配。
  */
 function checkSensitiveText(text) {
   const raw = String(text ?? '')
   if (!raw.trim()) return false
+  const phraseRes = [
+    /你是一?坨?屎/i,
+    /一坨屎/i,
+    /[你他她]妈的/i,
+    /去死吧?/i
+  ]
+  if (phraseRes.some((re) => re.test(raw))) return true
   return sensitiveWords.some((word) => {
     const w = String(word || '').trim()
     if (!w) return false
     const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-    if (/[a-zA-Z]/.test(w)) {
-      return new RegExp(`\\b${escaped}\\b`, 'i').test(raw)
+    if (/[a-zA-Z0-9]/.test(w)) {
+      return new RegExp(`(?<![a-zA-Z0-9])${escaped}(?![a-zA-Z0-9])`, 'i').test(raw)
     }
     return new RegExp(escaped, 'i').test(raw)
   })

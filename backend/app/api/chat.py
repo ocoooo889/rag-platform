@@ -23,6 +23,7 @@ from app.db.sqlite_helper import (
 )
 from app.rag_engine.memory import default_memory, history_for_prompt
 from app.rag_engine.rag_pipeline import RAGPipeline
+from app.rag_engine.content_moderation import check_user_query
 from app.schema.rag import ChatRequest, ChatSessionUpdate
 from app.utils.auth import get_current_user
 from app.utils.ids import new_id
@@ -34,6 +35,14 @@ from app.utils.response import fail, ok
 router = APIRouter(tags=["智能对话"])
 
 _VALID_SEARCH_TYPES = frozenset({"vector", "keyword", "hybrid"})
+
+
+def _reject_if_sensitive(query: str):
+    """敏感词拦截：命中则返回 fail 响应，否则 None。"""
+    ok_flag, msg = check_user_query(query)
+    if not ok_flag:
+        return fail(400, msg)
+    return None
 
 
 def _now() -> str:
@@ -82,6 +91,10 @@ async def chat_send(
         return fail(400, "缺少必填参数: kb_id")
     if not (req.query or "").strip():
         return fail(400, "缺少必填参数: query")
+
+    sensitive = _reject_if_sensitive(req.query)
+    if sensitive is not None:
+        return sensitive
 
     search_type = _validate_search_type(req.search_type)
     if search_type is None:
@@ -157,6 +170,10 @@ async def chat_stream(
         return fail(400, "缺少必填参数: kb_id")
     if not (req.query or "").strip():
         return fail(400, "缺少必填参数: query")
+
+    sensitive = _reject_if_sensitive(req.query)
+    if sensitive is not None:
+        return sensitive
 
     search_type = _validate_search_type(req.search_type)
     if search_type is None:
