@@ -97,16 +97,49 @@ function normalizeTask(raw: Partial<EvalTask> | null | undefined): EvalTask {
 }
 
 function normalizeMetric(raw: Partial<EvalMetricRow>): EvalMetricRow {
+  const retrievalScore =
+    raw.retrieval_score != null
+      ? Number(raw.retrieval_score)
+      : raw.score != null && raw.generation_score == null
+        ? Number(raw.score)
+        : undefined
+  const retrievalPrecision =
+    raw.retrieval_precision != null
+      ? Number(raw.retrieval_precision)
+      : raw.precision != null
+        ? Number(raw.precision)
+        : undefined
+  const retrievalRecall =
+    raw.retrieval_recall != null
+      ? Number(raw.retrieval_recall)
+      : raw.recall != null
+        ? Number(raw.recall)
+        : undefined
+  const generationScore =
+    raw.generation_score != null ? Number(raw.generation_score) : undefined
+
   return {
     sample_id: String(raw.sample_id || ''),
     question: String(raw.question || ''),
     answer: raw.answer != null ? String(raw.answer) : undefined,
     expected_answer: raw.expected_answer != null ? String(raw.expected_answer) : undefined,
     score: Number(raw.score) || 0,
-    precision: raw.precision != null ? Number(raw.precision) : undefined,
-    recall: raw.recall != null ? Number(raw.recall) : undefined,
+    precision: retrievalPrecision,
+    recall: retrievalRecall,
+    retrieval_score: retrievalScore,
+    retrieval_precision: retrievalPrecision,
+    retrieval_recall: retrievalRecall,
+    generation_score: generationScore,
+    generation_precision:
+      raw.generation_precision != null ? Number(raw.generation_precision) : undefined,
+    generation_recall:
+      raw.generation_recall != null ? Number(raw.generation_recall) : undefined,
     faithfulness: raw.faithfulness != null ? Number(raw.faithfulness) : undefined,
     detail: raw.detail,
+    eval_scope: raw.eval_scope != null ? String(raw.eval_scope) : undefined,
+    eval_scope_label: raw.eval_scope_label != null ? String(raw.eval_scope_label) : undefined,
+    eval_doc_id: raw.eval_doc_id != null ? String(raw.eval_doc_id) : undefined,
+    eval_doc_name: raw.eval_doc_name != null ? String(raw.eval_doc_name) : undefined,
     retrieval_mode: raw.retrieval_mode || (raw.retrieval_degraded ? 'keyword' : 'semantic'),
     retrieval_degraded: !!raw.retrieval_degraded,
     sources: Array.isArray(raw.sources) ? raw.sources : []

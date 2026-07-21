@@ -9,6 +9,7 @@ from app.db.database import get_db
 from app.db.models import User
 from app.db.sqlite_helper import get_document, kb_exists, load_chunks_by_doc
 from app.rag_engine.rag_pipeline import RAGPipeline
+from app.rag_engine.content_moderation import check_user_query
 from app.schema.rag import HitTestRequest
 from app.utils.auth import get_current_user
 from app.utils.permission import require_kb_access
@@ -130,6 +131,10 @@ async def test_retrieve(
         return fail(400, "缺少必填参数: kb_id")
     if not (req.query or "").strip():
         return fail(400, "缺少必填参数: query")
+
+    ok_flag, sens_msg = check_user_query(req.query)
+    if not ok_flag:
+        return fail(400, sens_msg)
 
     target_ids = _resolve_doc_ids(req)
     if not target_ids:
